@@ -1,0 +1,39 @@
+# Node
+node_modules/
+dist/
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Rust 產物
+/src-tauri/target/
+
+# Tauri 產生的 schema 與 gen 檔
+/src-tauri/gen/
+
+# 本地資料（執行時生成）
+/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# 環境變數
+.env
+.env.local
+
+# 本地備份（搬移過的檔案、reference 截圖等）
+backups/

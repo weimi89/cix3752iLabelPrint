@@ -1,0 +1,223 @@
+<script setup>
+import { invoke } from '@tauri-apps/api/core'
+import { printImage } from '@/api/tauri'
+import AppHeader from '@/components/AppHeader.vue'
+
+const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
+
+const printerMap = computed(() => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+  } catch {
+    return {}
+  }
+})
+
+const PRINT_TYPE_OPTIONS = [
+  { value: '7', title: '7-ELEVEN' },
+  { value: 'F', title: '全家' },
+  { value: 'O', title: '萊爾富' },
+  { value: 'C', title: '黑貓' },
+  { value: 'H', title: '新竹' },
+  { value: 'P', title: '宅配通' },
+  { value: 'E', title: '順豐速運' },
+  { value: 'S', title: '蝦皮（離線）' },
+  { value: 'A', title: '蝦皮（授權）' },
+]
+
+const form = reactive({
+  shipment_no: '',
+  order_sn: '',
+  package_sn: '',
+  print_type: '7',
+  scanner_user: '',
+  sticker_user: '',
+  enforce: false,
+})
+
+const packageOrders = ref([])
+const errorMsg = ref('')
+const shipmentNoRef = ref(null)
+const orderSnRef = ref(null)
+
+// 包裹條碼掃描 → 取訂單清單
+const handleExaminePackage = async () => {
+  const value = form.shipment_no.trim()
+  if (!value) return
+  errorMsg.value = ''
+  try {
+    const data = await invoke('cloud_fetch_label', {
+      req: { order_sn: value, print_type: form.print_type, enforce: false, mode: 'cloud_print_examine' },
+    })
+    // 後端 examine-package 是另一個端點；簡化版直接走 cloud_fetch_label 等待後續整合
+    if (data?.respond_code === 'FIND-PACKAGE-ORDER') {
+      form.package_sn = data.package_sn || ''
+      packageOrders.value = data.orders || []
+      form.shipment_no = ''
+      nextTick(() => orderSnRef.value?.focus())
+    } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
+      errorMsg.value = data.respond_message || '查無資料'
+      packageOrders.value = []
+      form.package_sn = ''
+    }
+  } catch (e) {
+    errorMsg.value = String(e)
+  }
+}
+
+// 訂單編號掃描 → 後端產圖 + 原生列印
+const handlePrintSubmit = async () => {
+  const orderSn = form.order_sn.trim()
+  if (!orderSn) return
+  if (!form.scanner_user.trim()) { errorMsg.value = '未填寫操作人員'; return }
+  if (!form.sticker_user.trim()) { errorMsg.value = '未填寫貼單人員'; return }
+  errorMsg.value = ''
+
+  try {
+    const data = await invoke('cloud_fetch_label', {
+      req: {
+        order_sn: orderSn,
+        print_type: form.print_type,
+        enforce: form.enforce,
+        mode: 'cloud_print',
+      },
+    })
+    form.order_sn = ''
+    nextTick(() => orderSnRef.value?.focus())
+
+    switch (data?.respond_code) {
+      case 'PRINT-SUCCESS': {
+        const printer = printerMap.value[data.provider_code]
+        if (!printer) {
+          errorMsg.value = `未設定 ${data.provider_code} 印表機，請至「印表機設定」`
+          return
+        }
+        const path = data.image_path?.startsWith('file://') ? data.image_path.slice(7) : data.image_path
+        await printImage({ printerName: printer, imagePath: path })
+        packageOrders.value = packageOrders.value.map(o =>
+          o.shipping_no === data.shipment_no ? { ...o, _printed: true } : o,
+        )
+        break
+      }
+      case 'NO-DATA': errorMsg.value = `查無代寄包裹：${orderSn}`; break
+      case 'PRINT-ERROR': errorMsg.value = `無法列印貼標：${orderSn}`; break
+      case 'UNCONFIRMED-SHIPMENT': errorMsg.value = `包裹尚未確認：${orderSn}`; break
+      case 'ERROR-SHIPMENT': errorMsg.value = `包裹資料異常：${orderSn}`; break
+      default: errorMsg.value = data?.respond_message || '未知回應'
+    }
+  } catch (e) {
+    errorMsg.value = String(e)
+  }
+}
+
+const isAnyPrinterReady = computed(() => Object.keys(printerMap.value).length > 0)
+
+onMounted(() => shipmentNoRef.value?.focus())
+</script>
+
+<template>
+  <div>
+    <AppHeader title="自動印單" subtitle="掃描自動送印" icon="tabler-cloud-cog">
+      <template #actions>
+        <VSwitch
+          v-model="form.enforce"
+          label="強制列印"
+          color="warning"
+          inset
+          hide-details
+          density="compact"
+        />
+      </template>
+    </AppHeader>
+
+    <VAlert v-if="!isAnyPrinterReady" type="error" variant="tonal" class="mb-3">
+      尚未設定任何印表機，請先至「印表機設定」頁完成配置。
+    </VAlert>
+    <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
+
+    <VRow>
+      <VCol cols="12" lg="6">
+        <VCard class="mb-3">
+          <VCardText>
+            <VSelect
+              v-model="form.print_type"
+              :items="PRINT_TYPE_OPTIONS"
+              item-title="title"
+              item-value="value"
+              label="列印類型"
+              class="mb-3"
+            />
+            <VTextField
+              ref="shipmentNoRef"
+              v-model="form.shipment_no"
+              label="包裹訂單條碼"
+              autofocus
+              clearable
+              class="mb-3"
+              @keyup.enter="handleExaminePackage"
+            />
+            <VTextField
+              ref="orderSnRef"
+              v-model="form.order_sn"
+              label="系統訂單編號"
+              clearable
+              class="mb-3"
+              @keyup.enter="handlePrintSubmit"
+            />
+            <div class="d-flex gap-3">
+              <VTextField v-model="form.scanner_user" label="操作人員" />
+              <VTextField v-model="form.sticker_user" label="貼單人員" />
+            </div>
+          </VCardText>
+        </VCard>
+
+        <VCard>
+          <VCardTitle class="d-flex align-center justify-space-between px-4 py-3 bg-grey-lighten-3">
+            <span>袋號 {{ form.package_sn || '—' }}</span>
+            <span class="text-body-2">總筆數 <span class="text-primary font-weight-bold text-h5">{{ packageOrders.length }}</span></span>
+          </VCardTitle>
+          <VTable>
+            <thead>
+              <tr>
+                <th class="text-center">#</th>
+                <th class="text-center">訂單編號 / 配送單號</th>
+                <th class="text-center">物流</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, idx) in packageOrders" :key="item.order_sn" :class="{ 'opacity-50': item._printed }">
+                <td class="text-center">{{ idx + 1 }}</td>
+                <td class="text-center">
+                  <div>{{ item.order_sn }}</div>
+                  <div v-if="item.shipping_no && item.shipping_no !== item.order_sn" class="text-caption">{{ item.shipping_no }}</div>
+                </td>
+                <td class="text-center">{{ item.provider_name }}</td>
+              </tr>
+              <tr v-if="packageOrders.length === 0">
+                <td colspan="3" class="text-center py-4 text-medium-emphasis">尚未掃描包裹</td>
+              </tr>
+            </tbody>
+          </VTable>
+        </VCard>
+      </VCol>
+
+      <VCol cols="12" lg="6">
+        <VCard>
+          <VCardText>
+            <p class="text-body-2 mb-2">本機印表機綁定（來自「印表機設定」頁）：</p>
+            <div v-for="p in PRINT_TYPE_OPTIONS" :key="p.value" class="d-flex justify-space-between py-1 border-b">
+              <span>{{ p.title }}</span>
+              <span class="text-caption text-medium-emphasis">{{ printerMap[p.value] || '未設定' }}</span>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+  </div>
+</template>
+
+<style scoped>
+.border-b {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+</style>
