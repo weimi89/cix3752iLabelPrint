@@ -1,21 +1,16 @@
 <script setup>
-import { useRouter } from 'vue-router'
 import AppNavbar from '@/components/AppNavbar.vue'
 import AppLogo from '@/components/AppLogo.vue'
+import { navSections } from '@/config/navConfig'
+import { useThemeStore } from '@/stores/theme'
 
-const router = useRouter()
+const themeStore = useThemeStore()
 
-const navGroups = computed(() => {
-  const groups = { '主功能': [] }
-  for (const r of router.options.routes) {
-    const group = r.meta?.group || '主功能'
-    if (!groups[group]) groups[group] = []
-    groups[group].push(r)
-  }
-  return groups
+// 收合：rail = true；水平：暫時也走 rail 並提示；垂直：展開
+const rail = computed({
+  get: () => themeStore.config.layout === 'collapsed',
+  set: v => themeStore.set({ layout: v ? 'collapsed' : 'vertical' }),
 })
-
-const rail = ref(false)
 </script>
 
 <template>
@@ -41,15 +36,28 @@ const rail = ref(false)
     </a>
 
     <VList nav>
-      <template v-for="(items, group) in navGroups" :key="group">
-        <VListSubheader v-if="!rail">{{ group }}</VListSubheader>
-        <VListItem
-          v-for="item in items"
-          :key="item.name"
-          :to="{ name: item.name }"
-          :prepend-icon="item.meta?.icon"
-          :title="item.meta?.title"
-        />
+      <template v-for="section in navSections" :key="section.title">
+        <VListSubheader v-if="!rail">{{ section.title }}</VListSubheader>
+        <template v-for="item in section.items" :key="item.title">
+          <VListGroup v-if="item.children" :value="item.title">
+            <template #activator="{ props: actv }">
+              <VListItem v-bind="actv" :prepend-icon="item.icon" :title="item.title" />
+            </template>
+            <VListItem
+              v-for="child in item.children"
+              :key="child.title"
+              :to="child.to"
+              :title="child.title"
+              class="nav-sub-item"
+            />
+          </VListGroup>
+          <VListItem
+            v-else
+            :to="item.to"
+            :prepend-icon="item.icon"
+            :title="item.title"
+          />
+        </template>
       </template>
     </VList>
   </VNavigationDrawer>
@@ -75,11 +83,7 @@ const rail = ref(false)
   color: rgb(var(--v-theme-primary));
   text-decoration: none;
 }
-
-.app-logo__icon {
-  flex-shrink: 0;
-}
-
+.app-logo__icon { flex-shrink: 0; }
 .app-logo__title {
   font-size: 22px;
   font-weight: 700;
@@ -87,7 +91,6 @@ const rail = ref(false)
   color: rgba(var(--v-theme-on-surface), 0.9);
   margin: 0;
 }
-
 .app-logo__toggle {
   inline-size: 28px;
   block-size: 28px;
@@ -106,9 +109,7 @@ const rail = ref(false)
   color: rgb(var(--v-theme-primary));
 }
 
-.layout-content-wrapper {
-  padding: 0;
-}
+.layout-content-wrapper { padding: 0; }
 
 .layout-page-content {
   padding: 24px;

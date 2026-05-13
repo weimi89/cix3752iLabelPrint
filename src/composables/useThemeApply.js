@@ -33,11 +33,13 @@ export const useThemeApply = () => {
     }
 
     // 樣式：有邊框 → body class
-    document.documentElement.classList.toggle('style-bordered', themeStore.config.style === 'bordered')
-    document.documentElement.classList.toggle('style-default', themeStore.config.style !== 'bordered')
-    document.documentElement.classList.toggle('content-wide', themeStore.config.contentWidth === 'wide')
-    document.documentElement.classList.toggle('content-compact', themeStore.config.contentWidth === 'compact')
-    document.documentElement.classList.toggle('semi-dark', !!themeStore.config.semiDark)
+    const html = document.documentElement
+    html.classList.toggle('style-bordered', themeStore.config.style === 'bordered')
+    html.classList.toggle('style-default', themeStore.config.style !== 'bordered')
+    html.classList.toggle('content-wide', themeStore.config.contentWidth === 'wide')
+    html.classList.toggle('content-compact', themeStore.config.contentWidth === 'compact')
+    html.classList.toggle('semi-dark', !!themeStore.config.semiDark)
+    html.classList.toggle('layout-collapsed', themeStore.config.layout === 'collapsed')
   }
 
   // 監聽 store + system 主題變化

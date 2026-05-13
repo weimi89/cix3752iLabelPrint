@@ -181,7 +181,7 @@ const groupedStatus = computed(() => {
               label="列印範圍"
               class="mb-3"
             />
-            <AppBulkInput v-model="orderSnList" />
+            <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" />
 
             <div v-if="totalItems > 0" class="mt-3">
               <div class="d-flex justify-space-between mb-1">

@@ -137,7 +137,7 @@ onMounted(() => shipmentNoRef.value?.focus())
 
     <VRow>
       <VCol cols="12" lg="6">
-        <VCard class="mb-3">
+        <VCard class="py-1 mb-3">
           <VCardText>
             <VSelect
               v-model="form.print_type"
@@ -172,32 +172,60 @@ onMounted(() => shipmentNoRef.value?.focus())
         </VCard>
 
         <VCard>
-          <VCardTitle class="d-flex align-center justify-space-between px-4 py-3 bg-grey-lighten-3">
+          <VCardTitle class="d-flex align-center justify-space-between px-4 pt-4 pb-3 bg-grey-300">
             <span>袋號 {{ form.package_sn || '—' }}</span>
-            <span class="text-body-2">總筆數 <span class="text-primary font-weight-bold text-h5">{{ packageOrders.length }}</span></span>
+            <span class="text-body-2">
+              總筆數
+              <span class="text-primary font-weight-bold text-h5">{{ packageOrders.length }}</span>
+            </span>
           </VCardTitle>
-          <VTable>
-            <thead>
-              <tr>
-                <th class="text-center">#</th>
-                <th class="text-center">訂單編號 / 配送單號</th>
-                <th class="text-center">物流</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, idx) in packageOrders" :key="item.order_sn" :class="{ 'opacity-50': item._printed }">
-                <td class="text-center">{{ idx + 1 }}</td>
-                <td class="text-center">
-                  <div>{{ item.order_sn }}</div>
-                  <div v-if="item.shipping_no && item.shipping_no !== item.order_sn" class="text-caption">{{ item.shipping_no }}</div>
-                </td>
-                <td class="text-center">{{ item.provider_name }}</td>
-              </tr>
-              <tr v-if="packageOrders.length === 0">
-                <td colspan="3" class="text-center py-4 text-medium-emphasis">尚未掃描包裹</td>
-              </tr>
-            </tbody>
-          </VTable>
+          <VCardText class="pa-0">
+            <VTable>
+              <thead>
+                <tr>
+                  <th class="text-center">#</th>
+                  <th class="text-center">訂單編號 / 配送單號</th>
+                  <th class="text-center d-none d-sm-table-cell">最後列印時間</th>
+                  <th class="text-center d-none d-sm-table-cell">物流</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-if="packageOrders.length > 0">
+                  <tr
+                    v-for="(item, idx) in packageOrders"
+                    :key="item.order_sn"
+                    :class="{ 'opacity-50': item._printed, 'bg-error-tint': item.is_abnormal }"
+                  >
+                    <td class="text-center">{{ idx + 1 }}</td>
+                    <td class="text-center">
+                      <div class="px-1 py-2 d-flex flex-column gap-1">
+                        <span class="text-blue-600">{{ item.order_sn }}</span>
+                        <template v-if="item.order_sn !== item.shipping_no">
+                          <VDivider class="my-1" />
+                          <span>{{ item.shipping_no }}</span>
+                        </template>
+                        <div class="d-block d-sm-none text-body-2 text-medium-emphasis">
+                          {{ item.provider_name }} · {{ item.last_print_time || '-' }}
+                        </div>
+                      </div>
+                    </td>
+                    <td class="text-center d-none d-sm-table-cell">{{ item.last_print_time || '-' }}</td>
+                    <td class="text-center d-none d-sm-table-cell">{{ item.provider_name }}</td>
+                  </tr>
+                </template>
+                <template v-else>
+                  <tr>
+                    <td :colspan="4">
+                      <div class="py-2 d-flex align-center justify-center">
+                        <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
+                        <span class="text-md">尚未掃描包裹</span>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </VTable>
+          </VCardText>
         </VCard>
       </VCol>
 

@@ -20,11 +20,18 @@ const printers = ref([])
 const map = reactive(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'))
 const errorMsg = ref('')
 
+const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+
 const refresh = async () => {
+  if (!isTauriRuntime) {
+    errorMsg.value = '此頁需在桌面 App 內開啟（瀏覽器無法存取本機印表機）'
+    return
+  }
   try {
     printers.value = await listPrinters()
+    errorMsg.value = ''
   } catch (e) {
-    errorMsg.value = String(e)
+    errorMsg.value = `無法載入印表機：${String(e?.message || e)}`
   }
 }
 onMounted(refresh)

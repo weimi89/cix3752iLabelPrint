@@ -115,9 +115,9 @@ const isCustomPrimary = computed(
           <div class="layout-preview layout-preview--collapsed" />
           <span>收合</span>
         </button>
-        <button class="layout-card" :class="{ 'is-selected': themeStore.config.layout === 'horizontal' }" @click="setLayout('horizontal')">
+        <button class="layout-card layout-card--disabled" disabled title="桌面 App 不支援水平 layout">
           <div class="layout-preview layout-preview--horizontal" />
-          <span>水平</span>
+          <span>水平（不支援）</span>
         </button>
       </div>
 

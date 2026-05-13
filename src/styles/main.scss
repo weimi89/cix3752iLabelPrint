@@ -43,10 +43,35 @@ body {
 }
 
 // =============================================================================
-// VField 對齊 cix3752iWeb：38px 高度、6px 圓角
+// VField 對齊 cix3752iWeb：高度 38px、6px 圓角、input font-size 15px
 // =============================================================================
 .v-field {
   border-radius: 6px !important;
+}
+
+.v-input--density-comfortable .v-field,
+.v-input--density-default .v-field {
+  --v-input-control-height: 38px !important;
+  min-block-size: 38px !important;
+}
+
+// 連帶 .v-field__input 也壓到 38
+.v-input--density-comfortable .v-field__input,
+.v-input--density-default .v-field__input {
+  min-block-size: 38px !important;
+  padding-block-start: 0 !important;
+  padding-block-end: 0 !important;
+}
+
+.v-field input,
+.v-field textarea,
+.v-field__input {
+  font-size: 15px !important;
+}
+
+// VSelect / VAutocomplete 文字字級也對齊
+.v-field .v-select__selection-text {
+  font-size: 15px !important;
 }
 
 // =============================================================================
@@ -186,15 +211,61 @@ body {
     .v-list-item-title { color: #fff !important; font-weight: 500; }
     .v-icon { color: #fff !important; }
   }
+
+  // ===== Rail 模式下隱藏 nested 子項目（與 cix3752iWeb 行為一致） =====
+  &.v-navigation-drawer--rail .v-list-group__items {
+    display: none !important;
+  }
+  &.v-navigation-drawer--rail .v-list-subheader {
+    display: none !important;
+  }
+
+  // ===== Nested 子節點：左側空心圓 dot + 縮排 =====
+  .v-list-group__items .nav-sub-item,
+  .nav-sub-item {
+    padding-inline-start: 36px !important;
+    position: relative;
+    min-block-size: 32px !important;
+
+    .v-list-item-title { font-size: 14px !important; }
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset-inline-start: 18px;
+      inset-block-start: 50%;
+      transform: translateY(-50%);
+      inline-size: 6px;
+      block-size: 6px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(var(--v-theme-on-surface), 0.45);
+      background: transparent;
+      transition: all 0.15s;
+      z-index: 1;
+    }
+    &:hover::before { border-color: rgb(var(--v-theme-primary)); }
+    &.v-list-item--active::before {
+      border-color: #fff;
+      background: #fff;
+    }
+  }
 }
 
 // =============================================================================
 // VCard
 // =============================================================================
+// 統一 VCard 樣式：白底 + 淡灰邊框 + 陰影
+// 蓋掉 vuetify outlined 預設用 currentColor 的黑框與 transparent 背景
 .v-card {
-  &.v-card--variant-elevated {
-    box-shadow: 0 2px 8px 0 rgba(var(--v-shadow-key-umbra-color), 0.06) !important;
-    border: 1px solid rgba(var(--v-theme-on-surface), 0.08) !important;
+  &.v-card--variant-elevated,
+  &.v-card--variant-outlined {
+    background: rgb(var(--v-theme-surface)) !important;
+    color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity, 0.9)) !important;
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.12) !important;
+    box-shadow:
+      0 2px 6px 0 rgba(var(--v-shadow-key-umbra-color), 0.10),
+      0 0 transparent,
+      0 0 transparent !important;
   }
 }
 
@@ -222,17 +293,59 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 
 // =============================================================================
-// 樣式：bordered 模式
+// 樣式：bordered 模式 — 卡片只有邊框、無陰影
 // =============================================================================
 .style-bordered {
-  .v-card.v-card--variant-elevated {
-    border: 1px solid rgba(var(--v-theme-on-surface), 0.14) !important;
+  .v-card.v-card--variant-elevated,
+  .v-card.v-card--variant-outlined {
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.18) !important;
     box-shadow: none !important;
   }
-  .app-navbar, .app-header-card { border-width: 1px; }
 }
 
-.content-compact .v-main .v-container {
+// 預設 style：陰影較重、邊框較淡（與 bordered 區分）
+.style-default {
+  .v-card.v-card--variant-elevated,
+  .v-card.v-card--variant-outlined {
+    border: 1px solid rgba(var(--v-theme-on-surface), 0.08) !important;
+    box-shadow:
+      0 4px 18px 0 rgba(var(--v-shadow-key-umbra-color), 0.10),
+      0 0 transparent,
+      0 0 transparent !important;
+  }
+}
+
+// =============================================================================
+// 內容寬度：compact = 限 1280；wide = 全寬
+// =============================================================================
+.content-compact .layout-page-content {
   max-inline-size: 1280px;
-  margin-inline: auto;
+  margin-inline: auto !important;
+}
+.content-wide .layout-page-content {
+  max-inline-size: 100%;
+  margin: 4px 24px 0 !important;
+}
+
+// =============================================================================
+// 半暗色選單：sidebar 變深色，其他內容仍為亮色
+// =============================================================================
+.semi-dark .v-navigation-drawer {
+  background: #2F3349 !important;
+  color: #E1DEF5;
+
+  .app-logo__title { color: #E1DEF5 !important; }
+  .app-logo__toggle { color: rgba(225, 222, 245, 0.55); }
+  .v-list-subheader { color: rgba(225, 222, 245, 0.45) !important; }
+  .v-list-item-title { color: rgba(225, 222, 245, 0.9) !important; }
+  .v-list-item .v-icon { color: rgba(225, 222, 245, 0.7) !important; }
+
+  .v-list-item--active {
+    .v-list-item-title { color: #fff !important; }
+    .v-icon { color: #fff !important; }
+  }
+
+  .nav-sub-item::before {
+    border-color: rgba(225, 222, 245, 0.4);
+  }
 }
