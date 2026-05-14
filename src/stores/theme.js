@@ -3,17 +3,23 @@ import { defineStore } from 'pinia'
 const STORAGE_KEY = 'cix3752iLabelPrint.themeConfig'
 
 const DEFAULT_CONFIG = {
-  primary: '#7367F0',
-  mode: 'system',          // light / dark / system
-  style: 'default',        // default / bordered
-  semiDark: false,
-  layout: 'vertical',      // vertical / collapsed / horizontal
-  contentWidth: 'wide',    // compact / wide
+  primary: '#76C043',      // 乖乖綠
+  mode: 'light',           // 固定明亮(主題選項已從 customizer 拿掉)
+  style: 'default',        // 固定 default(樣式選項已從 customizer 拿掉)
+  semiDark: true,         // 固定半暗色 sidebar(已從 customizer 拿掉開關)
+  layout: 'vertical',      // 桌面 App 固定 vertical(布局選項已從 customizer 拿掉)
+  contentWidth: 'fluid',   // fluid(寬鬆) / boxed(緊湊),對齊 @layouts ContentWidth
 }
 
 const load = () => {
   try {
-    return { ...DEFAULT_CONFIG, ...(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {}) }
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {}
+    // 棄用 'system' 模式預設(對齊 Materio 始終 light)
+    if (saved.mode === 'system') delete saved.mode
+    // 舊版 contentWidth 用 'wide' / 'compact';新版對齊 @layouts ContentWidth 用 'fluid' / 'boxed'
+    if (saved.contentWidth === 'wide') saved.contentWidth = 'fluid'
+    if (saved.contentWidth === 'compact') saved.contentWidth = 'boxed'
+    return { ...DEFAULT_CONFIG, ...saved }
   } catch {
     return { ...DEFAULT_CONFIG }
   }
@@ -22,7 +28,6 @@ const load = () => {
 export const useThemeStore = defineStore('theme', {
   state: () => ({
     config: load(),
-    customizerOpen: false,
   }),
   actions: {
     persist() {
@@ -48,7 +53,7 @@ export const PRIMARY_PRESETS = [
   { value: '#16B1FF', label: '藍' },
 ]
 
-// 推算 darken-1：把色相略暗 8%（cix3752iWeb 用 #675DD8 對 #7367F0）
+// 推算 darken-1：把色相略暗 8%（Materio 用 #675DD8 對 #7367F0）
 export const darken = hex => {
   const n = parseInt(hex.replace('#', ''), 16)
   let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff

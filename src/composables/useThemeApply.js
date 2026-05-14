@@ -1,6 +1,8 @@
 import { watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useThemeStore, darken } from '@/stores/theme'
+import { useLayoutConfigStore } from '@layouts/stores/config'
+import { useConfigStore } from '@core/stores/config'
 
 /**
  * 把 pinia themeStore 的設定同步到 Vuetify 主題與 document class
@@ -9,6 +11,8 @@ import { useThemeStore, darken } from '@/stores/theme'
 export const useThemeApply = () => {
   const theme = useTheme()
   const themeStore = useThemeStore()
+  const layoutConfigStore = useLayoutConfigStore()
+  const coreConfigStore = useConfigStore()
 
   const resolveMode = () => {
     const m = themeStore.config.mode
@@ -32,12 +36,18 @@ export const useThemeApply = () => {
       t.colors['primary-darken-1'] = primaryDarken
     }
 
-    // 樣式：有邊框 → body class
+    // 同步到 @layouts configStore(讓 .layout-content-width-boxed / fluid 切換生效)
+    layoutConfigStore.appContentWidth = themeStore.config.contentWidth
+    // 永遠強制:垂直 layout、不收合、無 overlay
+    layoutConfigStore.isVerticalNavCollapsed = false
+    layoutConfigStore.appContentLayoutNav = 'vertical'
+    // 同步到 @core configStore(半暗色 sidebar)
+    coreConfigStore.isVerticalNavSemiDark = !!themeStore.config.semiDark
+
+    // 樣式:有邊框 → body class
     const html = document.documentElement
     html.classList.toggle('style-bordered', themeStore.config.style === 'bordered')
     html.classList.toggle('style-default', themeStore.config.style !== 'bordered')
-    html.classList.toggle('content-wide', themeStore.config.contentWidth === 'wide')
-    html.classList.toggle('content-compact', themeStore.config.contentWidth === 'compact')
     html.classList.toggle('semi-dark', !!themeStore.config.semiDark)
     html.classList.toggle('layout-collapsed', themeStore.config.layout === 'collapsed')
   }

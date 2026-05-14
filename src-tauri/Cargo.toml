@@ -20,6 +20,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
 
 # Async / web server
 tokio = { version = "1", features = ["full"] }

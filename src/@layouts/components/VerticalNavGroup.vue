@@ -1,4 +1,5 @@
 <script setup>
+import { useRoute } from 'vue-router'
 import { layoutConfig } from '@layouts'
 import {
   TransitionExpand,
@@ -11,6 +12,8 @@ import {
   isNavGroupActive,
   openGroups,
 } from '@layouts/utils'
+
+const route = useRoute()
 
 const props = defineProps({
   item: {
@@ -69,9 +72,9 @@ const badgeI18nProps = computed(() => getDynamicI18nProps(props.item.badgeConten
 
 updates isActive & isOpen based on active state of group.
 */
-watch(() => usePage().url, () => {
+watch(() => route.fullPath, () => {
 
-  const isActive = isNavGroupActive(props.item.children)
+  const isActive = isNavGroupActive(props.item.children, route)
 
   // Don't open group if vertical nav is collapsed and window size is more than overlay nav breakpoint
   isGroupOpen.value = isActive && !configStore.isVerticalNavMini(isVerticalNavHovered).value
@@ -104,7 +107,7 @@ watch(() => openGroups.value.at(-1), () => {
   if (openGroups.value.at(-1) === props.item.title)
     return
 
-  const isActive = isNavGroupActive(props.item.children)
+  const isActive = isNavGroupActive(props.item.children, route)
 
   // Goal of this watcher is to close inactive groups. So don't do anything for active groups.
   if (isActive)

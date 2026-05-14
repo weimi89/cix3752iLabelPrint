@@ -178,12 +178,10 @@ const contentWidth = computed(() => {
 })
 
 const isCookieHasAnyValue = ref(false)
-const { locale } = useI18n({ useScope: 'global' })
 
 watch([
   () => vuetifyTheme.current.value.colors.primary,
   configStore.$state,
-  locale,
 ], () => {
   const initialConfigValue = [
     staticPrimaryColor,

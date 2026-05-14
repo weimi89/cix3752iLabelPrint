@@ -1,7 +1,7 @@
 <script setup>
 /**
  * AppBulkInput - 高效能批量輸入組件
- * 對齊 cix3752iWeb resources/js/@core/components/app-form-elements/AppBulkInput.vue
+ * 對齊 Materio resources/js/@core/components/app-form-elements/AppBulkInput.vue
  * 用原生 input 模擬 VCombobox 樣式，避免大量 chips 時 vuetify 效能瓶頸
  */
 

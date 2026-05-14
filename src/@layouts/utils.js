@@ -5,8 +5,8 @@ import { useLayoutConfigStore } from '@layouts/stores/config'
 export const openGroups = ref([])
 
 /**
- * 返回用於使用的導覽鏈接屬性
- * @param {Object, String} item 導覽路由名稱或導覽數據中提供的路由對象
+ * 返回用於 RouterLink 的 nav 連結屬性(vue-router 版本)
+ * @param {Object, String} item nav-link 設定
  */
 export const getComputedNavLinkToProp = computed(() => link => {
   const props = {
@@ -14,11 +14,11 @@ export const getComputedNavLinkToProp = computed(() => link => {
     rel: link.rel,
   }
 
-  // 如果路由是字符串 => 它假定字符串是路由名稱 => 從路由名稱創建路由對象
-  // 如果路由不是字符串 => 它假定它是路由對象 => 返回傳遞的路由對象
+  // link.to 直接交給 RouterLink (可為 string 或 RouteLocationRaw)
   if (link?.to) {
-    props.href = link.to?.name ? route(link.to.name, link.to?.params || {}) : route(link.to)
+    props.to = link.to
   } else if (link?.href) {
+    // 外部連結走 a tag 用 href
     props.href = link.href
   }
 
@@ -41,29 +41,23 @@ export const resolveNavLinkRouteName = (link) => {
 }
 
 /**
- * 檢查 nav-link 是否處於活動狀態
+ * 檢查 nav-link 是否處於活動狀態(vue-router 版本,需在 component setup 中呼叫)
  * @param {object} link nav-link 對象
+ * @param {object} currentRoute vue-router 當前 route(useRoute() 的值)
  */
-export const isNavLinkActive = (link) => {
+export const isNavLinkActive = (link, currentRoute = null) => {
+  // 沒提供 currentRoute 時(舊呼叫方式),fallback 回 false — caller 應傳入
+  if (!currentRoute) return false
 
-  // 檢查提供的路由是否與路由的匹配路由匹配
-  const resolveRoutedName = resolveNavLinkRouteName(link)
+  const targetName = resolveNavLinkRouteName(link)
+  if (!targetName) return false
 
-  if (!resolveRoutedName) {
-    return false
-  }
-
-  const isMainRouteActive = route().current(resolveRoutedName)
-  if (isMainRouteActive) {
-    return true
-  }
+  if (currentRoute.name === targetName) return true
 
   const extraRoutes = link?.extra
   if (extraRoutes) {
-    // 如果 extraRoutes 是字串或陣列，統一轉為陣列
     const extraRoutesArray = Array.isArray(extraRoutes) ? extraRoutes : [extraRoutes]
-    // 檢查是否有任何一個路由匹配
-    return extraRoutesArray.some(extraRoute => route().current(extraRoute))
+    return extraRoutesArray.some(extra => currentRoute.name === extra)
   }
 
   return false
@@ -72,15 +66,13 @@ export const isNavLinkActive = (link) => {
 /**
  * 檢查 nav 組是否處於活動狀態
  * @param {Array} children 組子元素
+ * @param {object} currentRoute vue-router 當前 route
  */
-export const isNavGroupActive = (children) => children.some(child => {
-  // 如果子元素有子元素 => 它是組 => 進行更深層次的遞歸
+export const isNavGroupActive = (children, currentRoute = null) => children.some(child => {
   if ('children' in child) {
-    return isNavGroupActive(child.children)
+    return isNavGroupActive(child.children, currentRoute)
   }
-
-  // 否則它是鏈接 => 檢查匹配的路由
-  return isNavLinkActive(child)
+  return isNavLinkActive(child, currentRoute)
 })
 
 /**

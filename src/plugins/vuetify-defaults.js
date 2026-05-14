@@ -1,4 +1,4 @@
-// 對齊 cix3752iWeb/resources/js/plugins/vuetify/defaults.js（Materio 風）
+// 對齊 Materio/resources/js/plugins/vuetify/defaults.js（Materio 風）
 // 維持與既有後台元件大小、顏色、密度一致
 
 export default {

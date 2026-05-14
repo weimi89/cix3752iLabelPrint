@@ -173,14 +173,15 @@ const groupedStatus = computed(() => {
       <VCol cols="12" lg="5">
         <VCard>
           <VCardText>
-            <VSelect
-              v-model="printType"
-              :items="PRINT_TYPE_OPTIONS"
-              item-title="title"
-              item-value="value"
-              label="列印範圍"
-              class="mb-3"
-            />
+            <div class="mb-3">
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">列印範圍</VLabel>
+              <VSelect
+                v-model="printType"
+                :items="PRINT_TYPE_OPTIONS"
+                item-title="title"
+                item-value="value"
+              />
+            </div>
             <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" />
 
             <div v-if="totalItems > 0" class="mt-3">

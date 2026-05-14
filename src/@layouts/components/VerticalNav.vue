@@ -1,4 +1,5 @@
 <script setup>
+import { useRoute } from 'vue-router'
 import { OverlayScrollbarsComponent } from 'overlayscrollbars-vue'
 import { VNodeRenderer } from '@layouts/components/VNodeRenderer'
 import { layoutConfig } from '@layouts'
@@ -9,6 +10,8 @@ import {
 } from '@layouts/components'
 import { useLayoutConfigStore } from '@layouts/stores/config'
 import { injectionKeyIsVerticalNavHovered } from '@layouts/symbols'
+
+const route = useRoute()
 
 const props = defineProps({
   homeUrl: {
@@ -56,7 +59,7 @@ Close overlay vertical nav when link is clicked
 */
 // const route = useRoute()
 
-watch(() => usePage().component, () => {
+watch(() => route.fullPath, () => {
   props.toggleIsOverlayNavActive(false)
 })
 
@@ -95,8 +98,8 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
     <!-- 👉 Header -->
     <div class="nav-header">
       <slot name="nav-header">
-        <Link
-          :href="props.homeUrl || '/'"
+        <RouterLink
+          :to="props.homeUrl || '/'"
           class="app-logo app-title-wrapper"
         >
           <VNodeRenderer :nodes="layoutConfig.app.logo" class="w-[30px] h-[30px] mt-1" />
@@ -108,26 +111,9 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
               {{ layoutConfig.app.title }}
             </h1>
           </Transition>
-        </Link>
-        <!-- 👉 Vertical nav actions -->
-        <!-- Show toggle collapsible in >md and close button in <md -->
+        </RouterLink>
+        <!-- 👉 只保留 mobile overlay 模式的關閉鈕。桌面不顯示 pin/unpin(強制展開) -->
         <div class="header-action">
-          <Component
-            :is="layoutConfig.app.iconRenderer || 'div'"
-            v-show="configStore.isVerticalNavCollapsed"
-            class="d-none nav-unpin"
-            :class="configStore.isVerticalNavCollapsed && 'd-lg-block'"
-            v-bind="layoutConfig.icons.verticalNavUnPinned"
-            @click="configStore.isVerticalNavCollapsed = !configStore.isVerticalNavCollapsed"
-          />
-          <Component
-            :is="layoutConfig.app.iconRenderer || 'div'"
-            v-show="!configStore.isVerticalNavCollapsed"
-            class="d-none nav-pin"
-            :class="!configStore.isVerticalNavCollapsed && 'd-lg-block'"
-            v-bind="layoutConfig.icons.verticalNavPinned"
-            @click="configStore.isVerticalNavCollapsed = !configStore.isVerticalNavCollapsed"
-          />
           <Component
             :is="layoutConfig.app.iconRenderer || 'div'"
             class="d-lg-none"
@@ -239,8 +225,8 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
   }
 }
 
-// Small screen vertical nav transition
-@media (max-width: 1199.98px) {
+// Small screen vertical nav transition — overlay mode 隱藏 sidebar
+@media (max-width: 991.98px) {
   .layout-vertical-nav {
     &:not(.visible) {
       transform: translateX(-#{variables.$layout-vertical-nav-width});

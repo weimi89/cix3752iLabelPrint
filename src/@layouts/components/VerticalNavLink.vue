@@ -1,5 +1,5 @@
 <script setup>
-import { usePage } from '@inertiajs/vue3'
+import { useRoute } from 'vue-router'
 import { layoutConfig } from '@layouts'
 import { useLayoutConfigStore } from '@layouts/stores/config'
 import { injectionKeyIsVerticalNavHovered } from '@layouts/symbols'
@@ -18,26 +18,16 @@ const props = defineProps({
 
 const configStore = useLayoutConfigStore()
 
-// 明確 inject hover ref 並傳入 isVerticalNavMini，與 VerticalNavGroup 行為一致，避免隱式依賴
 const isVerticalNavHovered = inject(injectionKeyIsVerticalNavHovered, ref(false))
 const hideTitleAndBadge = configStore.isVerticalNavMini(isVerticalNavHovered)
 
-// 透過 usePage().url 建立 reactive dependency；URL 沒變時 active 狀態快取，
-// 避免每次 template render 都呼叫 Ziggy `route().current()` 比對
-const page = usePage()
+// vue-router reactive route
+const route = useRoute()
 
-const isActive = computed(() => {
-  // eslint-disable-next-line no-unused-expressions
-  page.url
-  return isNavLinkActive(props.item)
-})
+const isActive = computed(() => isNavLinkActive(props.item, route))
 
-// 把 href / target / rel 一次算好，item 不變時保持同一份物件 reference，
-// 避免每次 render 跑 Ziggy `route()` 與 v-bind 重新 patch
 const linkProps = computed(() => getComputedNavLinkToProp.value(props.item))
 
-// i18n props 在未啟用時是空物件，但原本每次 render 都 new {} 會觸發 v-bind diff；
-// 改用 computed 在 item.title 不變時保持同 reference
 const titleI18nProps = computed(() => getDynamicI18nProps(props.item.title, 'span'))
 const badgeI18nProps = computed(() => getDynamicI18nProps(props.item.badgeContent, 'span'))
 </script>
@@ -48,7 +38,7 @@ const badgeI18nProps = computed(() => getDynamicI18nProps(props.item.badgeConten
     :class="{ disabled: item.disable }"
   >
     <Component
-      :is="item?.to ? 'Link' : 'a'"
+      :is="item?.to ? 'RouterLink' : 'a'"
       v-bind="linkProps"
       :class="{ 'router-link-active router-link-exact-active': isActive }"
     >
@@ -57,9 +47,6 @@ const badgeI18nProps = computed(() => getDynamicI18nProps(props.item.badgeConten
         v-bind="item.icon || layoutConfig.verticalNav.defaultNavItemIconProps"
         class="nav-item-icon"
       />
-      <!-- 👉 Title -->
-      <!-- 改用單一 element 的 Transition：動畫效果一致（v-show 切換 Vue 3 會套 enter/leave class），
-           但省掉 TransitionGroup 的 FLIP children 追蹤開銷 -->
       <Transition name="transition-slide-x">
         <Component
           :is="layoutConfig.app.i18n.enable ? 'i18n-t' : 'span'"
@@ -71,7 +58,6 @@ const badgeI18nProps = computed(() => getDynamicI18nProps(props.item.badgeConten
         </Component>
       </Transition>
 
-      <!-- 👉 Badge -->
       <Transition
         v-if="item.badgeContent"
         name="transition-slide-x"

@@ -109,7 +109,7 @@ const handleQuery = async () => {
         </VCard>
 
         <div class="d-flex justify-center gap-2 mt-3">
-          <VBtn v-if="!isProcessing" color="primary" :disabled="orderSnList.length === 0" @click="handleQuery">
+          <VBtn v-if="!isProcessing" color="primary" @click="handleQuery">
             <VIcon icon="tabler-search" class="me-1" />查詢
           </VBtn>
           <VBtn v-else color="error" @click="stopProcessing">

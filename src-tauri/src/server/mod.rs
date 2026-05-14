@@ -146,32 +146,66 @@ async fn get_parcel(
 ) -> Result<Json<ParcelInfo>, (StatusCode, Json<ApiError>)> {
     match state.cloud.fetch_parcel(&query_no).await {
         Ok(mut info) => {
-            // 如果雲端回了 label_key 且本地已有圖，把 label_url 換成本地 URL
+            // 處理 cache hit/miss 與背景補下載
             if let Some(key) = info.label_key.clone() {
+                let cloud_url = info.label_url.clone();
                 if state.cache.has_local(&key) {
                     info.label_source = "local".to_string();
-                    info.label_url = Some(format!("{}/images/{}", state.listen_url_prefix, key.trim_start_matches('/')));
-                    info.label_path = Some(state.cache.local_path_for_key(&key).to_string_lossy().to_string());
+                    info.label_url = Some(format!(
+                        "{}/images/{}",
+                        state.listen_url_prefix,
+                        key.trim_start_matches('/')
+                    ));
+                    info.label_path = Some(
+                        state.cache.local_path_for_key(&key).to_string_lossy().to_string(),
+                    );
+                    let _ = state.cache.record_hit(&key).await;
+                } else {
+                    let _ = state.cache.record_miss().await;
+                    // 雲端有圖,本地沒圖 → 背景補下載(不阻塞回應)
+                    if let Some(src) = cloud_url {
+                        state.cache.spawn_prefetch(key, src);
+                    }
                 }
             }
 
-            // 記一筆 daily stats（簡單版）
+            // 記一筆 daily request 統計
             let _ = sqlx::query(
                 "INSERT INTO daily_stats (date, request_count, success_count)
                  VALUES (date('now'), 1, 1)
-                 ON CONFLICT(date) DO UPDATE SET request_count = request_count + 1, success_count = success_count + 1"
+                 ON CONFLICT(date) DO UPDATE SET
+                    request_count = request_count + 1,
+                    success_count = success_count + 1"
             ).execute(&state.db).await;
 
             Ok(Json(info))
         }
-        Err(AppError::Unauthorized) => Err((
-            StatusCode::UNAUTHORIZED,
-            Json(ApiError::new("UNAUTHORIZED", "雲端未登入，請先在桌面 App 完成登入")),
-        )),
-        Err(e) => Err((
-            StatusCode::BAD_GATEWAY,
-            Json(ApiError::new("CLOUD_ERROR", e.to_string())),
-        )),
+        Err(AppError::Unauthorized) => {
+            let _ = sqlx::query(
+                "INSERT INTO daily_stats (date, request_count)
+                 VALUES (date('now'), 1)
+                 ON CONFLICT(date) DO UPDATE SET request_count = request_count + 1",
+            )
+            .execute(&state.db)
+            .await;
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ApiError::new("UNAUTHORIZED", "雲端未登入,請先在桌面 App 完成登入")),
+            ))
+        }
+        Err(e) => {
+            let _ = sqlx::query(
+                "INSERT INTO daily_stats (date, request_count)
+                 VALUES (date('now'), 1)
+                 ON CONFLICT(date) DO UPDATE SET request_count = request_count + 1",
+            )
+            .execute(&state.db)
+            .await;
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(ApiError::new("CLOUD_ERROR", e.to_string())),
+            ))
+        }
     }
 }
 

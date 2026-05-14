@@ -136,41 +136,52 @@ onMounted(() => shipmentNoRef.value?.focus())
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
 
     <VRow>
-      <VCol cols="12" lg="6">
-        <VCard class="py-1 mb-3">
+      <VCol cols="12" lg="5">
+        <VCard class="py-1">
           <VCardText>
-            <VSelect
-              v-model="form.print_type"
-              :items="PRINT_TYPE_OPTIONS"
-              item-title="title"
-              item-value="value"
-              label="列印類型"
-              class="mb-3"
-            />
-            <VTextField
-              ref="shipmentNoRef"
-              v-model="form.shipment_no"
-              label="包裹訂單條碼"
-              autofocus
-              clearable
-              class="mb-3"
-              @keyup.enter="handleExaminePackage"
-            />
-            <VTextField
-              ref="orderSnRef"
-              v-model="form.order_sn"
-              label="系統訂單編號"
-              clearable
-              class="mb-3"
-              @keyup.enter="handlePrintSubmit"
-            />
+            <div class="mb-3">
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">列印類型</VLabel>
+              <VSelect
+                v-model="form.print_type"
+                :items="PRINT_TYPE_OPTIONS"
+                item-title="title"
+                item-value="value"
+              />
+            </div>
+            <div class="mb-3">
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">包裹訂單條碼</VLabel>
+              <VTextField
+                ref="shipmentNoRef"
+                v-model="form.shipment_no"
+                autofocus
+                clearable
+                @keyup.enter="handleExaminePackage"
+              />
+            </div>
+            <div class="mb-3">
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">系統訂單編號</VLabel>
+              <VTextField
+                ref="orderSnRef"
+                v-model="form.order_sn"
+                clearable
+                @keyup.enter="handlePrintSubmit"
+              />
+            </div>
             <div class="d-flex gap-3">
-              <VTextField v-model="form.scanner_user" label="操作人員" />
-              <VTextField v-model="form.sticker_user" label="貼單人員" />
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">操作人員</VLabel>
+                <VTextField v-model="form.scanner_user" />
+              </div>
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">貼單人員</VLabel>
+                <VTextField v-model="form.sticker_user" />
+              </div>
             </div>
           </VCardText>
         </VCard>
+      </VCol>
 
+      <VCol cols="12" lg="7">
         <VCard>
           <VCardTitle class="d-flex align-center justify-space-between px-4 pt-4 pb-3 bg-grey-300">
             <span>袋號 {{ form.package_sn || '—' }}</span>
@@ -229,17 +240,6 @@ onMounted(() => shipmentNoRef.value?.focus())
         </VCard>
       </VCol>
 
-      <VCol cols="12" lg="6">
-        <VCard>
-          <VCardText>
-            <p class="text-body-2 mb-2">本機印表機綁定（來自「印表機設定」頁）：</p>
-            <div v-for="p in PRINT_TYPE_OPTIONS" :key="p.value" class="d-flex justify-space-between py-1 border-b">
-              <span>{{ p.title }}</span>
-              <span class="text-caption text-medium-emphasis">{{ printerMap[p.value] || '未設定' }}</span>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
     </VRow>
   </div>
 </template>

@@ -1,5 +1,5 @@
 /**
- * 對齊 cix3752iWeb/resources/js/pages/order-scanner-web-print.vue 的
+ * 對齊 Materio/resources/js/pages/order-scanner-web-print.vue 的
  * status label / icon / 顏色 map（採 tabler iconify 命名）
  */
 

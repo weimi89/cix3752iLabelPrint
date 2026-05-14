@@ -38,6 +38,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -64,6 +68,13 @@ pub fn run() {
             commands::server_commands::server_status,
             commands::server_commands::server_restart,
             commands::queue_commands::queue_stats,
+            commands::queue_commands::queue_list,
+            commands::queue_commands::queue_retry_failed,
+            commands::queue_commands::queue_purge,
+            commands::cache_commands::cache_stats,
+            commands::cache_commands::cache_clear,
+            commands::log_commands::event_log_list,
+            commands::log_commands::daily_stats,
             commands::cloud_commands::cloud_ping,
             commands::cloud_commands::cloud_login,
             commands::cloud_commands::cloud_logout,

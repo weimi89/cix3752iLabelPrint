@@ -130,7 +130,7 @@ const verticalNavAttrs = computed(() => {
     transition: padding-inline-start 0.2s ease-in-out;
     will-change: padding-inline-start;
 
-    @media screen and (min-width: 1200px) {
+    @media screen and (min-width: 992px) {
       padding-inline-start: variables.$layout-vertical-nav-width;
     }
   }

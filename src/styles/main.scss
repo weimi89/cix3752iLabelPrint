@@ -1,10 +1,135 @@
 // =============================================================================
-// 字體（完全對齊 cix3752iWeb：Red Hat Mono 為主、Noto Sans TC 處理中文）
+// 字體（完全對齊 Materio：Red Hat Mono 為主、Noto Sans TC 處理中文）
 // =============================================================================
 @use 'fonts';
 
+// Materio 整套 global styles(table / card / form 等覆寫)
+@use './styles';
+
 // =============================================================================
-// 全域字體與基底（對齊 cix3752iWeb 實際 computed style）
+// VerticalNav active link 強制覆蓋 — Vuetify 的 a tag reset 蓋掉 %nav-link-active
+// 的 background-color,這裡用更高優先級補回紫色 active 背景
+// =============================================================================
+.layout-vertical-nav .nav-link > a.router-link-exact-active,
+.layout-vertical-nav .nav-link > a.router-link-active {
+  background-color: rgb(var(--v-global-theme-primary)) !important;
+  color: rgb(var(--v-theme-on-primary)) !important;
+}
+
+// =============================================================================
+// 進階查詢 VExpansionPanel:title 較緊湊、hover 不變色
+// =============================================================================
+.advanced-search {
+  .v-expansion-panel {
+    border-radius: 6px;
+  }
+  .advanced-search__title {
+    font-size: 18px;
+    font-weight: 500;
+    color: rgba(var(--v-theme-on-surface), 0.9);
+    padding: 20px 24px !important;
+    min-block-size: 46px !important;
+  }
+  .v-expansion-panel-title__overlay {
+    background: transparent !important;
+  }
+  .v-expansion-panel-title:hover .v-expansion-panel-title__overlay {
+    opacity: 0 !important;
+  }
+}
+
+// 進階查詢欄位 — 對齊 Materio 實機數值,改用 VRow+VCol
+.search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  label {
+    font-size: 13px;
+    color: rgba(var(--v-theme-on-surface), 0.9);
+    line-height: 1.25;
+  }
+
+  .v-field {
+    --v-input-control-height: 38px;
+    min-block-size: 38px !important;
+  }
+  .v-field__input {
+    min-block-size: 38px !important;
+    font-size: 15px !important;
+  }
+  .v-select__selection-text {
+    font-size: 15px !important;
+  }
+}
+
+// VExpansionPanelText 內 padding 對齊
+.advanced-search .v-expansion-panel-text__wrapper {
+  padding: 0 20px 20px 24px !important;
+}
+
+// =============================================================================
+// 強制:≥ 992px(lg) 隱藏 sidebar 內 X 關閉鈕 + navbar 漢堡按鈕
+// (Vuetify 的 d-lg-none class 在我們 custom thresholds 下沒生效)
+// =============================================================================
+@media (min-width: 992px) {
+  .layout-vertical-nav .header-action > * {
+    display: none !important;
+  }
+  .layout-navbar .v-btn.d-lg-none,
+  .layout-navbar .v-btn.d-xl-none {
+    display: none !important;
+  }
+}
+
+// =============================================================================
+// 表格樣式對齊 Materio 精確值(抓自實機:audit-logs 頁面)
+// th: 15px / 700 / uppercase / center / padding 8x16
+// td: 15px / 400 / center / padding 8x16
+// =============================================================================
+.v-table {
+  th {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    text-align: center !important;
+    padding: 8px 16px !important;
+  }
+  tbody td {
+    font-size: 15px;
+    font-weight: 400;
+    padding: 8px 16px;
+  }
+}
+
+// AppHeader 右上 menu(< md 收折按鈕)— spacer 12px、prepend 緊湊
+.v-overlay__content .v-list-item__prepend {
+  > .v-list-item__spacer {
+    width: 12px !important;
+  }
+  > .v-icon {
+    margin-inline-end: 0 !important;
+  }
+}
+
+// 拿掉 sidebar 內 link / button 點選後的 focus outline / 黑色虛線
+.layout-vertical-nav a,
+.layout-vertical-nav button,
+.layout-vertical-nav .nav-link a,
+.layout-vertical-nav .nav-group-label,
+.layout-vertical-nav .header-action > * {
+  outline: none !important;
+  box-shadow: none;
+
+  &:focus,
+  &:focus-visible,
+  &:active {
+    outline: none !important;
+  }
+}
+
+// =============================================================================
+// 全域字體與基底（對齊 Materio 實際 computed style）
 // =============================================================================
 html,
 body {
@@ -21,7 +146,7 @@ body {
 }
 
 // =============================================================================
-// VBtn 對齊 cix3752iWeb：高度 38px、primary 色陰影、font-weight 500
+// VBtn 對齊 Materio：高度 38px、primary 色陰影、font-weight 500
 // =============================================================================
 .v-btn {
   font-weight: 500 !important;
@@ -43,7 +168,7 @@ body {
 }
 
 // =============================================================================
-// VField 對齊 cix3752iWeb：高度 38px、6px 圓角、input font-size 15px
+// VField 對齊 Materio：高度 38px、6px 圓角、input font-size 15px
 // =============================================================================
 .v-field {
   border-radius: 6px !important;
@@ -177,7 +302,7 @@ body {
     border-radius: 6px !important;
     min-block-size: 38px !important;
 
-    // 對齊 cix3752iWeb：icon 22px、icon 右邊距 8px、title 15px
+    // 對齊 Materio：icon 22px、icon 右邊距 8px、title 15px
     .v-list-item__prepend {
       inline-size: auto !important;
       min-inline-size: auto !important;
@@ -212,7 +337,7 @@ body {
     .v-icon { color: #fff !important; }
   }
 
-  // ===== Rail 模式下隱藏 nested 子項目（與 cix3752iWeb 行為一致） =====
+  // ===== Rail 模式下隱藏 nested 子項目（與 Materio 行為一致） =====
   &.v-navigation-drawer--rail .v-list-group__items {
     display: none !important;
   }

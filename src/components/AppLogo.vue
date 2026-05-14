@@ -1,5 +1,5 @@
 <script setup>
-// 從 cix3752iWeb 抓到的智配通 logo（cube + 工具盒 + 「智配通」文字）
+// 從 Materio 抓到的智配通 logo（cube + 工具盒 + 「智配通」文字）
 // 改成繼承 currentColor，由父層套 primary 色
 </script>
 

@@ -5,7 +5,7 @@ import { Icon } from '@iconify/vue'
 
 import defaults from './vuetify-defaults'
 
-// 正規化 cix3752iWeb 的 dash 寫法（tabler-xxx / mdi-xxx）成 iconify 的 prefix:name 格式
+// 正規化 Materio 的 dash 寫法（tabler-xxx / mdi-xxx）成 iconify 的 prefix:name 格式
 const normalizeIconName = name => {
   if (!name || typeof name !== 'string') return name
   if (name.includes(':')) return name

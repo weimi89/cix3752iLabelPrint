@@ -13,6 +13,7 @@ declare module 'vue' {
     AppNavbar: typeof import('./components/AppNavbar.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    TablePagination: typeof import('./components/TablePagination.vue')['default']
     ThemeCustomizer: typeof import('./components/ThemeCustomizer.vue')['default']
     UserProfileMenu: typeof import('./components/UserProfileMenu.vue')['default']
   }

@@ -1,16 +1,12 @@
 <script setup>
 import { cloudLogout } from '@/api/tauri'
 import { useStatusStore } from '@/stores/status'
-import { useThemeStore } from '@/stores/theme'
 
 const status = useStatusStore()
-const themeStore = useThemeStore()
 const router = useRouter()
 
 const userName = computed(() => status.cloud.user_label || '尚未登入')
 const userRole = computed(() => status.cloud.logged_in ? '系統管理員' : '訪客')
-
-const openCustomizer = () => { themeStore.customizerOpen = true }
 
 const logout = async () => {
   await cloudLogout()
@@ -42,13 +38,6 @@ const logout = async () => {
         <VCardSubtitle class="text-caption">{{ userRole }}</VCardSubtitle>
       </VCardItem>
       <VDivider />
-      <VList density="compact" class="py-1">
-        <VListItem
-          prepend-icon="tabler-table-options"
-          title="主題定制"
-          @click="openCustomizer"
-        />
-      </VList>
       <div class="pa-2">
         <VBtn color="error" block @click="logout">
           <span class="me-2">登出</span><VIcon icon="tabler-logout" size="18" />
