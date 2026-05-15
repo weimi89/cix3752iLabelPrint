@@ -11,10 +11,10 @@ const form = reactive({
   parcel_forward_path: '/api/v2/order-forward-print',
   parcel_proxy_path: '/api/v2/order-proxy-print',
   session_path: '/api/v1/local-middleware/session',
-  report_path: '/api/v1/local-middleware/report',
   scan_print_path: '/api/v1/local-middleware/label/scan-print',
   pre_generate_path: '/api/v1/local-middleware/label/pre-generate',
   cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
+  examine_package_path: '/api/v1/local-middleware/label/examine-package',
   webhook_path: '/webhook/logistic-cat',
 })
 const PARCEL_MODES = [
@@ -25,10 +25,10 @@ const PATH_FIELDS = [
   { key: 'parcel_forward_path', label: '包裹查詢 (forward)', hint: '會自動拼 /{queryNo}' },
   { key: 'parcel_proxy_path', label: '包裹查詢 (proxy)', hint: '會自動拼 /{queryNo}' },
   { key: 'session_path', label: '登入 Session', hint: '驗證 token 用' },
-  { key: 'report_path', label: '工控機回報 (report)', hint: '推送分揀結果' },
   { key: 'scan_print_path', label: '掃描列印 (scan-print)', hint: '操作員 UI' },
   { key: 'pre_generate_path', label: '面單預產 (pre-generate)', hint: '預先產面單' },
   { key: 'cloud_print_path', label: '雲端列印 (cloud-print)', hint: '透過雲端列印' },
+  { key: 'examine_package_path', label: '包裹查詢 (examine-package)', hint: '自動印單第一步' },
   { key: 'webhook_path', label: 'Webhook (logistic-cat)', hint: '分揀完成通知' },
 ]
 const session = ref({ logged_in: false, api_base: '', user_label: null })

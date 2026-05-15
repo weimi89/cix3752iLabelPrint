@@ -42,11 +42,9 @@ const CATEGORIES = [
 // 瀏覽器預覽模式 mock 資料(60 筆,展示分頁)
 const TEMPLATES = [
   { level: 'info', category: 'server', action: 'parcel_query', msg: 'GET /api/parcel/{TN} → 200 (label_source=local)' },
-  { level: 'info', category: 'queue', action: 'report_received', msg: 'POST /api/report tracking_no={TN} → 寫入 queue' },
-  { level: 'info', category: 'queue', action: 'push_success', msg: 'Queue 已成功送達雲端 (tracking={TN})' },
+  { level: 'info', category: 'queue', action: 'report_received', msg: 'POST /api/report tracking_no={TN} → 寫入本機歷史' },
   { level: 'info', category: 'cache', action: 'prefetch_done', msg: '補下載 labels/2026/05/{TN}.png (12.4 KB)' },
   { level: 'info', category: 'printer', action: 'print_success', msg: '送印 7-ELEVEN 訂單 {TN} 至 EPSON_L6190' },
-  { level: 'warn', category: 'queue', action: 'retry_unauthorized', msg: 'Queue 推送雲端失敗 (401),保持 pending' },
   { level: 'warn', category: 'cache', action: 'eviction', msg: '快取容量達上限 500MB,LRU 淘汰 8 筆面單' },
   { level: 'error', category: 'printer', action: 'print_failed', msg: '送印失敗:找不到印表機 mock_zebra_gk420' },
   { level: 'info', category: 'cloud', action: 'login_success', msg: '雲端 API 登入成功' },
@@ -128,7 +126,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader title="事件記錄" subtitle="系統 / 雲端 / 快取 / Queue / 印表機事件" icon="tabler-bell-ringing">
+    <AppHeader title="事件記錄" subtitle="系統 / 雲端 / 快取 / 佇列 / 印表機事件" icon="tabler-bell-ringing">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">

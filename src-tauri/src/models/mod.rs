@@ -91,3 +91,49 @@ pub struct PrintViewResult {
     #[serde(default)]
     pub print_time: Vec<String>,
 }
+
+/// 包裹查詢結果（自動印單第一步：掃包裹條碼取訂單清單）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExaminePackageResult {
+    pub respond_code: String,
+    #[serde(default)]
+    pub respond_message: Option<String>,
+    #[serde(default)]
+    pub package_sn: Option<String>,
+    #[serde(default)]
+    pub orders: Vec<ExaminePackageOrder>,
+}
+
+/// 包裹內單筆訂單摘要（webhook 端不在乎詳細結構,字段全選擇性）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExaminePackageOrder {
+    #[serde(default)]
+    pub order_sn: Option<String>,
+    #[serde(default)]
+    pub shipping_no: Option<String>,
+    #[serde(default)]
+    pub shipping_provider: Option<String>,
+    #[serde(default)]
+    pub last_print_time: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    /// 其他額外欄位由前端依需要使用
+    #[serde(flatten)]
+    pub extras: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 雲端列印單筆結果（自動印單 cloud-print 端點專用，回應 schema 與 PrintViewResult 不同）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudPrintResult {
+    pub respond_code: String,
+    #[serde(default)]
+    pub respond_message: Option<String>,
+    #[serde(default)]
+    pub shipment_no: Option<String>,
+    #[serde(default)]
+    pub package_sn: Option<String>,
+    #[serde(default)]
+    pub provider_code: Option<String>,
+    #[serde(default)]
+    pub image_path: Option<String>,
+}

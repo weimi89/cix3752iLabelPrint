@@ -30,7 +30,6 @@ const MOCK_CONFIG = {
     parcel_forward_path: '/api/v2/order-forward-print',
     parcel_proxy_path: '/api/v2/order-proxy-print',
     session_path: '/api/v1/local-middleware/session',
-    report_path: '/api/v1/local-middleware/report',
     scan_print_path: '/api/v1/local-middleware/label/scan-print',
     pre_generate_path: '/api/v1/local-middleware/label/pre-generate',
     cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
@@ -58,6 +57,10 @@ export const cloudSession = async () => {
 }
 export const cloudFetchLabel = (orderSn, { printType = 'ALL', enforce = false, mode = 'web_print' } = {}) =>
   invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printType, enforce, mode } })
+export const cloudFetchCloudPrint = (orderSn, { printType = 'ALL', enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) =>
+  invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printType, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
+export const cloudExaminePackage = shipmentNo =>
+  invoke('cloud_examine_package', { req: { shipment_no: shipmentNo } })
 
 // 印表機
 export const listPrinters = () => invoke('list_printers')

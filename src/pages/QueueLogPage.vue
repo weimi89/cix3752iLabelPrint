@@ -39,18 +39,21 @@ const STATUS_LABELS = {
   failed: '失敗',
 }
 
+const CHANNELS_SAMPLE = ['A1', 'A2', 'B1', 'B2', 'C1']
+const STICKERS_SAMPLE = ['小美', '阿傑', '阿宏', '貓宅']
+const STATUSES_SAMPLE = ['success', 'success', 'success', 'pending', 'sending', 'failed']
+
 // 瀏覽器預覽模式 mock 資料(80 筆,展示分頁)
-const STATUSES = ['success', 'success', 'success', 'pending', 'sending', 'failed']
-const ERRORS = [null, null, 'connection timeout after 30s', 'cloud API 502 Bad Gateway', null]
 const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
-  const status = STATUSES[i % STATUSES.length]
+  const status = STATUSES_SAMPLE[i % STATUSES_SAMPLE.length]
   return {
     id: 200 - i,
     tracking_no: `SF${1234567000 + i}`,
     response_id: 9000000 + i,
+    sort_channel: CHANNELS_SAMPLE[i % CHANNELS_SAMPLE.length],
+    job_sticker: STICKERS_SAMPLE[i % STICKERS_SAMPLE.length],
     status,
     retry_count: status === 'failed' ? (i % 5) + 1 : 0,
-    last_error: status === 'failed' ? ERRORS[i % ERRORS.length] : null,
     created_at: `2026-05-14T${17 - Math.floor(i / 12)}:${String(Math.floor(i / 6)).padStart(2, '0')}:00`,
     sent_at: status === 'success' ? `2026-05-14T${17 - Math.floor(i / 12)}:${String(Math.floor(i / 6)).padStart(2, '0')}:05` : null,
   }
@@ -64,7 +67,8 @@ const load = async () => {
       const kw = searchKeyword.value.toLowerCase()
       result = result.filter(r =>
         (r.tracking_no || '').toLowerCase().includes(kw) ||
-        (r.last_error || '').toLowerCase().includes(kw)
+        (r.sort_channel || '').toLowerCase().includes(kw) ||
+        (r.job_sticker || '').toLowerCase().includes(kw)
       )
     }
     mockTotal.value = result.length
@@ -90,7 +94,7 @@ const load = async () => {
 const handleRetry = async () => {
   try {
     const n = await queueRetryFailed()
-    flashMsg.value = `已重置 ${n} 筆失敗為待送，背景作業下一輪會重試`
+    flashMsg.value = `已重置 ${n} 筆失敗為待送,下一輪 worker 會重試`
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
@@ -127,26 +131,20 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
   td {
     white-space: nowrap;
   }
-
-  // 最後錯誤欄位允許換行
-  td:last-child {
-    white-space: normal;
-    word-break: break-all;
-  }
 }
 </style>
 
 <template>
   <div>
-    <AppHeader title="佇列歷史" subtitle="工控機回報 / 雲端推送結果" icon="tabler-truck-loading">
+    <AppHeader title="佇列歷史" subtitle="工控機回報 / webhook 推送結果" icon="tabler-truck-loading">
       <template #actions>
-        <!-- 大尺寸(>= md):橫排三按鈕 -->
+        <!-- 大尺寸(>= md):橫排按鈕 -->
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />重新載入
           </VBtn>
           <VBtn color="warning" :disabled="!isTauriRuntime" @click="handleRetry">
-            <VIcon icon="tabler-rotate" size="16" class="me-1" />重試
+            <VIcon icon="tabler-rotate" size="16" class="me-1" />重試失敗
           </VBtn>
           <VBtn color="error" :disabled="!isTauriRuntime" @click="handlePurge">
             <VIcon icon="tabler-trash" size="16" class="me-1" />清除舊資料
@@ -190,7 +188,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <VCol cols="12" sm="6" lg="6" class="px-2 py-1">
               <div class="search-field">
                 <label>關鍵字</label>
-                <VTextField v-model="searchKeyword" placeholder="追蹤號碼或錯誤訊息" density="compact" hide-details variant="outlined" />
+                <VTextField v-model="searchKeyword" placeholder="追蹤號碼 / 通道 / 貼標人員" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
             <VCol cols="12" sm="6" lg="6" class="px-2 py-1">
@@ -222,17 +220,18 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <tr>
             <th class="text-center" style="width: 70px;">#</th>
             <th class="text-center" style="min-width: 150px;">追蹤號碼</th>
+            <th class="text-center" style="width: 90px;">通道</th>
+            <th class="text-center" style="min-width: 100px;">貼標人員</th>
             <th class="text-center" style="width: 120px;">回應 ID</th>
             <th class="text-center" style="width: 90px;">狀態</th>
             <th class="text-center" style="width: 80px;">重試</th>
             <th class="text-center" style="width: 170px;">建立時間</th>
-            <th class="text-center" style="width: 170px;">送達雲端</th>
-            <th style="min-width: 200px;">最後錯誤</th>
+            <th class="text-center" style="width: 170px;">推送完成</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!queueItems.length">
-            <td colspan="8">
+            <td colspan="9">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
                 <span class="text-md">查無資料</span>
@@ -242,12 +241,13 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <tr v-for="row in queueItems" :key="row.id">
             <td class="text-center">{{ row.id }}</td>
             <td class="text-center">{{ row.tracking_no }}</td>
+            <td class="text-center">{{ row.sort_channel || '—' }}</td>
+            <td class="text-center">{{ row.job_sticker || '—' }}</td>
             <td class="text-center text-disabled">{{ row.response_id ?? '—' }}</td>
             <td class="text-center"><span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ STATUS_LABELS[row.status] || row.status }}</span></td>
             <td class="text-center">{{ row.retry_count }}</td>
             <td class="text-center">{{ formatDate(row.created_at) }}</td>
             <td class="text-center">{{ formatDate(row.sent_at) }}</td>
-            <td class="text-error">{{ row.last_error || '' }}</td>
           </tr>
         </tbody>
       </VTable>

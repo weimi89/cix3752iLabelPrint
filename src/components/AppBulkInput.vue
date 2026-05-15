@@ -156,7 +156,7 @@ const toggleExpand = () => {
 <template>
   <div class="app-bulk-input flex-grow-1" :class="$attrs.class">
     <!-- clearableTop=true 時 label 與「清空」按鈕並排在頂部 -->
-    <div v-if="label || (clearableTop && clearable && itemCount > 0)" class="d-flex align-center mb-1">
+    <div v-if="label || (clearableTop && clearable && itemCount > 0)" class="label-row d-flex align-center mb-1">
       <VLabel
         v-if="label"
         :for="elementId"
@@ -166,7 +166,6 @@ const toggleExpand = () => {
         {{ label }}
         <span v-if="itemCount > 0" class="item-count ms-2">{{ itemCount }} 筆</span>
       </VLabel>
-      <VSpacer v-if="clearableTop" />
       <button
         v-if="clearableTop && clearable && itemCount > 0"
         type="button"
@@ -314,13 +313,24 @@ const toggleExpand = () => {
   .v-field:hover .v-field__clearable,
   .v-field--focused .v-field__clearable { opacity: 1; }
 
+  // label row 用 relative + button 用 absolute,讓「清空」按鈕完全脫離高度計算
+  // → 按鈕出現/消失不會撐高 row,row 永遠等於 label 原本的 line-height
+  .label-row {
+    position: relative;
+  }
+
   // clearableTop=true 時 label 旁的「清空」按鈕
   .clear-all-btn {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-end: 0;
+    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     font-size: 0.75rem;
     color: rgba(var(--v-theme-on-surface), 0.6);
-    padding: 2px 8px;
+    padding-inline: 8px;
+    padding-block: 0;
     border-radius: 4px;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;

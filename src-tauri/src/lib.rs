@@ -78,6 +78,8 @@ pub fn run() {
             commands::cloud_commands::cloud_logout,
             commands::cloud_commands::cloud_session,
             commands::cloud_commands::cloud_fetch_label,
+            commands::cloud_commands::cloud_fetch_cloud_print,
+            commands::cloud_commands::cloud_examine_package,
             commands::dispatch_commands::dispatch_provider_list,
             commands::dispatch_commands::dispatch_provider_upsert,
             commands::dispatch_commands::dispatch_provider_delete,

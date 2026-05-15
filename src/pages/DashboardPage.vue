@@ -35,9 +35,9 @@ const formatBytes = bytes => {
       瀏覽器預覽模式 — 狀態資料來自 Tauri 後端,請於桌面 App 內查看實際數值。
     </VAlert>
 
-    <!-- 上半:即時狀態(Middleware / 雲端 / Queue / 已成功) -->
+    <!-- 上半:即時狀態(Middleware / 雲端) -->
     <VRow dense>
-      <VCol cols="12" md="6" lg="3">
+      <VCol cols="12" md="6">
         <VCard class="card-shadow">
           <VCardItem>
             <template #prepend>
@@ -51,7 +51,7 @@ const formatBytes = bytes => {
         </VCard>
       </VCol>
 
-      <VCol cols="12" md="6" lg="3">
+      <VCol cols="12" md="6">
         <VCard class="card-shadow">
           <VCardItem>
             <template #prepend>
@@ -61,34 +61,6 @@ const formatBytes = bytes => {
             </template>
             <VCardTitle>雲端連線</VCardTitle>
             <VCardSubtitle>{{ status.cloud.logged_in ? status.cloud.api_base : '尚未登入' }}</VCardSubtitle>
-          </VCardItem>
-        </VCard>
-      </VCol>
-
-      <VCol cols="12" md="6" lg="3">
-        <VCard class="card-shadow">
-          <VCardItem>
-            <template #prepend>
-              <VAvatar color="info" variant="tonal">
-                <VIcon icon="tabler-truck-loading" />
-              </VAvatar>
-            </template>
-            <VCardTitle>Queue 待送</VCardTitle>
-            <VCardSubtitle>{{ status.queue.pending }} 筆 pending / {{ status.queue.failed }} 失敗</VCardSubtitle>
-          </VCardItem>
-        </VCard>
-      </VCol>
-
-      <VCol cols="12" md="6" lg="3">
-        <VCard class="card-shadow">
-          <VCardItem>
-            <template #prepend>
-              <VAvatar color="primary" variant="tonal">
-                <VIcon icon="tabler-rosette-discount-check" />
-              </VAvatar>
-            </template>
-            <VCardTitle>累計推送成功</VCardTitle>
-            <VCardSubtitle>{{ status.queue.success }} 筆</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>

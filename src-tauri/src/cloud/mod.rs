@@ -6,7 +6,10 @@ use reqwest::Client;
 use serde_json::json;
 
 use crate::config::AppConfig;
-use crate::models::{CloudOrderResponse, CloudSession, ParcelInfo, PrintViewResult, ReportPayload};
+use crate::models::{
+    CloudOrderResponse, CloudPrintResult, CloudSession, ExaminePackageResult, ParcelInfo,
+    PrintViewResult,
+};
 use crate::{AppError, AppResult};
 
 const KEYRING_SERVICE: &str = "com.weimi.cix3752i.labelprint";
@@ -41,10 +44,10 @@ struct CloudState {
     parcel_forward_path: String,
     parcel_proxy_path: String,
     session_path: String,
-    report_path: String,
     scan_print_path: String,
     pre_generate_path: String,
     cloud_print_path: String,
+    examine_package_path: String,
     webhook_path: String,
 }
 
@@ -68,10 +71,10 @@ impl CloudClient {
             parcel_forward_path: config.cloud.parcel_forward_path.clone(),
             parcel_proxy_path: config.cloud.parcel_proxy_path.clone(),
             session_path: config.cloud.session_path.clone(),
-            report_path: config.cloud.report_path.clone(),
             scan_print_path: config.cloud.scan_print_path.clone(),
             pre_generate_path: config.cloud.pre_generate_path.clone(),
             cloud_print_path: config.cloud.cloud_print_path.clone(),
+            examine_package_path: config.cloud.examine_package_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
         };
 
@@ -99,10 +102,10 @@ impl CloudClient {
         s.parcel_forward_path = config.cloud.parcel_forward_path.clone();
         s.parcel_proxy_path = config.cloud.parcel_proxy_path.clone();
         s.session_path = config.cloud.session_path.clone();
-        s.report_path = config.cloud.report_path.clone();
         s.scan_print_path = config.cloud.scan_print_path.clone();
         s.pre_generate_path = config.cloud.pre_generate_path.clone();
         s.cloud_print_path = config.cloud.cloud_print_path.clone();
+        s.examine_package_path = config.cloud.examine_package_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
     }
 
@@ -177,26 +180,6 @@ impl CloudClient {
         Ok(envelope.data)
     }
 
-    /// 推送單筆回報結果
-    /// TODO 2026-05-15: 雲端尚未提供對應端點（規格文件僅含列印 API）。
-    /// 目前實作維持舊端點以避免 compile error，但實際呼叫會 404。
-    /// 等雲端規格確定後再對齊。
-    pub async fn push_report(&self, payload: &ReportPayload) -> AppResult<()> {
-        let (base, token) = self.snapshot()?;
-        let report_path = { self.inner.state.read().report_path.clone() };
-        let url = join_url(&base, &report_path);
-
-        let http = self.inner.http.read().clone();
-        http.post(&url)
-            .bearer_auth(&token)
-            .json(payload)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        Ok(())
-    }
-
     /// 分揀完成 webhook 通知 logistic-cat 系統
     /// URL 為 `{cloud.api_base}/webhook/logistic-cat`（共用雲端 API 設定頁的 base URL）
     /// 自動把設定中的 job_user 注入 payload；無 Bearer Auth
@@ -267,6 +250,93 @@ impl CloudClient {
             }
         }
         Ok(result)
+    }
+
+    /// 自動印單第一步：掃包裹條碼取訂單清單
+    pub async fn examine_package(&self, shipment_no: &str) -> AppResult<ExaminePackageResult> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().examine_package_path.clone();
+        let url = join_url(&base, &path);
+
+        let body = json!({ "shipment_no": shipment_no });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: ExaminePackageResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 examine-package 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 自動印單用：打 cloud-print 端點，回應 schema 與 PrintViewResult 不同
+    /// （respond_code / shipment_no / provider_code / image_path / respond_message）
+    pub async fn fetch_cloud_print_label(
+        &self,
+        order_sn: &str,
+        print_type: &str,
+        enforce: bool,
+        package_sn: Option<&str>,
+        scanner_user: Option<&str>,
+        sticker_user: Option<&str>,
+    ) -> AppResult<CloudPrintResult> {
+        let (base, token) = self.snapshot()?;
+
+        let path = self.inner.state.read().cloud_print_path.clone();
+        let url = join_url(&base, &path);
+
+        // 對齐雲端 controller：print_type 是 array,enforce 用 0/1 numeric
+        let body = json!({
+            "order_sn": order_sn,
+            "print_type": [print_type],
+            "enforce": if enforce { 1 } else { 0 },
+            "package_sn": package_sn.unwrap_or(""),
+            "scanner_user": scanner_user.unwrap_or(""),
+            "sticker_user": sticker_user.unwrap_or(""),
+        });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        // 抓 raw text → 失敗時把 body 寫進 error message,協助診斷雲端回應 schema 不符
+        let text = resp.text().await?;
+        let mut result: CloudPrintResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 cloud-print 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        if let Some(p) = result.image_path.as_ref() {
+            if p.starts_with('/') && !p.starts_with("//") {
+                result.image_path = Some(format!("{}{}", base, p));
+            }
+        }
+        Ok(result)
+    }
+
+    /// 從任意 URL 下載圖片 bytes（給 print_image 處理雲端 URL 用）
+    /// reuse cloud 的 http client → 自動套用 allow_invalid_certs / timeout 設定
+    pub async fn fetch_image_bytes(&self, url: &str) -> AppResult<Vec<u8>> {
+        let http = self.inner.http.read().clone();
+        let resp = http.get(url).send().await?.error_for_status()?;
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
     }
 
     fn snapshot(&self) -> AppResult<(String, String)> {

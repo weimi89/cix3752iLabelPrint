@@ -273,8 +273,8 @@ async fn get_parcel(
 }
 
 /// POST /api/report — 工控機回報
-/// 工控機只傳 response_id，server 驗證它存在於 parcel_query_log（防止亂帶值送上雲端）
-/// 通過驗證即 enqueue，背景 worker 推送 { response_id } 給雲端
+/// 驗 response_id 存在於 parcel_query_log,通過後寫入本機 queue (status=pending);
+/// 背景 worker 會推送 logistic-cat webhook + 追蹤 status/retry/last_error
 async fn post_report(
     State(state): State<ServerState>,
     Json(req): Json<ReportPayload>,
@@ -332,29 +332,19 @@ async fn post_report(
         None
     };
 
-    match state.queue.enqueue(&req, &tracking_no).await {
-        Ok(_) => {
-            // 發 logistic-cat webhook (fire-and-forget，不阻塞工控機回應)
-            // job_user 由 cloud client 內部從設定注入
-            let cloud = state.cloud.clone();
-            let response_id = req.response_id;
-            let sticker = job_sticker.clone();
-            tokio::spawn(async move {
-                let mut payload = serde_json::json!({
-                    "job_id": response_id,
-                    "job_sticker": sticker,
-                });
-                if let Err(e) = cloud.notify_logistic_cat(&mut payload).await {
-                    tracing::warn!(response_id, ?e, "logistic-cat webhook 發送失敗");
-                }
-            });
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "message": "OK" })),
-            )
-        }
-        Err(e) => (
+    // 寫入本機 queue (status=pending,含分流通道 + 貼標人員),
+    // 背景 worker 會推送 logistic-cat webhook 並追蹤 status/retry/last_error
+    if let Err(e) = state
+        .queue
+        .enqueue(
+            &req,
+            &tracking_no,
+            channel_code.as_deref(),
+            job_sticker.as_deref(),
+        )
+        .await
+    {
+        return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
                 serde_json::to_value(ApiErrorBody {
@@ -363,6 +353,11 @@ async fn post_report(
                 })
                 .unwrap(),
             ),
-        ),
+        );
     }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "message": "OK" })),
+    )
 }

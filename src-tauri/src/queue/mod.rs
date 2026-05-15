@@ -9,7 +9,7 @@ use crate::db::DbPool;
 use crate::models::ReportPayload;
 use crate::{AppError, AppResult};
 
-/// 工控機回報佇列管理 — 寫入即回 200，背景 worker 推送雲端
+/// 工控機回報佇列管理 — 寫入即回 200 給工控機,背景 worker 嘗試推送雲端
 #[derive(Clone)]
 pub struct QueueManager {
     inner: Arc<Inner>,
@@ -35,17 +35,26 @@ impl QueueManager {
         }
     }
 
-    /// 寫入一筆回報到佇列；只要寫得進 DB 就立即回 OK 給工控機
-    /// tracking_no 由 server 端從 parcel_query_log 反查傳入（payload 內已不含此欄位）
-    pub async fn enqueue(&self, payload: &ReportPayload, tracking_no: &str) -> AppResult<i64> {
+    /// 寫入一筆工控機回報歷史；status 寫 pending,等 worker 推送雲端
+    /// sort_channel / job_sticker 由 server 端反查後傳入,方便 QueueLogPage 直接顯示
+    pub async fn enqueue(
+        &self,
+        payload: &ReportPayload,
+        tracking_no: &str,
+        sort_channel: Option<&str>,
+        job_sticker: Option<&str>,
+    ) -> AppResult<i64> {
         let json = serde_json::to_string(payload)?;
         let row = sqlx::query(
-            "INSERT INTO report_queue (tracking_no, payload_json, response_id, status)
-             VALUES (?, ?, ?, 'pending')",
+            "INSERT INTO report_queue
+                 (tracking_no, payload_json, response_id, sort_channel, job_sticker, status)
+             VALUES (?, ?, ?, ?, ?, 'pending')",
         )
         .bind(tracking_no)
         .bind(&json)
         .bind(payload.response_id)
+        .bind(sort_channel)
+        .bind(job_sticker)
         .execute(&self.inner.db)
         .await?;
         Ok(row.last_insert_rowid())
@@ -81,7 +90,7 @@ impl QueueManager {
         })
     }
 
-    /// 啟動背景 worker
+    /// 啟動背景 worker:每 5 秒掃一次 pending / failed 的紀錄推送雲端
     pub fn start_worker(&self) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -97,7 +106,7 @@ impl QueueManager {
 
 async fn process_once(inner: &Inner) -> AppResult<()> {
     let rows = sqlx::query(
-        "SELECT id, payload_json, retry_count
+        "SELECT id, response_id, job_sticker, retry_count
          FROM report_queue
          WHERE status IN ('pending', 'failed')
            AND retry_count < 10
@@ -109,7 +118,8 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
 
     for row in rows {
         let id: i64 = row.try_get("id")?;
-        let payload_json: String = row.try_get("payload_json")?;
+        let response_id: Option<i64> = row.try_get("response_id").ok().flatten();
+        let job_sticker: Option<String> = row.try_get("job_sticker").ok().flatten();
         let retry_count: i64 = row.try_get("retry_count")?;
 
         sqlx::query("UPDATE report_queue SET status='sending', updated_at=datetime('now') WHERE id=?")
@@ -117,15 +127,13 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
             .execute(&inner.db)
             .await?;
 
-        let payload: ReportPayload = match serde_json::from_str(&payload_json) {
-            Ok(p) => p,
-            Err(e) => {
-                mark_failed(&inner.db, id, &format!("payload parse error: {e}"), retry_count).await?;
-                continue;
-            }
-        };
+        // 構造 logistic-cat webhook payload (job_user 由 cloud client 內部從設定注入)
+        let mut payload = serde_json::json!({
+            "job_id": response_id,
+            "job_sticker": job_sticker,
+        });
 
-        match inner.cloud.push_report(&payload).await {
+        match inner.cloud.notify_logistic_cat(&mut payload).await {
             Ok(()) => {
                 sqlx::query(
                     "UPDATE report_queue
@@ -137,10 +145,10 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
                 .await?;
             }
             Err(AppError::Unauthorized) => {
-                // 未登入：別累加 retry，下一輪繼續
+                // 未登入:不累加 retry,下一輪繼續
                 sqlx::query(
                     "UPDATE report_queue
-                     SET status='pending', last_error='unauthorized', updated_at=datetime('now')
+                     SET status='pending', updated_at=datetime('now')
                      WHERE id=?",
                 )
                 .bind(id)
@@ -148,21 +156,21 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
                 .await?;
             }
             Err(e) => {
-                mark_failed(&inner.db, id, &e.to_string(), retry_count).await?;
+                tracing::warn!(queue_id = id, ?e, "webhook 推送失敗");
+                mark_failed(&inner.db, id, retry_count).await?;
             }
         }
     }
     Ok(())
 }
 
-async fn mark_failed(db: &DbPool, id: i64, err: &str, retry_count: i64) -> AppResult<()> {
+async fn mark_failed(db: &DbPool, id: i64, retry_count: i64) -> AppResult<()> {
     sqlx::query(
         "UPDATE report_queue
-         SET status='failed', retry_count=?, last_error=?, updated_at=datetime('now')
+         SET status='failed', retry_count=?, updated_at=datetime('now')
          WHERE id=?",
     )
     .bind(retry_count + 1)
-    .bind(err)
     .bind(id)
     .execute(db)
     .await?;

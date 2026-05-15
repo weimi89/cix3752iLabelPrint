@@ -22,9 +22,14 @@ pub async fn list_printers(_state: State<'_, SharedState>) -> AppResult<Vec<Loca
 }
 
 /// 印出單張圖
+///
+/// image_path 支援三種來源:
+/// - http:// / https:// → 透過 cloud http client 下載 bytes（自動套用 SSL 設定）
+/// - file:// → 去掉前綴後讀本地檔
+/// - 一般路徑 → 直接讀本地檔
 #[tauri::command]
 pub async fn print_image(
-    _state: State<'_, SharedState>,
+    state: State<'_, SharedState>,
     req: PrintImageRequest,
 ) -> AppResult<()> {
     let bytes = match (req.image_base64, req.image_path) {
@@ -36,8 +41,16 @@ pub async fn print_image(
                 .map_err(|e| AppError::Printer(format!("非法圖片格式: {e}")))?;
             raw
         }
-        (None, Some(path)) => std::fs::read(&path)
-            .map_err(|e| AppError::Printer(format!("讀取 {path} 失敗: {e}")))?,
+        (None, Some(path)) => {
+            if path.starts_with("http://") || path.starts_with("https://") {
+                state.cloud.fetch_image_bytes(&path).await
+                    .map_err(|e| AppError::Printer(format!("下載 {path} 失敗: {e}")))?
+            } else {
+                let local = path.strip_prefix("file://").unwrap_or(&path);
+                std::fs::read(local)
+                    .map_err(|e| AppError::Printer(format!("讀取 {local} 失敗: {e}")))?
+            }
+        }
         (None, None) => {
             return Err(AppError::Printer("缺少 image_base64 或 image_path".into()))
         }

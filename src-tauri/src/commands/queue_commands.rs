@@ -31,11 +31,12 @@ pub struct QueueItem {
     pub response_id: Option<i64>,
     pub status: String,
     pub retry_count: i64,
-    pub last_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub sent_at: Option<String>,
     pub payload_json: String,
+    pub sort_channel: Option<String>,
+    pub job_sticker: Option<String>,
 }
 
 #[tauri::command]
@@ -48,8 +49,9 @@ pub async fn queue_list(
 
     let rows = if let Some(status) = req.status.as_deref() {
         sqlx::query(
-            "SELECT id, tracking_no, response_id, status, retry_count, last_error,
-                    created_at, updated_at, sent_at, payload_json
+            "SELECT id, tracking_no, response_id, status, retry_count,
+                    created_at, updated_at, sent_at, payload_json,
+                    sort_channel, job_sticker
              FROM report_queue
              WHERE status = ?
              ORDER BY id DESC
@@ -62,8 +64,9 @@ pub async fn queue_list(
         .await?
     } else {
         sqlx::query(
-            "SELECT id, tracking_no, response_id, status, retry_count, last_error,
-                    created_at, updated_at, sent_at, payload_json
+            "SELECT id, tracking_no, response_id, status, retry_count,
+                    created_at, updated_at, sent_at, payload_json,
+                    sort_channel, job_sticker
              FROM report_queue
              ORDER BY id DESC
              LIMIT ? OFFSET ?",
@@ -82,11 +85,12 @@ pub async fn queue_list(
             response_id: row.try_get("response_id").ok(),
             status: row.try_get("status").unwrap_or_default(),
             retry_count: row.try_get("retry_count").unwrap_or(0),
-            last_error: row.try_get("last_error").ok(),
             created_at: row.try_get("created_at").unwrap_or_default(),
             updated_at: row.try_get("updated_at").unwrap_or_default(),
             sent_at: row.try_get("sent_at").ok(),
             payload_json: row.try_get("payload_json").unwrap_or_default(),
+            sort_channel: row.try_get("sort_channel").ok(),
+            job_sticker: row.try_get("job_sticker").ok(),
         })
         .collect())
 }
@@ -96,7 +100,7 @@ pub async fn queue_list(
 pub async fn queue_retry_failed(state: State<'_, SharedState>) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE report_queue
-         SET status='pending', retry_count=0, last_error=NULL, updated_at=datetime('now')
+         SET status='pending', retry_count=0, updated_at=datetime('now')
          WHERE status='failed'",
     )
     .execute(&state.db)

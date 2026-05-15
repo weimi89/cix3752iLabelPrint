@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::cache::derive_label_key;
 use crate::cloud::LabelFetchMode;
-use crate::models::{CloudSession, PrintViewResult};
+use crate::models::{CloudPrintResult, CloudSession, ExaminePackageResult, PrintViewResult};
 use crate::{AppResult, SharedState};
 
 #[derive(Debug, Deserialize)]
@@ -22,6 +22,21 @@ pub struct FetchLabelRequest {
     /// "web_print" / "download" / "cloud_print"
     #[serde(default = "default_mode")]
     pub mode: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FetchCloudPrintRequest {
+    pub order_sn: String,
+    #[serde(default = "default_print_type")]
+    pub print_type: String,
+    #[serde(default)]
+    pub enforce: bool,
+    #[serde(default)]
+    pub package_sn: Option<String>,
+    #[serde(default)]
+    pub scanner_user: Option<String>,
+    #[serde(default)]
+    pub sticker_user: Option<String>,
 }
 
 fn default_print_type() -> String { "ALL".to_string() }
@@ -73,8 +88,10 @@ pub async fn cloud_fetch_label(
         .fetch_label_for_print(&req.order_sn, &req.print_type, req.enforce, mode)
         .await?;
 
-    // Download 模式：把面單同步下載到本地快取，回給前端本地 server 路徑（透過 /images 靜態 serve）
-    if matches!(mode, LabelFetchMode::Download) {
+    // Download / WebPrint 模式：把面單同步下載到本地快取，回給前端本地 server 路徑
+    // → 後續列印直接讀 cache,不重打雲端
+    // CloudPrint 模式由雲端直接送印,本地不需要 cache
+    if matches!(mode, LabelFetchMode::Download | LabelFetchMode::WebPrint) {
         if let Some(url) = result.print_file_path.clone() {
             // 保留雲端 URL 的子資料夾結構 (labels/{provider}/{date}/{hash}.png)
             let label_key = derive_label_key(&url);
@@ -85,7 +102,7 @@ pub async fn cloud_fetch_label(
                         Some(format!("http://127.0.0.1:{port}/images/{label_key}"));
                 }
                 Err(e) => {
-                    tracing::warn!(label_key = %label_key, ?e, "面單預產: 同步下載失敗，回原雲端 URL");
+                    tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗，回原雲端 URL");
                     // result.print_file_path 維持原雲端 URL，前端仍可顯示
                 }
             }
@@ -93,4 +110,37 @@ pub async fn cloud_fetch_label(
     }
 
     Ok(result)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExaminePackageRequest {
+    pub shipment_no: String,
+}
+
+/// 自動印單第一步：掃包裹條碼取訂單清單
+#[tauri::command]
+pub async fn cloud_examine_package(
+    state: State<'_, SharedState>,
+    req: ExaminePackageRequest,
+) -> AppResult<ExaminePackageResult> {
+    state.cloud.examine_package(&req.shipment_no).await
+}
+
+/// 自動印單專用：cloud-print 端點回應 schema 與 PrintViewResult 不同,需獨立 command
+#[tauri::command]
+pub async fn cloud_fetch_cloud_print(
+    state: State<'_, SharedState>,
+    req: FetchCloudPrintRequest,
+) -> AppResult<CloudPrintResult> {
+    state
+        .cloud
+        .fetch_cloud_print_label(
+            &req.order_sn,
+            &req.print_type,
+            req.enforce,
+            req.package_sn.as_deref(),
+            req.scanner_user.as_deref(),
+            req.sticker_user.as_deref(),
+        )
+        .await
 }

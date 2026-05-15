@@ -59,9 +59,6 @@ pub struct CloudConfig {
     /// 登入 / Session 驗證 path
     #[serde(default = "default_session_path")]
     pub session_path: String,
-    /// 工控機回報結果推送雲端的 path
-    #[serde(default = "default_report_path")]
-    pub report_path: String,
     /// 掃描列印 (操作員 UI 用) path
     #[serde(default = "default_scan_print_path")]
     pub scan_print_path: String,
@@ -71,6 +68,9 @@ pub struct CloudConfig {
     /// 雲端列印 path
     #[serde(default = "default_cloud_print_path")]
     pub cloud_print_path: String,
+    /// 自動印單包裹查詢 (examine-package) path
+    #[serde(default = "default_examine_package_path")]
+    pub examine_package_path: String,
     /// 分揀完成 webhook path
     #[serde(default = "default_webhook_path")]
     pub webhook_path: String,
@@ -88,10 +88,10 @@ impl Default for CloudConfig {
             parcel_forward_path: default_parcel_forward_path(),
             parcel_proxy_path: default_parcel_proxy_path(),
             session_path: default_session_path(),
-            report_path: default_report_path(),
             scan_print_path: default_scan_print_path(),
             pre_generate_path: default_pre_generate_path(),
             cloud_print_path: default_cloud_print_path(),
+            examine_package_path: default_examine_package_path(),
             webhook_path: default_webhook_path(),
         }
     }
@@ -151,10 +151,10 @@ fn default_parcel_mode() -> String { "forward".to_string() }
 fn default_parcel_forward_path() -> String { "/api/v2/order-forward-print".to_string() }
 fn default_parcel_proxy_path() -> String { "/api/v2/order-proxy-print".to_string() }
 fn default_session_path() -> String { "/api/v1/local-middleware/session".to_string() }
-fn default_report_path() -> String { "/api/v1/local-middleware/report".to_string() }
 fn default_scan_print_path() -> String { "/api/v1/local-middleware/label/scan-print".to_string() }
 fn default_pre_generate_path() -> String { "/api/v1/local-middleware/label/pre-generate".to_string() }
 fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-print".to_string() }
+fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/examine-package".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 
 impl AppConfig {

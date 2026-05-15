@@ -106,6 +106,7 @@ declare global {
   const passwordValidator: typeof import('./@core/utils/validators.js')['passwordValidator']
   const pausableWatch: typeof import('@vueuse/core')['pausableWatch']
   const phoneNumberValidator: typeof import('./@core/utils/validators.js')['phoneNumberValidator']
+  const playSound: typeof import('./composables/useSoundEffects.js')['playSound']
   const prefixWithPlus: typeof import('./@core/utils/formatters.js')['prefixWithPlus']
   const provide: typeof import('vue')['provide']
   const provideLocal: typeof import('@vueuse/core')['provideLocal']
@@ -460,6 +461,7 @@ declare module 'vue' {
     readonly passwordValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['passwordValidator']>
     readonly pausableWatch: UnwrapRef<typeof import('@vueuse/core')['pausableWatch']>
     readonly phoneNumberValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['phoneNumberValidator']>
+    readonly playSound: UnwrapRef<typeof import('./composables/useSoundEffects.js')['playSound']>
     readonly prefixWithPlus: UnwrapRef<typeof import('./@core/utils/formatters.js')['prefixWithPlus']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly provideLocal: UnwrapRef<typeof import('@vueuse/core')['provideLocal']>

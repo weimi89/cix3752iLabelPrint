@@ -95,26 +95,28 @@ const handleQuery = async () => {
 
     <VRow>
       <VCol cols="12" lg="5">
-        <VCard>
-          <VCardText>
-            <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" clearable-top />
-            <div v-if="totalItems > 0" class="mt-3">
-              <div class="d-flex justify-space-between mb-1">
-                <span class="text-xs text-medium-emphasis">面單載入進度</span>
-                <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
+        <div class="left-sticky">
+          <VCard>
+            <VCardText>
+              <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" clearable-top />
+              <div v-if="totalItems > 0" class="mt-3">
+                <div class="d-flex justify-space-between mb-1">
+                  <span class="text-xs text-medium-emphasis">面單載入進度</span>
+                  <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
+                </div>
+                <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
               </div>
-              <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
-            </div>
-          </VCardText>
-        </VCard>
+            </VCardText>
+          </VCard>
 
-        <div class="d-flex justify-center gap-2 mt-3">
-          <VBtn v-if="!isProcessing" color="primary" @click="handleQuery">
-            <VIcon icon="tabler-search" class="me-1" />查詢
-          </VBtn>
-          <VBtn v-else color="error" @click="stopProcessing">
-            <VIcon icon="tabler-player-stop" class="me-1" />停止
-          </VBtn>
+          <div class="d-flex justify-center gap-2 mt-3">
+            <VBtn v-if="!isProcessing" color="primary" @click="handleQuery">
+              <VIcon icon="tabler-search" class="me-1" />查詢
+            </VBtn>
+            <VBtn v-else color="error" @click="stopProcessing">
+              <VIcon icon="tabler-player-stop" class="me-1" />停止
+            </VBtn>
+          </div>
         </div>
       </VCol>
 
@@ -126,17 +128,17 @@ const handleQuery = async () => {
               <h4 class="text-h6 mt-4 mb-1">尚未載入面單</h4>
               <p class="text-body-2 text-medium-emphasis">請在左側輸入訂單編號後按下「查詢」</p>
             </div>
-            <div v-else class="d-flex flex-wrap gap-3">
+            <div v-else class="label-grid">
               <div v-for="item in downloadList" :key="item.sn" class="cell">
                 <div class="cell__paper">
                   <img v-if="item.image" :src="item.image" :alt="item.sn" />
                   <div v-else-if="!item.code" class="cell__loading"><VProgressCircular indeterminate size="32" /></div>
                   <div v-else class="cell__error">
-                    <VIcon :icon="statusIcon(item.code)" size="32" />
-                    <div class="text-caption mt-1">{{ item.message }}</div>
+                    <VIcon :icon="statusIcon(item.code)" size="40" class="cell__error-icon" />
+                    <div class="cell__error-sn">{{ item.sn }}</div>
+                    <div class="cell__error-msg">{{ item.message }}</div>
                   </div>
                 </div>
-                <div class="text-caption text-center py-1">{{ item.sn }}</div>
               </div>
             </div>
           </VCardText>
@@ -156,35 +158,79 @@ const handleQuery = async () => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
+.left-sticky {
+  position: sticky;
+  inset-block-start: 5rem;
+  z-index: 1;
+}
+
+.label-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
 .cell {
-  inline-size: 200px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   overflow: hidden;
 }
 .cell__paper {
   position: relative;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 3 / 4;
   background: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
+
+  img {
+    max-inline-size: 100%;
+    max-block-size: 100%;
+    object-fit: contain;
+  }
 }
-.cell__paper img {
-  max-inline-size: 100%;
-  max-block-size: 100%;
-  object-fit: contain;
-}
-.cell__loading,
-.cell__error {
+.cell__loading {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px;
   text-align: center;
+  padding: 8px;
 }
+
+// 黑底錯誤遮罩(對齐 ScanPrintPage / web 端 .error-mask)
 .cell__error {
-  color: rgb(var(--v-theme-error));
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  text-align: center;
+  background: rgba(20, 20, 24, 0.78);
+  color: #fff;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.cell__error-icon {
+  color: #ff8a65;
+  margin-block-end: 2px;
+}
+.cell__error-sn {
+  font-family: 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.cell__error-msg {
+  font-size: 12px;
+  line-height: 1.4;
+  max-inline-size: 90%;
+  word-break: break-word;
+  color: #ffd1c1;
 }
 </style>

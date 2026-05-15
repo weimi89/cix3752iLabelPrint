@@ -1,6 +1,7 @@
 <script setup>
-import { invoke } from '@tauri-apps/api/core'
-import { printImage } from '@/api/tauri'
+import { toast } from 'vue3-toastify'
+import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
+import { playSound } from '@/composables/useSoundEffects'
 import AppHeader from '@/components/AppHeader.vue'
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
@@ -36,7 +37,6 @@ const form = reactive({
 })
 
 const packageOrders = ref([])
-const errorMsg = ref('')
 const shipmentNoRef = ref(null)
 const orderSnRef = ref(null)
 
@@ -44,24 +44,27 @@ const orderSnRef = ref(null)
 const handleExaminePackage = async () => {
   const value = form.shipment_no.trim()
   if (!value) return
-  errorMsg.value = ''
   try {
-    const data = await invoke('cloud_fetch_label', {
-      req: { order_sn: value, print_type: form.print_type, enforce: false, mode: 'cloud_print_examine' },
-    })
-    // 後端 examine-package 是另一個端點；簡化版直接走 cloud_fetch_label 等待後續整合
+    const data = await cloudExaminePackage(value)
     if (data?.respond_code === 'FIND-PACKAGE-ORDER') {
       form.package_sn = data.package_sn || ''
       packageOrders.value = data.orders || []
       form.shipment_no = ''
+      playSound('effect_1')
+      toast(`已載入袋號 ${data.package_sn}：${data.orders?.length || 0} 筆`, { type: 'success' })
       nextTick(() => orderSnRef.value?.focus())
     } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
-      errorMsg.value = data.respond_message || '查無資料'
+      playSound('effect_2')
+      toast(data.respond_message || '查無資料', { type: 'error' })
       packageOrders.value = []
       form.package_sn = ''
+    } else {
+      playSound('effect_2')
+      toast(`未知回應 (${data?.respond_code || '無 code'})：${data?.respond_message || ''}`, { type: 'error' })
     }
   } catch (e) {
-    errorMsg.value = String(e)
+    playSound('effect_2')
+    toast(String(e), { type: 'error' })
   }
 }
 
@@ -69,18 +72,16 @@ const handleExaminePackage = async () => {
 const handlePrintSubmit = async () => {
   const orderSn = form.order_sn.trim()
   if (!orderSn) return
-  if (!form.scanner_user.trim()) { errorMsg.value = '未填寫操作人員'; return }
-  if (!form.sticker_user.trim()) { errorMsg.value = '未填寫貼單人員'; return }
-  errorMsg.value = ''
+  if (!form.scanner_user.trim()) { toast('未填寫操作人員', { type: 'error' }); return }
+  if (!form.sticker_user.trim()) { toast('未填寫貼單人員', { type: 'error' }); return }
 
   try {
-    const data = await invoke('cloud_fetch_label', {
-      req: {
-        order_sn: orderSn,
-        print_type: form.print_type,
-        enforce: form.enforce,
-        mode: 'cloud_print',
-      },
+    const data = await cloudFetchCloudPrint(orderSn, {
+      printType: form.print_type,
+      enforce: form.enforce,
+      packageSn: form.package_sn || '',
+      scannerUser: form.scanner_user || '',
+      stickerUser: form.sticker_user || '',
     })
     form.order_sn = ''
     nextTick(() => orderSnRef.value?.focus())
@@ -89,24 +90,38 @@ const handlePrintSubmit = async () => {
       case 'PRINT-SUCCESS': {
         const printer = printerMap.value[data.provider_code]
         if (!printer) {
-          errorMsg.value = `未設定 ${data.provider_code} 印表機，請至「印表機設定」`
+          playSound('effect_2')
+          toast(`未設定 ${data.provider_code} 印表機，請至「印表機設定」`, { type: 'error' })
           return
         }
         const path = data.image_path?.startsWith('file://') ? data.image_path.slice(7) : data.image_path
-        await printImage({ printerName: printer, imagePath: path })
+        try {
+          await printImage({ printerName: printer, imagePath: path })
+          playSound('effect_1')
+          toast(`列印包裹貼標：${data.shipment_no || orderSn}`, { type: 'success' })
+        } catch (e) {
+          playSound('effect_2')
+          toast(`送印失敗：${String(e)}`, { type: 'error' })
+          return
+        }
         packageOrders.value = packageOrders.value.map(o =>
           o.shipping_no === data.shipment_no ? { ...o, _printed: true } : o,
         )
         break
       }
-      case 'NO-DATA': errorMsg.value = `查無代寄包裹：${orderSn}`; break
-      case 'PRINT-ERROR': errorMsg.value = `無法列印貼標：${orderSn}`; break
-      case 'UNCONFIRMED-SHIPMENT': errorMsg.value = `包裹尚未確認：${orderSn}`; break
-      case 'ERROR-SHIPMENT': errorMsg.value = `包裹資料異常：${orderSn}`; break
-      default: errorMsg.value = data?.respond_message || '未知回應'
+      case 'NO-DATA': playSound('effect_2'); toast(`查無代寄包裹：${orderSn}`, { type: 'error' }); break
+      case 'PRINT-ERROR': playSound('effect_2'); toast(`無法列印貼標：${orderSn}`, { type: 'error' }); break
+      case 'UNCONFIRMED-SHIPMENT': playSound('effect_4'); toast(`包裹尚未確認：${orderSn}`, { type: 'warning' }); break
+      case 'ERROR-SHIPMENT': playSound('effect_2'); toast(`包裹資料異常：${orderSn}${data.respond_message ? `\n${data.respond_message}` : ''}`, { type: 'error' }); break
+      case 'ABNORMAL-SHIPMENT': playSound('effect_2'); toast(`包裹異常出貨：${data.shipment_no || orderSn}`, { type: 'info' }); break
+      case 'ABNORMAL-PACKAGE': playSound('effect_2'); toast(`訂單異常袋號：${data.package_sn || orderSn}`, { type: 'warning' }); break
+      case 'WRAPPER-ERROR': playSound('effect_2'); toast(`包裹錯誤貼標：${data.shipment_no || orderSn}`, { type: 'warning' }); break
+      case 'STORE-CLOSED': playSound('effect_3'); toast(`門市關轉異常攔截：${data.shipment_no || orderSn}`, { type: 'warning' }); break
+      default: playSound('effect_2'); toast(`未知回應 (${data?.respond_code || '無 code'})：${data?.respond_message || ''}`, { type: 'error' })
     }
   } catch (e) {
-    errorMsg.value = String(e)
+    playSound('effect_2')
+    toast(String(e), { type: 'error' })
   }
 }
 
@@ -133,7 +148,6 @@ onMounted(() => shipmentNoRef.value?.focus())
     <VAlert v-if="!isAnyPrinterReady" type="error" variant="tonal" class="mb-3">
       尚未設定任何印表機，請先至「印表機設定」頁完成配置。
     </VAlert>
-    <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
 
     <VRow>
       <VCol cols="12" lg="5">
