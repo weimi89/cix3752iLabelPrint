@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::cache::derive_label_key;
 use crate::cloud::LabelFetchMode;
 use crate::models::{CloudSession, PrintViewResult};
 use crate::{AppResult, SharedState};
@@ -67,8 +68,29 @@ pub async fn cloud_fetch_label(
         "cloud_print" => LabelFetchMode::CloudPrint,
         _ => LabelFetchMode::WebPrint,
     };
-    state
+    let mut result = state
         .cloud
         .fetch_label_for_print(&req.order_sn, &req.print_type, req.enforce, mode)
-        .await
+        .await?;
+
+    // Download 模式：把面單同步下載到本地快取，回給前端本地 server 路徑（透過 /images 靜態 serve）
+    if matches!(mode, LabelFetchMode::Download) {
+        if let Some(url) = result.print_file_path.clone() {
+            // 保留雲端 URL 的子資料夾結構 (labels/{provider}/{date}/{hash}.png)
+            let label_key = derive_label_key(&url);
+            match state.cache.fetch_now(&label_key, &url).await {
+                Ok(()) => {
+                    let port = state.config.read().await.server.port;
+                    result.print_file_path =
+                        Some(format!("http://127.0.0.1:{port}/images/{label_key}"));
+                }
+                Err(e) => {
+                    tracing::warn!(label_key = %label_key, ?e, "面單預產: 同步下載失敗，回原雲端 URL");
+                    // result.print_file_path 維持原雲端 URL，前端仍可顯示
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }

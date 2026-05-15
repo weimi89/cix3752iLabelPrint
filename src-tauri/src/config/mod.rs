@@ -30,9 +30,9 @@ pub struct ServerConfig {
     pub auto_start: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudConfig {
-    /// 雲端 API base URL，例如 https://example.com
+    /// 雲端 API base URL（網域），例如 https://ship.cix3752i.com
     #[serde(default)]
     pub api_base: String,
     /// 連線逾時秒數
@@ -44,11 +44,62 @@ pub struct CloudConfig {
     /// 跳過 SSL 憑證驗證（給內網/開發環境用）
     #[serde(default)]
     pub allow_invalid_certs: bool,
+    /// 發送 logistic-cat webhook 時帶的 job_user 值（識別這台機器/操作員）
+    #[serde(default = "default_job_user")]
+    pub job_user: String,
+    /// 包裹查詢模式：`forward`（轉寄）或 `proxy`（代寄）
+    #[serde(default = "default_parcel_mode")]
+    pub parcel_mode: String,
+    /// 轉寄訂單列印 path prefix（會自動拼上 /{queryNo}）
+    #[serde(default = "default_parcel_forward_path")]
+    pub parcel_forward_path: String,
+    /// 代寄訂單列印 path prefix
+    #[serde(default = "default_parcel_proxy_path")]
+    pub parcel_proxy_path: String,
+    /// 登入 / Session 驗證 path
+    #[serde(default = "default_session_path")]
+    pub session_path: String,
+    /// 工控機回報結果推送雲端的 path
+    #[serde(default = "default_report_path")]
+    pub report_path: String,
+    /// 掃描列印 (操作員 UI 用) path
+    #[serde(default = "default_scan_print_path")]
+    pub scan_print_path: String,
+    /// 面單預產 path
+    #[serde(default = "default_pre_generate_path")]
+    pub pre_generate_path: String,
+    /// 雲端列印 path
+    #[serde(default = "default_cloud_print_path")]
+    pub cloud_print_path: String,
+    /// 分揀完成 webhook path
+    #[serde(default = "default_webhook_path")]
+    pub webhook_path: String,
+}
+
+impl Default for CloudConfig {
+    fn default() -> Self {
+        Self {
+            api_base: String::new(),
+            timeout_secs: default_timeout(),
+            retry: default_retry(),
+            allow_invalid_certs: false,
+            job_user: default_job_user(),
+            parcel_mode: default_parcel_mode(),
+            parcel_forward_path: default_parcel_forward_path(),
+            parcel_proxy_path: default_parcel_proxy_path(),
+            session_path: default_session_path(),
+            report_path: default_report_path(),
+            scan_print_path: default_scan_print_path(),
+            pre_generate_path: default_pre_generate_path(),
+            cloud_print_path: default_cloud_print_path(),
+            webhook_path: default_webhook_path(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
-    /// 圖片快取目錄；空字串代表使用 app_data/cache/labels
+    /// 圖片快取目錄；空字串代表使用系統「圖片」資料夾（~/Pictures）
     #[serde(default)]
     pub dir: String,
     /// 保留天數，0 代表永久保留
@@ -57,9 +108,6 @@ pub struct CacheConfig {
     /// 最大容量 (MB)，0 代表不限
     #[serde(default)]
     pub max_size_mb: u64,
-    /// 是否啟用背景補下載
-    #[serde(default = "default_true")]
-    pub background_prefetch: bool,
 }
 
 impl Default for AppConfig {
@@ -88,7 +136,6 @@ impl Default for CacheConfig {
             dir: String::new(),
             keep_days: default_keep_days(),
             max_size_mb: 0,
-            background_prefetch: true,
         }
     }
 }
@@ -99,6 +146,16 @@ fn default_timeout() -> u64 { 30 }
 fn default_retry() -> u32 { 3 }
 fn default_keep_days() -> u32 { 14 }
 fn default_true() -> bool { true }
+fn default_job_user() -> String { "物流貓".to_string() }
+fn default_parcel_mode() -> String { "forward".to_string() }
+fn default_parcel_forward_path() -> String { "/api/v2/order-forward-print".to_string() }
+fn default_parcel_proxy_path() -> String { "/api/v2/order-proxy-print".to_string() }
+fn default_session_path() -> String { "/api/v1/local-middleware/session".to_string() }
+fn default_report_path() -> String { "/api/v1/local-middleware/report".to_string() }
+fn default_scan_print_path() -> String { "/api/v1/local-middleware/label/scan-print".to_string() }
+fn default_pre_generate_path() -> String { "/api/v1/local-middleware/label/pre-generate".to_string() }
+fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-print".to_string() }
+fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 
 impl AppConfig {
     /// 載入設定；檔案不存在時建立預設值並寫入
@@ -131,10 +188,14 @@ impl AppConfig {
         Ok(())
     }
 
-    /// 解析實際快取目錄；空字串會 fallback 到 app_data/cache/labels
+    /// 解析實際快取目錄；空字串會 fallback 到系統「圖片」資料夾（~/Pictures）
+    /// 若取不到（罕見：headless / 系統未定義 picture_dir），最後退回 app_data/cache/labels
     pub fn resolved_cache_dir(&self, handle: &AppHandle) -> AppResult<PathBuf> {
         if !self.cache.dir.is_empty() {
             return Ok(PathBuf::from(&self.cache.dir));
+        }
+        if let Ok(pic) = handle.path().picture_dir() {
+            return Ok(pic);
         }
         let app_data = handle
             .path()

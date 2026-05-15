@@ -36,7 +36,7 @@ const save = async () => {
         errorMsg.value = `自動啟動切換失敗:${String(e?.message || e)}`
       }
     }
-    flashMsg.value = '已儲存(IP/Port 變更需點「重啟 Server」生效)'
+    flashMsg.value = '已儲存(位址/連接埠變更需點「重啟服務」生效)'
     setTimeout(() => (flashMsg.value = ''), 3000)
   } catch (e) {
     errorMsg.value = String(e)
@@ -49,7 +49,7 @@ const restart = async () => {
   restarting.value = true
   try {
     status.value = await serverRestart()
-    flashMsg.value = `Server 已重啟,目前綁定 ${status.value.bind_addr}`
+    flashMsg.value = `服務已重啟,目前綁定 ${status.value.bind_addr}`
     setTimeout(() => (flashMsg.value = ''), 3000)
   } catch (e) {
     errorMsg.value = String(e)
@@ -61,11 +61,11 @@ const restart = async () => {
 
 <template>
   <div v-if="config">
-    <AppHeader title="Server 設定" subtitle="給分揀機工控機呼叫的本地 HTTP API" icon="tabler-server-2">
+    <AppHeader title="服務設定" subtitle="給分揀機工控機呼叫的本地 HTTP API" icon="tabler-server-2">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn :loading="restarting" color="warning" :disabled="!isTauriRuntime" @click="restart">
-            <VIcon icon="tabler-refresh" size="16" class="me-1" />重啟 Server
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />重啟服務
           </VBtn>
         </div>
         <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
@@ -74,7 +74,7 @@ const restart = async () => {
             <VList>
               <VListItem :disabled="!isTauriRuntime" @click="restart">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
-                <VListItemTitle>重啟 Server</VListItemTitle>
+                <VListItemTitle>重啟服務</VListItemTitle>
               </VListItem>
             </VList>
           </VMenu>
@@ -89,12 +89,12 @@ const restart = async () => {
       <VCardText>
         <VRow dense>
           <VCol cols="12" md="8">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">Listen IP</VLabel>
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">監聽位址</VLabel>
             <VTextField v-model="config.server.listen_ip" hide-details />
           </VCol>
           <VCol cols="12" md="4">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">Port</VLabel>
-            <VTextField v-model.number="config.server.port" type="number" hide-details />
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">連接埠</VLabel>
+            <VNumberInput v-model="config.server.port" :min="1" :max="65535" />
           </VCol>
         </VRow>
 

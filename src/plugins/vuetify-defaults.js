@@ -118,6 +118,13 @@ export default {
     color: 'primary',
     hideDetails: 'auto',
   },
+  VNumberInput: {
+    variant: 'outlined',
+    density: 'comfortable',
+    color: 'primary',
+    hideDetails: 'auto',
+    controlVariant: 'stacked',
+  },
   VAutocomplete: {
     variant: 'outlined',
     color: 'primary',

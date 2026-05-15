@@ -36,7 +36,7 @@ const formatBytes = bytes => {
     </VAlert>
 
     <!-- 上半:即時狀態(Middleware / 雲端 / Queue / 已成功) -->
-    <VRow>
+    <VRow dense>
       <VCol cols="12" md="6" lg="3">
         <VCard class="card-shadow">
           <VCardItem>
@@ -95,7 +95,7 @@ const formatBytes = bytes => {
     </VRow>
 
     <!-- 下半:本日統計(請求/成功率/cache 命中率/快取容量) -->
-    <VRow class="mt-1">
+    <VRow dense>
       <VCol cols="12" md="6" lg="3">
         <VCard class="card-shadow">
           <VCardItem>

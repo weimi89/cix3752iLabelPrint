@@ -35,6 +35,12 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  /// 把「清空」按鈕放在 label 右側（外露明顯按鈕）；
+  /// 預設 false → 沿用 v-field 內 hover 才顯示的 ⊗ icon
+  clearableTop: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -149,17 +155,27 @@ const toggleExpand = () => {
 
 <template>
   <div class="app-bulk-input flex-grow-1" :class="$attrs.class">
-    <VLabel
-      v-if="label"
-      :for="elementId"
-      class="mb-1 text-body-2 text-wrap"
-      style="line-height: 15px;"
-    >
-      {{ label }}
-      <span v-if="itemCount > 0" class="item-count ms-2">
-        {{ itemCount }} 筆
-      </span>
-    </VLabel>
+    <!-- clearableTop=true 時 label 與「清空」按鈕並排在頂部 -->
+    <div v-if="label || (clearableTop && clearable && itemCount > 0)" class="d-flex align-center mb-1">
+      <VLabel
+        v-if="label"
+        :for="elementId"
+        class="text-body-2 text-wrap"
+        style="line-height: 15px;"
+      >
+        {{ label }}
+        <span v-if="itemCount > 0" class="item-count ms-2">{{ itemCount }} 筆</span>
+      </VLabel>
+      <VSpacer v-if="clearableTop" />
+      <button
+        v-if="clearableTop && clearable && itemCount > 0"
+        type="button"
+        class="clear-all-btn"
+        @click="clearAll"
+      >
+        <VIcon icon="tabler-circle-x" size="14" class="me-1" />清空
+      </button>
+    </div>
 
     <div
       class="v-input v-input--horizontal v-input--density-default v-combobox v-text-field"
@@ -214,7 +230,8 @@ const toggleExpand = () => {
               >
             </div>
           </div>
-          <div v-if="clearable && itemCount > 0" class="v-field__clearable">
+          <!-- clearableTop=true 時改用上方按鈕，這裡不再顯示 -->
+          <div v-if="!clearableTop && clearable && itemCount > 0" class="v-field__clearable">
             <VIcon
               icon="tabler-circle-x"
               size="16"
@@ -274,7 +291,9 @@ const toggleExpand = () => {
     }
   }
 
-  .chip-item { contain: layout style; }
+  .chip-item {
+    contain: layout style;
+  }
 
   .item-count {
     font-size: 0.75rem;
@@ -294,6 +313,25 @@ const toggleExpand = () => {
 
   .v-field:hover .v-field__clearable,
   .v-field--focused .v-field__clearable { opacity: 1; }
+
+  // clearableTop=true 時 label 旁的「清空」按鈕
+  .clear-all-btn {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: rgba(var(--v-theme-on-surface), 0.6);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    background: transparent;
+    border: none;
+
+    &:hover {
+      background: rgb(var(--v-theme-error) / 0.08);
+      color: rgb(var(--v-theme-error));
+    }
+  }
 
   .v-field__outline {
     --v-field-border-opacity: 0.22;

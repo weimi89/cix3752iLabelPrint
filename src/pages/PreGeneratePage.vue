@@ -97,7 +97,7 @@ const handleQuery = async () => {
       <VCol cols="12" lg="5">
         <VCard>
           <VCardText>
-            <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" />
+            <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" clearable-top />
             <div v-if="totalItems > 0" class="mt-3">
               <div class="d-flex justify-space-between mb-1">
                 <span class="text-xs text-medium-emphasis">面單載入進度</span>

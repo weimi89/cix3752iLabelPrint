@@ -7,6 +7,30 @@
 @use './styles';
 
 // =============================================================================
+// 桌面 App 行為：禁止選取 UI chrome 文字（按鈕/標題/導航等），
+// 只在輸入框、表格內容、code 區塊與標示 .selectable 的元素開放選取
+// =============================================================================
+html,
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+[contenteditable='true'],
+.v-field__input,
+.v-table,
+code,
+pre,
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+// =============================================================================
 // VerticalNav active link 強制覆蓋 — Vuetify 的 a tag reset 蓋掉 %nav-link-active
 // 的 background-color,這裡用更高優先級補回紫色 active 背景
 // =============================================================================
@@ -473,4 +497,24 @@ body {
   .nav-sub-item::before {
     border-color: rgba(225, 222, 245, 0.4);
   }
+}
+
+// =============================================================================
+// 全域 placeholder 樣式 — 拉開與 value 的差異
+// Vuetify 預設 placeholder 與 disabled 文字幾乎同色,難辨別
+// =============================================================================
+.v-field__input::placeholder,
+.v-field input::placeholder,
+.v-field textarea::placeholder {
+  color: rgba(var(--v-theme-on-surface), 0.32) !important;
+  opacity: 1 !important;
+  font-style: italic;
+  font-weight: 400;
+}
+
+// VSelect / VCombobox 未選時內部 v-field-label 顯示為 placeholder 的情境
+.v-field .v-field__field .v-label.v-field-label:not(.v-field-label--floating) {
+  color: rgba(var(--v-theme-on-surface), 0.32) !important;
+  font-style: italic;
+  font-weight: 400;
 }

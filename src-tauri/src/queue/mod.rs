@@ -36,16 +36,28 @@ impl QueueManager {
     }
 
     /// 寫入一筆回報到佇列；只要寫得進 DB 就立即回 OK 給工控機
-    pub async fn enqueue(&self, payload: &ReportPayload) -> AppResult<i64> {
+    /// tracking_no 由 server 端從 parcel_query_log 反查傳入（payload 內已不含此欄位）
+    pub async fn enqueue(&self, payload: &ReportPayload, tracking_no: &str) -> AppResult<i64> {
         let json = serde_json::to_string(payload)?;
         let row = sqlx::query(
-            "INSERT INTO report_queue (tracking_no, payload_json, status) VALUES (?, ?, 'pending')",
+            "INSERT INTO report_queue (tracking_no, payload_json, response_id, status)
+             VALUES (?, ?, ?, 'pending')",
         )
-        .bind(&payload.tracking_no)
+        .bind(tracking_no)
         .bind(&json)
+        .bind(payload.response_id)
         .execute(&self.inner.db)
         .await?;
         Ok(row.last_insert_rowid())
+    }
+
+    /// 透過 queue_id 反查當初工控機回報時帶的 response_id
+    pub async fn lookup_response_id(&self, queue_id: i64) -> AppResult<Option<i64>> {
+        let row = sqlx::query("SELECT response_id FROM report_queue WHERE id = ?")
+            .bind(queue_id)
+            .fetch_optional(&self.inner.db)
+            .await?;
+        Ok(row.and_then(|r| r.try_get::<Option<i64>, _>("response_id").ok().flatten()))
     }
 
     /// 取得佇列統計

@@ -28,6 +28,7 @@ fn default_limit() -> i64 {
 pub struct QueueItem {
     pub id: i64,
     pub tracking_no: String,
+    pub response_id: Option<i64>,
     pub status: String,
     pub retry_count: i64,
     pub last_error: Option<String>,
@@ -47,7 +48,7 @@ pub async fn queue_list(
 
     let rows = if let Some(status) = req.status.as_deref() {
         sqlx::query(
-            "SELECT id, tracking_no, status, retry_count, last_error,
+            "SELECT id, tracking_no, response_id, status, retry_count, last_error,
                     created_at, updated_at, sent_at, payload_json
              FROM report_queue
              WHERE status = ?
@@ -61,7 +62,7 @@ pub async fn queue_list(
         .await?
     } else {
         sqlx::query(
-            "SELECT id, tracking_no, status, retry_count, last_error,
+            "SELECT id, tracking_no, response_id, status, retry_count, last_error,
                     created_at, updated_at, sent_at, payload_json
              FROM report_queue
              ORDER BY id DESC
@@ -78,6 +79,7 @@ pub async fn queue_list(
         .map(|row| QueueItem {
             id: row.try_get("id").unwrap_or(0),
             tracking_no: row.try_get("tracking_no").unwrap_or_default(),
+            response_id: row.try_get("response_id").ok(),
             status: row.try_get("status").unwrap_or_default(),
             retry_count: row.try_get("retry_count").unwrap_or(0),
             last_error: row.try_get("last_error").ok(),

@@ -172,23 +172,13 @@ const handleClear = async () => {
         <VRow dense>
           <VCol cols="12" md="6">
             <VLabel class="mb-1 text-body-2" style="line-height: 15px;">保留天數(0 = 永久)</VLabel>
-            <VTextField v-model.number="config.cache.keep_days" type="number" hide-details />
+            <VNumberInput v-model="config.cache.keep_days" :min="0" />
           </VCol>
           <VCol cols="12" md="6">
             <VLabel class="mb-1 text-body-2" style="line-height: 15px;">最大容量 MB(0 = 不限)</VLabel>
-            <VTextField v-model.number="config.cache.max_size_mb" type="number" hide-details />
+            <VNumberInput v-model="config.cache.max_size_mb" :min="0" />
           </VCol>
         </VRow>
-
-        <VDivider class="my-4" />
-
-        <div class="d-flex align-center justify-space-between">
-          <div>
-            <div class="text-body-1 font-weight-medium">啟用背景補下載</div>
-            <div class="text-caption text-medium-emphasis">雲端有圖、本地沒圖時自動下載到快取</div>
-          </div>
-          <VSwitch v-model="config.cache.background_prefetch" hide-details color="primary" inset />
-        </div>
       </VCardText>
     </VCard>
 

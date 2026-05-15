@@ -27,11 +27,17 @@ const resetSearch = () => {
 
 const QUEUE_STATUSES = [
   { title: '全部', value: null },
-  { title: 'pending', value: 'pending' },
-  { title: 'sending', value: 'sending' },
-  { title: 'success', value: 'success' },
-  { title: 'failed', value: 'failed' },
+  { title: '待送', value: 'pending' },
+  { title: '傳送中', value: 'sending' },
+  { title: '成功', value: 'success' },
+  { title: '失敗', value: 'failed' },
 ]
+const STATUS_LABELS = {
+  pending: '待送',
+  sending: '傳送中',
+  success: '成功',
+  failed: '失敗',
+}
 
 // 瀏覽器預覽模式 mock 資料(80 筆,展示分頁)
 const STATUSES = ['success', 'success', 'success', 'pending', 'sending', 'failed']
@@ -41,6 +47,7 @@ const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
   return {
     id: 200 - i,
     tracking_no: `SF${1234567000 + i}`,
+    response_id: 9000000 + i,
     status,
     retry_count: status === 'failed' ? (i % 5) + 1 : 0,
     last_error: status === 'failed' ? ERRORS[i % ERRORS.length] : null,
@@ -83,7 +90,7 @@ const load = async () => {
 const handleRetry = async () => {
   try {
     const n = await queueRetryFailed()
-    flashMsg.value = `已重置 ${n} 筆 failed 為 pending,worker 下一輪會重試`
+    flashMsg.value = `已重置 ${n} 筆失敗為待送，背景作業下一輪會重試`
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
@@ -94,7 +101,7 @@ const handleRetry = async () => {
 const handlePurge = async () => {
   try {
     const n = await queuePurge({ status: 'success', olderThanDays: 7 })
-    flashMsg.value = `已清除 ${n} 筆超過 7 天的 success 紀錄`
+    flashMsg.value = `已清除 ${n} 筆超過 7 天的成功紀錄`
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
@@ -131,7 +138,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader title="Queue 歷史" subtitle="工控機回報 / 雲端推送結果" icon="tabler-truck-loading">
+    <AppHeader title="佇列歷史" subtitle="工控機回報 / 雲端推送結果" icon="tabler-truck-loading">
       <template #actions>
         <!-- 大尺寸(>= md):橫排三按鈕 -->
         <div class="d-none d-md-flex ga-2">
@@ -156,7 +163,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
               </VListItem>
               <VListItem :disabled="!isTauriRuntime" @click="handleRetry">
                 <template #prepend><VIcon icon="tabler-rotate" size="20" /></template>
-                <VListItemTitle>重試 failed</VListItemTitle>
+                <VListItemTitle>重試失敗項目</VListItemTitle>
               </VListItem>
               <VListItem :disabled="!isTauriRuntime" @click="handlePurge">
                 <template #prepend><VIcon icon="tabler-trash" size="20" /></template>
@@ -169,7 +176,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     </AppHeader>
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入 SQLite 內的 report_queue 紀錄。
+      瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入本地佇列紀錄。
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
@@ -193,7 +200,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
               </div>
             </VCol>
           </VRow>
-          <div class="d-flex justify-center pt-4 pb-2">
+          <div class="d-flex justify-center pt-4 pb-0">
             <VBtn variant="elevated" color="primary" @click="load">
               <VIcon icon="tabler-database-search" size="18" class="me-1" />查詢
             </VBtn>
@@ -215,8 +222,9 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <tr>
             <th class="text-center" style="width: 70px;">#</th>
             <th class="text-center" style="min-width: 150px;">追蹤號碼</th>
+            <th class="text-center" style="width: 120px;">回應 ID</th>
             <th class="text-center" style="width: 90px;">狀態</th>
-            <th class="text-center" style="width: 80px;">retry</th>
+            <th class="text-center" style="width: 80px;">重試</th>
             <th class="text-center" style="width: 170px;">建立時間</th>
             <th class="text-center" style="width: 170px;">送達雲端</th>
             <th style="min-width: 200px;">最後錯誤</th>
@@ -224,7 +232,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
         </thead>
         <tbody>
           <tr v-if="!queueItems.length">
-            <td colspan="7">
+            <td colspan="8">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
                 <span class="text-md">查無資料</span>
@@ -234,7 +242,8 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <tr v-for="row in queueItems" :key="row.id">
             <td class="text-center">{{ row.id }}</td>
             <td class="text-center">{{ row.tracking_no }}</td>
-            <td class="text-center"><span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ row.status }}</span></td>
+            <td class="text-center text-disabled">{{ row.response_id ?? '—' }}</td>
+            <td class="text-center"><span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ STATUS_LABELS[row.status] || row.status }}</span></td>
             <td class="text-center">{{ row.retry_count }}</td>
             <td class="text-center">{{ formatDate(row.created_at) }}</td>
             <td class="text-center">{{ formatDate(row.sent_at) }}</td>

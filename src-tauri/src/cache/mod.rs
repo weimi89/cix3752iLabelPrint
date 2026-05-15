@@ -21,7 +21,6 @@ struct Inner {
     base_dir: RwLock<PathBuf>,
     keep_days: RwLock<u32>,
     max_size_mb: RwLock<u64>,
-    background_prefetch: RwLock<bool>,
     db: DbPool,
     http: Client,
 }
@@ -42,7 +41,6 @@ impl CacheManager {
                 base_dir: RwLock::new(base_dir),
                 keep_days: RwLock::new(config.cache.keep_days),
                 max_size_mb: RwLock::new(config.cache.max_size_mb),
-                background_prefetch: RwLock::new(config.cache.background_prefetch),
                 db,
                 http,
             }),
@@ -56,7 +54,6 @@ impl CacheManager {
         *self.inner.base_dir.write() = new_dir;
         *self.inner.keep_days.write() = config.cache.keep_days;
         *self.inner.max_size_mb.write() = config.cache.max_size_mb;
-        *self.inner.background_prefetch.write() = config.cache.background_prefetch;
         Ok(())
     }
 
@@ -71,10 +68,6 @@ impl CacheManager {
 
     pub fn has_local(&self, label_key: &str) -> bool {
         self.local_path_for_key(label_key).exists()
-    }
-
-    pub fn background_prefetch_enabled(&self) -> bool {
-        *self.inner.background_prefetch.read()
     }
 
     /// 記一次 cache hit:更新 cache_meta.hit_count + daily_stats.cache_hit
@@ -110,20 +103,13 @@ impl CacheManager {
         Ok(())
     }
 
-    /// 觸發背景補下載(non-blocking;若已存在或已開啟下載則 noop)
-    pub fn spawn_prefetch(&self, label_key: String, source_url: String) {
-        if !self.background_prefetch_enabled() {
-            return;
+    /// 同步下載並寫入快取，完成才返回（給 GET /api/parcel 即時取得最新路徑用）
+    /// 若檔案已存在則直接返回 Ok(()) 不重抓
+    pub async fn fetch_now(&self, label_key: &str, source_url: &str) -> AppResult<()> {
+        if self.has_local(label_key) {
+            return Ok(());
         }
-        if self.has_local(&label_key) {
-            return;
-        }
-        let inner = self.inner.clone();
-        tokio::spawn(async move {
-            if let Err(e) = download_one(&inner, &label_key, &source_url).await {
-                tracing::warn!(label_key, ?e, "快取補下載失敗");
-            }
-        });
+        download_one(&self.inner, label_key, source_url).await
     }
 
     /// 啟動背景清理 task(依 keep_days 與 max_size_mb 刪除)
@@ -149,6 +135,29 @@ impl CacheManager {
     pub fn db(&self) -> &DbPool {
         &self.inner.db
     }
+}
+
+/// 從雲端圖片 URL 推導本地快取相對 key，保留 `labels/` 之後的子資料夾結構
+/// 規則：找到 URL 路徑中 `labels/` 出現的位置，回傳其後的相對路徑（去除 query string）
+/// 例：
+///   https://cdn.../data/labels/HCT/20260513/abc.png?t=1 → "HCT/20260513/abc.png"
+///   /data/labels/SFExpress/20260415/xxx.png            → "SFExpress/20260415/xxx.png"
+///   labels/foo.png                                      → "foo.png"
+///   其他無法解析的 URL → fallback 為 URL 路徑最後一段
+pub fn derive_label_key(image_url: &str) -> String {
+    let no_query = image_url.split('?').next().unwrap_or(image_url);
+    const NEEDLE: &str = "/labels/";
+    if let Some(idx) = no_query.find(NEEDLE) {
+        return no_query[idx + NEEDLE.len()..].to_string();
+    }
+    if let Some(rest) = no_query.strip_prefix("labels/") {
+        return rest.to_string();
+    }
+    no_query
+        .rsplit('/')
+        .next()
+        .unwrap_or("unknown.png")
+        .to_string()
 }
 
 async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppResult<()> {

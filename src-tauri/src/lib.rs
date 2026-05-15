@@ -45,17 +45,15 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            tauri::async_runtime::spawn(async move {
-                match bootstrap(handle.clone()).await {
-                    Ok(state) => {
-                        handle.manage(state);
-                        tracing::info!("應用啟動完成");
-                    }
-                    Err(e) => {
-                        tracing::error!(?e, "應用啟動失敗");
-                    }
-                }
-            });
+            // 同步等 bootstrap 完成才開放 invoke handler,避免前端先呼叫到
+            // 「state not managed」的競態
+            let state = tauri::async_runtime::block_on(bootstrap(handle.clone()))
+                .map_err(|e| {
+                    tracing::error!(?e, "應用啟動失敗");
+                    Box::<dyn std::error::Error>::from(e.to_string())
+                })?;
+            handle.manage(state);
+            tracing::info!("應用啟動完成");
 
             Ok(())
         })
@@ -80,6 +78,13 @@ pub fn run() {
             commands::cloud_commands::cloud_logout,
             commands::cloud_commands::cloud_session,
             commands::cloud_commands::cloud_fetch_label,
+            commands::dispatch_commands::dispatch_provider_list,
+            commands::dispatch_commands::dispatch_provider_upsert,
+            commands::dispatch_commands::dispatch_provider_delete,
+            commands::sort_channel_commands::sort_channel_list,
+            commands::sort_channel_commands::sort_channel_save,
+            commands::sort_channel_commands::sticker_history_list,
+            commands::sort_channel_commands::sticker_history_delete,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");

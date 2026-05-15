@@ -105,7 +105,10 @@ const reset = () => {
               :items="printers"
               item-title="name"
               item-value="system_name"
-              label="選擇本機印表機"
+              placeholder="選擇本機印表機"
+              variant="outlined"
+              density="compact"
+              hide-details
               clearable
               @update:model-value="persist"
             />

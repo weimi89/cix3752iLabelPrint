@@ -20,8 +20,23 @@ export const setAutoStart = async enabled => {
 // 設定 — 瀏覽器預覽模式下提供 mock,以免 UI 卡住
 const MOCK_CONFIG = {
   server: { listen_ip: '0.0.0.0', port: 18080, auto_start: true },
-  cloud: { api_base: '', timeout_secs: 30, retry: 3, allow_invalid_certs: false },
-  cache: { dir: '', keep_days: 14, max_size_mb: 0, background_prefetch: true },
+  cloud: {
+    api_base: '',
+    timeout_secs: 30,
+    retry: 3,
+    allow_invalid_certs: false,
+    job_user: '物流貓',
+    parcel_mode: 'forward',
+    parcel_forward_path: '/api/v2/order-forward-print',
+    parcel_proxy_path: '/api/v2/order-proxy-print',
+    session_path: '/api/v1/local-middleware/session',
+    report_path: '/api/v1/local-middleware/report',
+    scan_print_path: '/api/v1/local-middleware/label/scan-print',
+    pre_generate_path: '/api/v1/local-middleware/label/pre-generate',
+    cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
+    webhook_path: '/webhook/logistic-cat',
+  },
+  cache: { dir: '', keep_days: 14, max_size_mb: 0 },
 }
 export const getConfig = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CONFIG))
@@ -82,4 +97,57 @@ export const eventLogList = async ({ level = null, category = null, limit = 200,
 export const dailyStats = async ({ days = 7 } = {}) => {
   if (!isTauri) return []
   return await invoke('daily_stats', { req: { days } })
+}
+
+// 指派物流(物流商主檔)
+const MOCK_DISPATCH = [
+  { code: 'SF', name: '順豐速運', sort_order: 0, print_profile: 'PROFILE_SF' },
+  { code: 'BLACK', name: '黑貓宅急便', sort_order: 1, print_profile: 'PROFILE_BLACK' },
+  { code: 'POST', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_POST' },
+]
+export const dispatchProviderList = async () => {
+  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_DISPATCH))
+  return await invoke('dispatch_provider_list')
+}
+export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null }) => {
+  if (!isTauri) return Promise.resolve()
+  return invoke('dispatch_provider_upsert', {
+    req: { code, name, sort_order: sortOrder, print_profile: printProfile || null },
+  })
+}
+export const dispatchProviderDelete = code => {
+  if (!isTauri) return Promise.resolve(0)
+  return invoke('dispatch_provider_delete', { code })
+}
+
+// 分揀通道
+const POSITIONS = ['L1', 'L2', 'L3', 'L4', 'R1', 'R2', 'R3', 'R4']
+const MOCK_CHANNELS = POSITIONS.map(p => ({
+  position: p,
+  channel_code: null,
+  dispatch_code: null,
+  job_sticker: null,
+}))
+export const sortChannelList = async () => {
+  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CHANNELS))
+  return await invoke('sort_channel_list')
+}
+export const sortChannelSave = ({ position, channelCode, dispatchCode, jobSticker }) => {
+  if (!isTauri) return Promise.resolve()
+  return invoke('sort_channel_save', {
+    req: {
+      position,
+      channel_code: channelCode || null,
+      dispatch_code: dispatchCode || null,
+      job_sticker: jobSticker || null,
+    },
+  })
+}
+export const stickerHistoryList = async () => {
+  if (!isTauri) return ['王小明', '陳大華', '林美麗']
+  return await invoke('sticker_history_list')
+}
+export const stickerHistoryDelete = name => {
+  if (!isTauri) return Promise.resolve(0)
+  return invoke('sticker_history_delete', { name })
 }
