@@ -1,17 +1,17 @@
+import { h } from 'vue'
 import { breakpointsBootstrapV5 } from '@vueuse/core'
 import { VIcon } from 'vuetify/components/VIcon'
 import { defineThemeConfig } from '@core'
 import { Skins } from '@core/enums'
 
-// ❗ Logo SVG must be imported with ?raw suffix
-import logo from '@images/svg/logo.svg?raw'
+import AppLogo from '@/components/AppLogo.vue'
 import { AppContentLayoutNav, ContentWidth, FooterType, NavbarType } from '@layouts/enums'
 
 export const { themeConfig, layoutConfig } = defineThemeConfig({
   app: {
     title: '智配通',
     namespace: 'cix3752i-platform',
-    logo: h('div', { innerHTML: logo, style: 'line-height:0; color: rgb(var(--v-global-theme-primary))' }),
+    logo: h('div', { style: 'line-height:0; color: rgb(var(--v-global-theme-primary))' }, h(AppLogo)),
     contentWidth: ContentWidth.Fluid,
     contentLayoutNav: AppContentLayoutNav.Vertical,
     overlayNavFromBreakpoint: breakpointsBootstrapV5.lg,
