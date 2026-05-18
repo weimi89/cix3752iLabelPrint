@@ -50,7 +50,8 @@
     "cloudSettings": "雲端 API",
     "printerSettings": "印表機設定",
     "eventLog": "事件記錄",
-    "queueLog": "佇列歷史"
+    "queueLog": "佇列歷史",
+    "parcelQueryLog": "請求記錄"
   },
   "pagination": {
     "pagePrefix": "第",
@@ -271,12 +272,40 @@
       "keywordPlaceholder": "訊息或動作",
       "level": "等級",
       "category": "類別",
+      "levelOption": {
+        "info": "資訊",
+        "warn": "警告",
+        "error": "錯誤"
+      },
+      "categoryOption": {
+        "server": "伺服器",
+        "cloud": "雲端",
+        "cache": "快取",
+        "queue": "佇列",
+        "printer": "印表機"
+      },
       "col": {
         "time": "時間",
         "level": "等級",
         "category": "類別",
         "action": "動作",
         "message": "訊息"
+      }
+    },
+    "parcelQueryLog": {
+      "title": "請求記錄",
+      "subtitle": "工控機呼叫 GET /api/parcel 的查詢歷史",
+      "keyword": "關鍵字",
+      "keywordPlaceholder": "查詢條碼 / 物流單號 / label_key",
+      "col": {
+        "createdAt": "查詢時間",
+        "queryNo": "查詢條碼",
+        "trackingNo": "物流單號",
+        "shippingProvider": "物流簡碼",
+        "channel": "通道",
+        "printProfile": "印表機設定",
+        "responseId": "雲端 ID",
+        "labelKey": "面單 Key"
       }
     },
     "sort": {

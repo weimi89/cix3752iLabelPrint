@@ -94,6 +94,7 @@ pub fn run() {
             commands::sort_channel_commands::sticker_history_delete,
             commands::health_commands::network_health_get,
             commands::health_commands::network_health_check,
+            commands::parcel_query_log_commands::parcel_query_log_list,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");

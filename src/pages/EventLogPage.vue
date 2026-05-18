@@ -29,18 +29,21 @@ const { t } = useI18n()
 
 const LEVELS = computed(() => [
   { title: t('common.all'), value: null },
-  { title: 'info', value: 'info' },
-  { title: 'warn', value: 'warn' },
-  { title: 'error', value: 'error' },
+  { title: t('page.eventLog.levelOption.info'), value: 'info' },
+  { title: t('page.eventLog.levelOption.warn'), value: 'warn' },
+  { title: t('page.eventLog.levelOption.error'), value: 'error' },
 ])
 const CATEGORIES = computed(() => [
   { title: t('common.all'), value: null },
-  { title: 'server', value: 'server' },
-  { title: 'cloud', value: 'cloud' },
-  { title: 'cache', value: 'cache' },
-  { title: 'queue', value: 'queue' },
-  { title: 'printer', value: 'printer' },
+  { title: t('page.eventLog.categoryOption.server'), value: 'server' },
+  { title: t('page.eventLog.categoryOption.cloud'), value: 'cloud' },
+  { title: t('page.eventLog.categoryOption.cache'), value: 'cache' },
+  { title: t('page.eventLog.categoryOption.queue'), value: 'queue' },
+  { title: t('page.eventLog.categoryOption.printer'), value: 'printer' },
 ])
+
+const levelLabel = v => v ? t(`page.eventLog.levelOption.${v}`, v) : ''
+const categoryLabel = v => v ? t(`page.eventLog.categoryOption.${v}`, v) : ''
 
 // 瀏覽器預覽模式 mock 資料(60 筆,展示分頁)
 const TEMPLATES = [
@@ -219,8 +222,8 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           </tr>
           <tr v-for="ev in events" :key="ev.id">
             <td class="text-center">{{ formatDate(ev.created_at) }}</td>
-            <td class="text-center"><span class="font-weight-medium" :class="`text-${levelColor(ev.level)}`">{{ ev.level }}</span></td>
-            <td class="text-center">{{ ev.category }}</td>
+            <td class="text-center"><span class="font-weight-medium" :class="`text-${levelColor(ev.level)}`">{{ levelLabel(ev.level) }}</span></td>
+            <td class="text-center">{{ categoryLabel(ev.category) }}</td>
             <td class="text-center"><code>{{ ev.action }}</code></td>
             <td>{{ ev.message }}</td>
           </tr>

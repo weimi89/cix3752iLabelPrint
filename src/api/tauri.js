@@ -167,6 +167,34 @@ export const stickerHistoryDelete = name => {
   return invoke('sticker_history_delete', { name })
 }
 
+// Parcel 請求記錄 (GET /api/parcel 的查詢歷史)
+const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
+  response_id: 16021200 - i,
+  query_no: `TPNFXLKIMG${5 - (i % 5)}`,
+  tracking_no: `7108158${570 + i}`,
+  shipping_provider: ['H', 'F', 'E', '7', 'C'][i % 5],
+  sort_channel: ['L1', 'L2', 'R1', 'R2'][i % 4],
+  print_profile: ['EPSON L6190', 'HP M404dn', null][i % 3],
+  should_print: 1,
+  label_key: `HCT/20260513/${(700000 + i).toString(16)}.png`,
+  created_at: `2026-05-18T${10 - Math.floor(i / 12)}:${String(60 - i).padStart(2, '0')}:00`,
+}))
+export const parcelQueryLogList = async ({ keyword = null, limit = 25, offset = 0 } = {}) => {
+  if (!isTauri) {
+    const kw = (keyword || '').toLowerCase()
+    let list = MOCK_PARCEL_QUERY_LOG
+    if (kw) {
+      list = list.filter(r =>
+        (r.query_no || '').toLowerCase().includes(kw) ||
+        (r.tracking_no || '').toLowerCase().includes(kw) ||
+        (r.label_key || '').toLowerCase().includes(kw)
+      )
+    }
+    return { items: list.slice(offset, offset + limit), total: list.length }
+  }
+  return await invoke('parcel_query_log_list', { req: { keyword, limit, offset } })
+}
+
 // 網路健康偵測
 const MOCK_NET_HEALTH = {
   anchor: { kind: 'ok', latency_ms: 23 },

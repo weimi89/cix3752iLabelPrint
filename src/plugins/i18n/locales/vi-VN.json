@@ -50,7 +50,8 @@
     "cloudSettings": "API đám mây",
     "printerSettings": "Cài đặt máy in",
     "eventLog": "Nhật ký sự kiện",
-    "queueLog": "Lịch sử hàng đợi"
+    "queueLog": "Lịch sử hàng đợi",
+    "parcelQueryLog": "Lịch sử yêu cầu"
   },
   "pagination": {
     "pagePrefix": "Trang",
@@ -271,12 +272,40 @@
       "keywordPlaceholder": "Tin nhắn hoặc hành động",
       "level": "Cấp độ",
       "category": "Phân loại",
+      "levelOption": {
+        "info": "Thông tin",
+        "warn": "Cảnh báo",
+        "error": "Lỗi"
+      },
+      "categoryOption": {
+        "server": "Máy chủ",
+        "cloud": "Đám mây",
+        "cache": "Cache",
+        "queue": "Hàng đợi",
+        "printer": "Máy in"
+      },
       "col": {
         "time": "Thời gian",
         "level": "Cấp độ",
         "category": "Phân loại",
         "action": "Hành động",
         "message": "Tin nhắn"
+      }
+    },
+    "parcelQueryLog": {
+      "title": "Lịch sử yêu cầu",
+      "subtitle": "Lịch sử máy công nghiệp gọi GET /api/parcel",
+      "keyword": "Từ khoá",
+      "keywordPlaceholder": "Mã truy vấn / mã vận đơn / label_key",
+      "col": {
+        "createdAt": "Thời gian",
+        "queryNo": "Mã truy vấn",
+        "trackingNo": "Mã vận đơn",
+        "shippingProvider": "Mã hãng vận chuyển",
+        "channel": "Kênh",
+        "printProfile": "Cấu hình máy in",
+        "responseId": "ID đám mây",
+        "labelKey": "Key nhãn"
       }
     },
     "sort": {

@@ -311,11 +311,12 @@ async fn get_parcel(
             if let Some(rid) = info.response_id {
                 let _ = sqlx::query(
                     "INSERT INTO parcel_query_log
-                       (response_id, query_no, tracking_no, sort_channel, print_profile, should_print, label_key)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                       (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                      ON CONFLICT(response_id) DO UPDATE SET
                        query_no = excluded.query_no,
                        tracking_no = excluded.tracking_no,
+                       shipping_provider = excluded.shipping_provider,
                        sort_channel = excluded.sort_channel,
                        print_profile = excluded.print_profile,
                        should_print = excluded.should_print,
@@ -325,6 +326,7 @@ async fn get_parcel(
                 .bind(rid)
                 .bind(&query_no)
                 .bind(&info.shipping_no)
+                .bind(&info.shipping_provider)
                 .bind(&channel_code)
                 .bind(&print_profile)
                 .bind(1) // 雲端 v2 路徑表示「要列印」,固定寫 1

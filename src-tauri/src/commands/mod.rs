@@ -4,6 +4,7 @@ pub mod config_commands;
 pub mod dispatch_commands;
 pub mod health_commands;
 pub mod log_commands;
+pub mod parcel_query_log_commands;
 pub mod printer_commands;
 pub mod queue_commands;
 pub mod server_commands;
