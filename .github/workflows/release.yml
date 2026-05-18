@@ -234,6 +234,9 @@ jobs:
             -DENABLE_X11_TARGET=ON \
             -DUSE_JPEGXL=OFF \
             -DUSE_AVIF=OFF \
+            -DENABLE_WEB_AUDIO=OFF \
+            -DENABLE_VIDEO=OFF \
+            -DENABLE_MEDIA_STREAM=OFF \
             .. 2>&1 | tail -60
           echo "::endgroup::"
           echo "::group::webkit2gtk ninja (1-2 hr)"
