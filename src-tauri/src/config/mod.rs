@@ -15,6 +15,8 @@ pub struct AppConfig {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub cache: CacheConfig,
+    #[serde(default)]
+    pub network: NetworkConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +99,42 @@ impl Default for CloudConfig {
     }
 }
 
+/// 網路健康偵測設定
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    /// 正常巡檢間隔(秒);至少 5
+    #[serde(default = "default_net_interval")]
+    pub interval_secs: u64,
+    /// 連續失敗達 fail_threshold 後拉長到的間隔(秒);至少 interval_secs
+    #[serde(default = "default_net_degrade_interval")]
+    pub degrade_interval_secs: u64,
+    /// 公網 anchor host:port(TCP connect 試水);例:1.1.1.1:443 / 8.8.8.8:443
+    #[serde(default = "default_net_anchor")]
+    pub anchor_addr: String,
+    /// 公網 TCP connect timeout(毫秒)
+    #[serde(default = "default_net_anchor_timeout_ms")]
+    pub anchor_timeout_ms: u64,
+    /// 雲端 API HEAD timeout(秒)
+    #[serde(default = "default_net_cloud_timeout")]
+    pub cloud_timeout_secs: u64,
+    /// 抖動緩衝:連續失敗達此次數才標 down,否則保持 effective_ok=true
+    #[serde(default = "default_net_fail_threshold")]
+    pub fail_threshold: u32,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            interval_secs: default_net_interval(),
+            degrade_interval_secs: default_net_degrade_interval(),
+            anchor_addr: default_net_anchor(),
+            anchor_timeout_ms: default_net_anchor_timeout_ms(),
+            cloud_timeout_secs: default_net_cloud_timeout(),
+            fail_threshold: default_net_fail_threshold(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
     /// 圖片快取目錄；空字串代表使用系統「圖片」資料夾（~/Pictures）
@@ -116,6 +154,7 @@ impl Default for AppConfig {
             server: ServerConfig::default(),
             cloud: CloudConfig::default(),
             cache: CacheConfig::default(),
+            network: NetworkConfig::default(),
         }
     }
 }
@@ -156,6 +195,12 @@ fn default_pre_generate_path() -> String { "/api/v1/local-middleware/label/pre-g
 fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-print".to_string() }
 fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/examine-package".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
+fn default_net_interval() -> u64 { 15 }
+fn default_net_degrade_interval() -> u64 { 60 }
+fn default_net_anchor() -> String { "1.1.1.1:443".to_string() }
+fn default_net_anchor_timeout_ms() -> u64 { 1500 }
+fn default_net_cloud_timeout() -> u64 { 3 }
+fn default_net_fail_threshold() -> u32 { 2 }
 
 impl AppConfig {
     /// 載入設定；檔案不存在時建立預設值並寫入

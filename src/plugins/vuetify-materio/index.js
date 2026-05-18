@@ -1,10 +1,13 @@
 import { deepMerge } from '@antfu/utils'
 import { createVuetify } from 'vuetify'
 import { VBtn } from 'vuetify/components/VBtn'
+import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n'
+import { useI18n } from 'vue-i18n'
 import defaults from './defaults'
 import { icons } from './icons'
 import { staticPrimaryColor, staticPrimaryDarkenColor, themes } from './theme'
 import { themeConfig } from '@themeConfig'
+import { getI18n } from '@/plugins/i18n'
 
 // Styles
 import { cookieRef } from '@/@layouts/stores/config'
@@ -50,9 +53,7 @@ export default function (app) {
     icons,
     theme: optionTheme,
     locale: {
-      // 桌面 App 固定繁體中文,不掛 vue-i18n adapter
-      locale: 'zhHant',
-      fallback: 'zhHant',
+      adapter: createVueI18nAdapter({ i18n: getI18n(), useI18n }),
     },
   })
 

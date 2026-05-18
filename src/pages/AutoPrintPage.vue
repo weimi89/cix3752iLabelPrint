@@ -3,6 +3,9 @@ import { toast } from 'vue3-toastify'
 import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
 import { playSound } from '@/composables/useSoundEffects'
 import AppHeader from '@/components/AppHeader.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 
@@ -14,17 +17,17 @@ const printerMap = computed(() => {
   }
 })
 
-const PRINT_TYPE_OPTIONS = [
-  { value: '7', title: '7-ELEVEN' },
-  { value: 'F', title: '全家' },
-  { value: 'O', title: '萊爾富' },
-  { value: 'C', title: '黑貓' },
-  { value: 'H', title: '新竹' },
-  { value: 'P', title: '宅配通' },
-  { value: 'E', title: '順豐速運' },
-  { value: 'S', title: '蝦皮（離線）' },
-  { value: 'A', title: '蝦皮（授權）' },
-]
+const PRINT_TYPE_OPTIONS = computed(() => [
+  { value: '7', title: t('provider.7eleven') },
+  { value: 'F', title: t('provider.family') },
+  { value: 'O', title: t('provider.hilife') },
+  { value: 'C', title: t('provider.tcat') },
+  { value: 'H', title: t('provider.hct') },
+  { value: 'P', title: t('provider.pelican') },
+  { value: 'E', title: t('provider.sf') },
+  { value: 'S', title: t('provider.shopeeOffline') },
+  { value: 'A', title: t('provider.shopeeAuth') },
+])
 
 const form = reactive({
   shipment_no: '',
@@ -51,16 +54,16 @@ const handleExaminePackage = async () => {
       packageOrders.value = data.orders || []
       form.shipment_no = ''
       playSound('effect_1')
-      toast(`已載入袋號 ${data.package_sn}：${data.orders?.length || 0} 筆`, { type: 'success' })
+      toast(t('page.auto.toast.packageLoaded', { sn: data.package_sn, n: data.orders?.length || 0 }), { type: 'success' })
       nextTick(() => orderSnRef.value?.focus())
     } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
       playSound('effect_2')
-      toast(data.respond_message || '查無資料', { type: 'error' })
+      toast(data.respond_message || t('common.noResults'), { type: 'error' })
       packageOrders.value = []
       form.package_sn = ''
     } else {
       playSound('effect_2')
-      toast(`未知回應 (${data?.respond_code || '無 code'})：${data?.respond_message || ''}`, { type: 'error' })
+      toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
     }
   } catch (e) {
     playSound('effect_2')
@@ -72,8 +75,8 @@ const handleExaminePackage = async () => {
 const handlePrintSubmit = async () => {
   const orderSn = form.order_sn.trim()
   if (!orderSn) return
-  if (!form.scanner_user.trim()) { toast('未填寫操作人員', { type: 'error' }); return }
-  if (!form.sticker_user.trim()) { toast('未填寫貼單人員', { type: 'error' }); return }
+  if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return }
+  if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return }
 
   try {
     const data = await cloudFetchCloudPrint(orderSn, {
@@ -91,17 +94,17 @@ const handlePrintSubmit = async () => {
         const printer = printerMap.value[data.provider_code]
         if (!printer) {
           playSound('effect_2')
-          toast(`未設定 ${data.provider_code} 印表機，請至「印表機設定」`, { type: 'error' })
+          toast(t('page.auto.toast.noPrinterForProvider', { code: data.provider_code }), { type: 'error' })
           return
         }
         const path = data.image_path?.startsWith('file://') ? data.image_path.slice(7) : data.image_path
         try {
           await printImage({ printerName: printer, imagePath: path })
           playSound('effect_1')
-          toast(`列印包裹貼標：${data.shipment_no || orderSn}`, { type: 'success' })
+          toast(t('page.auto.toast.printed', { sn: data.shipment_no || orderSn }), { type: 'success' })
         } catch (e) {
           playSound('effect_2')
-          toast(`送印失敗：${String(e)}`, { type: 'error' })
+          toast(t('page.auto.toast.printFailed', { reason: String(e) }), { type: 'error' })
           return
         }
         packageOrders.value = packageOrders.value.map(o =>
@@ -109,15 +112,15 @@ const handlePrintSubmit = async () => {
         )
         break
       }
-      case 'NO-DATA': playSound('effect_2'); toast(`查無代寄包裹：${orderSn}`, { type: 'error' }); break
-      case 'PRINT-ERROR': playSound('effect_2'); toast(`無法列印貼標：${orderSn}`, { type: 'error' }); break
-      case 'UNCONFIRMED-SHIPMENT': playSound('effect_4'); toast(`包裹尚未確認：${orderSn}`, { type: 'warning' }); break
-      case 'ERROR-SHIPMENT': playSound('effect_2'); toast(`包裹資料異常：${orderSn}${data.respond_message ? `\n${data.respond_message}` : ''}`, { type: 'error' }); break
-      case 'ABNORMAL-SHIPMENT': playSound('effect_2'); toast(`包裹異常出貨：${data.shipment_no || orderSn}`, { type: 'info' }); break
-      case 'ABNORMAL-PACKAGE': playSound('effect_2'); toast(`訂單異常袋號：${data.package_sn || orderSn}`, { type: 'warning' }); break
-      case 'WRAPPER-ERROR': playSound('effect_2'); toast(`包裹錯誤貼標：${data.shipment_no || orderSn}`, { type: 'warning' }); break
-      case 'STORE-CLOSED': playSound('effect_3'); toast(`門市關轉異常攔截：${data.shipment_no || orderSn}`, { type: 'warning' }); break
-      default: playSound('effect_2'); toast(`未知回應 (${data?.respond_code || '無 code'})：${data?.respond_message || ''}`, { type: 'error' })
+      case 'NO-DATA': playSound('effect_2'); toast(t('page.auto.toast.noData', { sn: orderSn }), { type: 'error' }); break
+      case 'PRINT-ERROR': playSound('effect_2'); toast(t('page.auto.toast.printError', { sn: orderSn }), { type: 'error' }); break
+      case 'UNCONFIRMED-SHIPMENT': playSound('effect_4'); toast(t('page.auto.toast.unconfirmed', { sn: orderSn }), { type: 'warning' }); break
+      case 'ERROR-SHIPMENT': playSound('effect_2'); toast(t('page.auto.toast.errorShipment', { sn: orderSn }) + (data.respond_message ? `\n${data.respond_message}` : ''), { type: 'error' }); break
+      case 'ABNORMAL-SHIPMENT': playSound('effect_2'); toast(t('page.auto.toast.abnormalShipment', { sn: data.shipment_no || orderSn }), { type: 'info' }); break
+      case 'ABNORMAL-PACKAGE': playSound('effect_2'); toast(t('page.auto.toast.abnormalPackage', { sn: data.package_sn || orderSn }), { type: 'warning' }); break
+      case 'WRAPPER-ERROR': playSound('effect_2'); toast(t('page.auto.toast.wrapperError', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
+      case 'STORE-CLOSED': playSound('effect_3'); toast(t('page.auto.toast.storeClosed', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
+      default: playSound('effect_2'); toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
     }
   } catch (e) {
     playSound('effect_2')
@@ -132,11 +135,11 @@ onMounted(() => shipmentNoRef.value?.focus())
 
 <template>
   <div>
-    <AppHeader title="自動印單" subtitle="掃描自動送印" icon="tabler-cloud-cog">
+    <AppHeader :title="$t('page.auto.title')" :subtitle="$t('page.auto.subtitle')" icon="tabler-cloud-cog">
       <template #actions>
         <VSwitch
           v-model="form.enforce"
-          label="強制列印"
+          :label="$t('page.scan.enforce')"
           color="warning"
           inset
           hide-details
@@ -146,15 +149,29 @@ onMounted(() => shipmentNoRef.value?.focus())
     </AppHeader>
 
     <VAlert v-if="!isAnyPrinterReady" type="error" variant="tonal" class="mb-3">
-      尚未設定任何印表機，請先至「印表機設定」頁完成配置。
+      {{ $t('page.auto.noPrinterAlert') }}
     </VAlert>
 
     <VRow>
       <VCol cols="12" lg="5">
         <VCard class="py-1">
           <VCardText>
+            <div class="d-flex gap-3 mb-3">
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
+                </VLabel>
+                <VTextField v-model="form.scanner_user" />
+              </div>
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
+                </VLabel>
+                <VTextField v-model="form.sticker_user" />
+              </div>
+            </div>
             <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">列印類型</VLabel>
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.printType') }}</VLabel>
               <VSelect
                 v-model="form.print_type"
                 :items="PRINT_TYPE_OPTIONS"
@@ -163,7 +180,7 @@ onMounted(() => shipmentNoRef.value?.focus())
               />
             </div>
             <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">包裹訂單條碼</VLabel>
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.packageBarcode') }}</VLabel>
               <VTextField
                 ref="shipmentNoRef"
                 v-model="form.shipment_no"
@@ -172,24 +189,14 @@ onMounted(() => shipmentNoRef.value?.focus())
                 @keyup.enter="handleExaminePackage"
               />
             </div>
-            <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">系統訂單編號</VLabel>
+            <div>
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
               <VTextField
                 ref="orderSnRef"
                 v-model="form.order_sn"
                 clearable
                 @keyup.enter="handlePrintSubmit"
               />
-            </div>
-            <div class="d-flex gap-3">
-              <div class="flex-grow-1">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">操作人員</VLabel>
-                <VTextField v-model="form.scanner_user" />
-              </div>
-              <div class="flex-grow-1">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">貼單人員</VLabel>
-                <VTextField v-model="form.sticker_user" />
-              </div>
             </div>
           </VCardText>
         </VCard>
@@ -198,9 +205,9 @@ onMounted(() => shipmentNoRef.value?.focus())
       <VCol cols="12" lg="7">
         <VCard>
           <VCardTitle class="d-flex align-center justify-space-between px-4 pt-4 pb-3 bg-grey-300">
-            <span>袋號 {{ form.package_sn || '—' }}</span>
+            <span>{{ $t('page.auto.packageSn') }} {{ form.package_sn || '—' }}</span>
             <span class="text-body-2">
-              總筆數
+              {{ $t('page.auto.totalCount') }}
               <span class="text-primary font-weight-bold text-h5">{{ packageOrders.length }}</span>
             </span>
           </VCardTitle>
@@ -209,9 +216,9 @@ onMounted(() => shipmentNoRef.value?.focus())
               <thead>
                 <tr>
                   <th class="text-center">#</th>
-                  <th class="text-center">訂單編號 / 配送單號</th>
-                  <th class="text-center d-none d-sm-table-cell">最後列印時間</th>
-                  <th class="text-center d-none d-sm-table-cell">物流</th>
+                  <th class="text-center">{{ $t('page.auto.col.orderShipping') }}</th>
+                  <th class="text-center d-none d-sm-table-cell">{{ $t('page.auto.col.lastPrintTime') }}</th>
+                  <th class="text-center d-none d-sm-table-cell">{{ $t('page.auto.col.provider') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -243,7 +250,7 @@ onMounted(() => shipmentNoRef.value?.focus())
                     <td :colspan="4">
                       <div class="py-2 d-flex align-center justify-center">
                         <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
-                        <span class="text-md">尚未掃描包裹</span>
+                        <span class="text-md">{{ $t('page.auto.noScannedPackage') }}</span>
                       </div>
                     </td>
                   </tr>

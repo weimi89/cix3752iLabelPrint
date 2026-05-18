@@ -46,11 +46,11 @@ export const useThemeStore = defineStore('theme', {
 
 // 預設主色 preset
 export const PRIMARY_PRESETS = [
-  { value: '#7367F0', label: '紫' },
-  { value: '#0D9394', label: '青' },
-  { value: '#FFB400', label: '橘黃' },
-  { value: '#FF4C51', label: '紅' },
-  { value: '#16B1FF', label: '藍' },
+  { value: '#7367F0', labelKey: 'theme.preset.purple' },
+  { value: '#0D9394', labelKey: 'theme.preset.cyan' },
+  { value: '#FFB400', labelKey: 'theme.preset.orange' },
+  { value: '#FF4C51', labelKey: 'theme.preset.red' },
+  { value: '#16B1FF', labelKey: 'theme.preset.blue' },
 ]
 
 // 推算 darken-1：把色相略暗 8%（Materio 用 #675DD8 對 #7367F0）

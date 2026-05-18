@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod db;
 mod error;
+mod health;
 mod log;
 mod models;
 mod printer;
@@ -25,6 +26,7 @@ pub struct AppState {
     pub cache: cache::CacheManager,
     pub queue: queue::QueueManager,
     pub server: RwLock<server::ServerHandle>,
+    pub health: health::HealthChecker,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -87,6 +89,8 @@ pub fn run() {
             commands::sort_channel_commands::sort_channel_save,
             commands::sort_channel_commands::sticker_history_list,
             commands::sort_channel_commands::sticker_history_delete,
+            commands::health_commands::network_health_get,
+            commands::health_commands::network_health_check,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");
@@ -112,6 +116,13 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
     )
     .await?;
 
+    let health = health::HealthChecker::new(
+        cloud.clone(),
+        handle.clone(),
+        app_config.network.clone(),
+    );
+    health.start_worker();
+
     Ok(Arc::new(AppState {
         config: RwLock::new(app_config),
         db: db_pool,
@@ -119,5 +130,6 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         cache,
         queue,
         server: RwLock::new(server_handle),
+        health,
     }))
 }

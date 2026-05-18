@@ -1,0 +1,403 @@
+{
+  "common": {
+    "confirm": "Xác nhận",
+    "cancel": "Huỷ",
+    "save": "Lưu",
+    "saveSettings": "Lưu cài đặt",
+    "delete": "Xoá",
+    "edit": "Chỉnh sửa",
+    "close": "Đóng",
+    "search": "Tìm kiếm",
+    "reset": "Đặt lại",
+    "reload": "Tải lại",
+    "loading": "Đang tải…",
+    "noData": "Không có dữ liệu",
+    "noResults": "Không có dữ liệu",
+    "yes": "Có",
+    "no": "Không",
+    "back": "Quay lại",
+    "next": "Tiếp theo",
+    "submit": "Gửi",
+    "retry": "Thử lại",
+    "copy": "Sao chép",
+    "refresh": "Làm mới",
+    "stop": "Dừng",
+    "all": "Tất cả",
+    "pick": "Chọn",
+    "clearAll": "Xoá hết",
+    "advancedSearch": "Tìm kiếm nâng cao"
+  },
+  "locale": {
+    "label": "Ngôn ngữ giao diện",
+    "zh-Hant": "繁體中文",
+    "vi-VN": "Tiếng Việt"
+  },
+  "nav": {
+    "section": {
+      "main": "Chức năng chính",
+      "print": "In đơn hàng",
+      "settings": "Cài đặt",
+      "logs": "Nhật ký"
+    },
+    "dashboard": "Bảng điều khiển",
+    "preGenerate": "Tạo trước nhãn",
+    "scanPrint": "Quét và in",
+    "autoPrint": "Tự động in",
+    "sortChannels": "Kênh phân loại",
+    "cacheSettings": "Bộ nhớ đệm ảnh",
+    "dispatchProviders": "Chỉ định hãng vận chuyển",
+    "serverSettings": "Cài đặt dịch vụ",
+    "cloudSettings": "API đám mây",
+    "printerSettings": "Cài đặt máy in",
+    "eventLog": "Nhật ký sự kiện",
+    "queueLog": "Lịch sử hàng đợi"
+  },
+  "pagination": {
+    "pagePrefix": "Trang",
+    "pageSuffix": "",
+    "summary": "Tổng cộng {total} bản ghi, chia thành {pages} trang",
+    "perPagePrefix": "Mỗi trang",
+    "perPageSuffix": "bản ghi"
+  },
+  "bulk": {
+    "itemsCount": "{n} mục",
+    "collapse": "Thu gọn",
+    "expandMore": "+{n} mục"
+  },
+  "form": {
+    "orderSn": "Mã đơn hàng",
+    "orderSnPlaceholder": "Có thể quét liên tục, hoặc dán nhiều mục, phân tách bằng xuống dòng / dấu phẩy / khoảng trắng"
+  },
+  "user": {
+    "notLoggedIn": "Chưa đăng nhập",
+    "logout": "Đăng xuất",
+    "role": {
+      "admin": "Quản trị viên",
+      "guest": "Khách"
+    }
+  },
+  "theme": {
+    "preset": {
+      "purple": "Tím",
+      "cyan": "Xanh ngọc",
+      "orange": "Cam",
+      "red": "Đỏ",
+      "blue": "Xanh dương"
+    }
+  },
+  "provider": {
+    "7eleven": "7-ELEVEN",
+    "family": "FamilyMart",
+    "hilife": "Hi-Life",
+    "tcat": "T-Cat (Black Cat)",
+    "hct": "HCT",
+    "pelican": "Pelican Express",
+    "sf": "SF Express",
+    "shopeeOffline": "Shopee (Offline)",
+    "shopeeAuth": "Shopee (Auth)"
+  },
+  "status": {
+    "LABEL-PROCESS": "In thành công",
+    "SHIPPING-REPEAT": "In trùng lặp",
+    "LABEL-UNUSUAL": "Ngoài phạm vi in",
+    "ORDER-UNUSUAL": "Không tìm thấy đơn hàng",
+    "STORE-CLOSED": "Cửa hàng đã đóng/chuyển",
+    "SHIPPING-UNUSUAL": "Trạng thái đơn hàng bất thường",
+    "UNCONFIRMED-SHIPMENT": "Đơn hàng chưa xác nhận",
+    "ERROR-SHIPMENT": "Đơn hàng lỗi",
+    "ERROR": "Lỗi hệ thống",
+    "CANCELLED": "Đã dừng"
+  },
+  "error": {
+    "browserCannotOpenDialog": "Chế độ trình duyệt không thể mở hộp thoại thư mục",
+    "cloudNotAuthed": "Đám mây chưa đăng nhập hoặc token hết hạn",
+    "cloudApi": "Lỗi API đám mây",
+    "timeout": "Yêu cầu quá thời gian"
+  },
+  "network": {
+    "card": {
+      "title": "Trạng thái kết nối mạng"
+    },
+    "overall": {
+      "ok": "Tất cả bình thường",
+      "degraded": "Giảm cấp (API đám mây không thông)",
+      "down": "Mất kết nối"
+    },
+    "layer": {
+      "os": "Mạng hệ điều hành",
+      "anchor": "Mạng công cộng (1.1.1.1:443)",
+      "cloudApi": "API đám mây"
+    },
+    "statusKind": {
+      "ok": "Bình thường",
+      "unknown": "Chưa kiểm tra",
+      "notConfigured": "Chưa cấu hình api_base"
+    },
+    "osOffline": "Ngoại tuyến (card mạng chưa kết nối)",
+    "latencyMs": "{n} ms",
+    "checkNow": "Kiểm tra ngay",
+    "lastCheckedAt": "Lần kiểm tra cuối:",
+    "neverChecked": "Chưa kiểm tra",
+    "retryingStreak": "Đang thử lại {n}/{total}",
+    "nextCheckIn": "Kiểm tra tiếp theo sau khoảng {n} giây (chu kỳ hiện tại)",
+    "settings": {
+      "section": "Giám sát mạng",
+      "desc": "Cài đặt kiểm tra anchor mạng công cộng và API đám mây, có hiệu lực ngay sau khi thay đổi",
+      "anchorAddr": "Anchor mạng công cộng host:port",
+      "intervalSecs": "Chu kỳ kiểm tra (giây)",
+      "degradeIntervalSecs": "Chu kỳ khi mất kết nối (giây)",
+      "anchorTimeoutMs": "Timeout mạng công cộng (ms)",
+      "cloudTimeoutSecs": "Timeout đám mây (giây)",
+      "failThreshold": "Bộ đệm chống nhiễu (số lần lỗi liên tiếp)"
+    }
+  },
+  "page": {
+    "dashboard": {
+      "title": "Bảng điều khiển",
+      "subtitle": "Trạng thái thời gian thực của dịch vụ trung gian phân loại cục bộ",
+      "previewModeAlert": "Chế độ xem trước trình duyệt — Dữ liệu trạng thái đến từ backend Tauri, vui lòng xem giá trị thực tế trong ứng dụng desktop.",
+      "middleware": "Middleware",
+      "notStarted": "Chưa khởi động",
+      "cloudConnection": "Kết nối đám mây",
+      "todayRequests": "Số yêu cầu hôm nay",
+      "todaySuccessRate": "Tỉ lệ thành công hôm nay ({ok}/{total})",
+      "cacheHitRate": "Tỉ lệ hit cache ({hit} hit / {miss} miss)",
+      "cachedLabels": "Nhãn đã cache / {size}",
+      "cloudNotLoggedInAlert": "Chưa đăng nhập API đám mây — vui lòng vào trang \"API đám mây\" để đăng nhập, nếu không máy công nghiệp tra kiện hàng sẽ trả 401."
+    },
+    "preGenerate": {
+      "title": "Tạo trước nhãn",
+      "subtitle": "Yêu cầu server tạo trước ảnh nhãn (không ghi nhật ký in, không kiểm tra trạng thái giao hàng)",
+      "progress": "Tiến độ tải nhãn",
+      "empty": "Chưa tải nhãn nào",
+      "emptyHint": "Vui lòng nhập mã đơn hàng ở bên trái và nhấn \"Tìm kiếm\"",
+      "downloadWarnings": "Cảnh báo tải xuống"
+    },
+    "cache": {
+      "title": "Cài đặt bộ nhớ đệm ảnh",
+      "subtitle": "Cách lưu trữ ảnh nhãn trên máy",
+      "clearCache": "Xoá cache",
+      "statsLoadFailed": "Đọc thống kê cache thất bại: {reason}",
+      "savedFlash": "Đã lưu (thay đổi thư mục cache có hiệu lực ngay)",
+      "clearedFlash": "Đã xoá cache",
+      "pickDirTitle": "Chọn thư mục cache ảnh",
+      "cacheDir": "Thư mục cache",
+      "cacheDirPlaceholder": "Để trống sử dụng vị trí mặc định (app_data/cache/labels)",
+      "keepDays": "Số ngày giữ (0 = vĩnh viễn)",
+      "maxSizeMb": "Dung lượng tối đa MB (0 = không giới hạn)",
+      "stats": {
+        "fileCount": "Số nhãn đã cache",
+        "totalSize": "Dung lượng sử dụng",
+        "hitRate": "Tỉ lệ hit (hit / hit+miss)",
+        "missCount": "Số lần miss (hôm nay)"
+      }
+    },
+    "printer": {
+      "title": "Cài đặt máy in",
+      "subtitle": "Đặt máy in cục bộ tương ứng với từng hãng vận chuyển",
+      "mockPrefix": "(Chế độ trình duyệt)",
+      "loadFailed": "Không thể tải máy in: {reason}",
+      "browserAlert": "Hiện đang ở chế độ xem trước trình duyệt, hiển thị dữ liệu máy in giả để thử UI. Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động liệt kê các máy in đã cài đặt.",
+      "noPrinters": "Chưa phát hiện máy in cục bộ; vui lòng kiểm tra máy in đã kết nối và cài driver chưa.",
+      "selectPrinterPlaceholder": "Chọn máy in cục bộ"
+    },
+    "server": {
+      "title": "Cài đặt dịch vụ",
+      "subtitle": "HTTP API cục bộ cho máy công nghiệp phân loại gọi",
+      "restart": "Khởi động lại dịch vụ",
+      "autoStartFailed": "Chuyển đổi tự khởi động thất bại: {reason}",
+      "savedFlash": "Đã lưu (thay đổi địa chỉ/cổng cần nhấn \"Khởi động lại dịch vụ\" để có hiệu lực)",
+      "restartedFlash": "Đã khởi động lại dịch vụ, đang lắng nghe {addr}",
+      "listenIp": "Địa chỉ lắng nghe",
+      "port": "Cổng",
+      "autoStartTitle": "Tự động khởi động cùng hệ điều hành",
+      "autoStartDesc": "Thêm vào danh sách khởi động đăng nhập hệ điều hành, bao gồm cả Server cục bộ",
+      "currentBind": "Đang lắng nghe:",
+      "appSection": "Ứng dụng",
+      "localeDesc": "Chuyển đổi ngôn ngữ hiển thị giao diện, có hiệu lực tức thì và được lưu lại"
+    },
+    "cloud": {
+      "title": "Cài đặt API đám mây",
+      "loggedIn": "Đã đăng nhập",
+      "tokenKeyringInfo": "Token sẽ được lưu vào keyring hệ thống (macOS Keychain / Windows Credential Vault), không ghi vào file config.",
+      "loginSavedFlash": "Đã đăng nhập và lưu cài đặt",
+      "savedFlash": "Đã lưu cài đặt",
+      "jobUserLabel": "Webhook job_user (định danh máy này)",
+      "jobUserPlaceholder": "VD: Logistics Cat",
+      "parcelModeLabel": "Chế độ truy vấn kiện hàng",
+      "parcelMode": {
+        "forward": "Chuyển tiếp (forward) — Kiện đến kho rồi chuyển tiếp",
+        "proxy": "Uỷ thác (proxy) — Người bán giao cho bên chúng tôi gửi"
+      },
+      "skipSslTitle": "Bỏ qua xác thực chứng chỉ SSL",
+      "skipSslDesc": "Mạng nội bộ / môi trường dev (.dev, chứng chỉ tự ký) bắt buộc bật, nếu không reqwest sẽ từ chối kết nối",
+      "advancedPaths": "Nâng cao: Cài đặt đường dẫn API",
+      "advancedPathsHint": "api_base + path bên dưới ghép thành URL đầy đủ. Path đầu có hoặc không có \"/\" đều được.",
+      "saveOnly": "Chỉ lưu cài đặt",
+      "loginAndVerify": "Đăng nhập và xác thực",
+      "paths": {
+        "parcelForward": { "label": "Truy vấn kiện hàng (forward)", "hint": "Sẽ tự động ghép /{queryNo}" },
+        "parcelProxy": { "label": "Truy vấn kiện hàng (proxy)", "hint": "Sẽ tự động ghép /{queryNo}" },
+        "session": { "label": "Phiên đăng nhập", "hint": "Dùng để xác thực token" },
+        "scanPrint": { "label": "Quét và in (scan-print)", "hint": "UI vận hành viên" },
+        "preGenerate": { "label": "Tạo trước nhãn (pre-generate)", "hint": "Tạo trước ảnh nhãn" },
+        "cloudPrint": { "label": "In đám mây (cloud-print)", "hint": "In qua đám mây" },
+        "examinePackage": { "label": "Truy vấn kiện hàng (examine-package)", "hint": "Bước đầu tự động in" },
+        "webhook": { "label": "Webhook (logistic-cat)", "hint": "Thông báo hoàn thành phân loại" }
+      }
+    },
+    "eventLog": {
+      "title": "Nhật ký sự kiện",
+      "subtitle": "Sự kiện hệ thống / đám mây / cache / hàng đợi / máy in",
+      "browserAlert": "Chế độ xem trước trình duyệt — Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động tải nhật ký event_log từ SQLite.",
+      "keyword": "Từ khoá",
+      "keywordPlaceholder": "Tin nhắn hoặc hành động",
+      "level": "Cấp độ",
+      "category": "Phân loại",
+      "col": {
+        "time": "Thời gian",
+        "level": "Cấp độ",
+        "category": "Phân loại",
+        "action": "Hành động",
+        "message": "Tin nhắn"
+      }
+    },
+    "sort": {
+      "title": "Kênh phân loại",
+      "subtitle": "4 kênh trái / 4 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
+      "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
+      "saveAll": "Lưu tất cả thay đổi ({n})",
+      "savedFlash": "Đã lưu hàng loạt {n} mục",
+      "pos": {
+        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4",
+        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4"
+      },
+      "leftColumn": "Bên trái (L)",
+      "rightColumn": "Bên phải (R)",
+      "channelCode": "Mã kênh",
+      "channelCodeExampleL": "VD: A01",
+      "channelCodeExampleR": "VD: B01",
+      "dispatch": "Chỉ định hãng vận chuyển",
+      "dispatchUnassigned": "(Chưa chỉ định)",
+      "sticker": "Nhân viên dán nhãn",
+      "stickerPlaceholder": "Nhập hoặc chọn từ lịch sử",
+      "status": {
+        "unsaved": "Chưa lưu",
+        "enabled": "Đã kích hoạt",
+        "unset": "Chưa thiết lập"
+      }
+    },
+    "dispatch": {
+      "title": "Chỉ định hãng vận chuyển",
+      "subtitle": "Danh sách hãng vận chuyển có thể chọn cho các kênh phân loại",
+      "create": "Thêm hãng",
+      "emptyHint": "Chưa có hãng vận chuyển, nhấn \"Thêm hãng\" ở góc trên bên phải để bắt đầu",
+      "errCodeNameRequired": "Mã và tên đều không được để trống",
+      "errPrintProfileRequired": "Cấu hình in là bắt buộc",
+      "errCodeDuplicate": "Mã \"{code}\" đã tồn tại",
+      "flashCreated": "Đã thêm hãng vận chuyển",
+      "flashUpdated": "Đã cập nhật hãng vận chuyển",
+      "flashDeleted": "Đã xoá {name}",
+      "codePlaceholder": "VD: SF / BLACK / POST",
+      "namePlaceholder": "VD: SF Express",
+      "printProfilePlaceholder": "VD: PAPER-01#100x150",
+      "orderHint": "Số càng nhỏ càng đứng trước",
+      "confirmDelete": "Xác nhận xoá",
+      "confirmDeleteBody": "Bạn có chắc muốn xoá \"{name}\" ({code}) không?",
+      "confirmDeleteHint": "Các kênh đã chỉ định hãng này sẽ tự động xoá dispatch_code.",
+      "col": {
+        "order": "Thứ tự",
+        "code": "Mã",
+        "name": "Tên",
+        "printProfile": "Cấu hình in",
+        "actions": "Thao tác"
+      }
+    },
+    "queue": {
+      "title": "Lịch sử hàng đợi",
+      "subtitle": "Kết quả báo cáo từ máy công nghiệp / webhook đẩy",
+      "browserAlert": "Chế độ xem trước trình duyệt — Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động tải bản ghi hàng đợi cục bộ.",
+      "retryFailed": "Thử lại các mục thất bại",
+      "purgeOld": "Xoá dữ liệu cũ",
+      "retryFailedItems": "Thử lại mục thất bại",
+      "purgeOld7d": "Xoá dữ liệu cũ hơn 7 ngày",
+      "retryFlash": "Đã đặt lại {n} mục thất bại về chờ gửi, worker vòng kế sẽ thử lại",
+      "purgeFlash": "Đã xoá {n} bản ghi thành công quá 7 ngày",
+      "keywordPlaceholder": "Mã vận đơn / kênh / nhân viên dán nhãn",
+      "status": {
+        "pending": "Chờ gửi",
+        "sending": "Đang gửi",
+        "success": "Thành công",
+        "failed": "Thất bại"
+      },
+      "col": {
+        "trackingNo": "Mã vận đơn",
+        "channel": "Kênh",
+        "sticker": "Nhân viên dán nhãn",
+        "responseId": "ID phản hồi",
+        "status": "Trạng thái",
+        "retry": "Thử lại",
+        "createdAt": "Thời gian tạo",
+        "sentAt": "Đẩy hoàn tất"
+      }
+    },
+    "scan": {
+      "title": "Quét và in",
+      "subtitle": "Tải và in nhãn từng cái một",
+      "enforce": "Cưỡng chế in",
+      "scannerUser": "Nhân viên quét",
+      "stickerUser": "Nhân viên dán nhãn",
+      "errScannerUserRequired": "Chưa nhập nhân viên quét",
+      "errStickerUserRequired": "Chưa nhập nhân viên dán nhãn",
+      "printScope": "Phạm vi in",
+      "printProgress": "Tiến độ in",
+      "summaryLine": "In hoàn tất: thành công {ok} mục{failPart}{skipPart}",
+      "summaryFail": ", thất bại {n} mục",
+      "summarySkip": ", bỏ qua {n} mục (chưa thiết lập máy in)",
+      "summaryMoreErrors": "… (còn {n} mục)",
+      "btnPrinting": "Đang in ({done} / {total})",
+      "btnLoadingLabels": "Đang tải nhãn ({done} / {total})",
+      "btnPrintAll": "In nhãn ({n} mục)",
+      "printWarnings": "Cảnh báo in",
+      "step1": "Chọn phạm vi in và có cưỡng chế in hay không",
+      "step2": "Nhập hoặc quét mã đơn hàng (nhiều mục)",
+      "step3": "Hệ thống sẽ tải nhãn từng cái một",
+      "step4": "Sau khi xác nhận, nhấn \"In nhãn\" để gửi in",
+      "repeatTitle": "In trùng lặp {n} lần",
+      "repeatMore": "… còn {n} lần",
+      "removeFromPrint": "Xoá khỏi vùng in"
+    },
+    "auto": {
+      "title": "Tự động in",
+      "subtitle": "Quét để tự động gửi in",
+      "noPrinterAlert": "Chưa thiết lập máy in nào, vui lòng vào trang \"Cài đặt máy in\" để cấu hình trước.",
+      "printType": "Loại in",
+      "packageBarcode": "Mã vạch đơn hàng kiện",
+      "orderSn": "Mã đơn hàng hệ thống",
+      "packageSn": "Mã túi",
+      "totalCount": "Tổng số",
+      "noScannedPackage": "Chưa quét kiện hàng",
+      "noCode": "không có code",
+      "col": {
+        "orderShipping": "Mã đơn hàng / Mã vận chuyển",
+        "lastPrintTime": "Thời gian in gần nhất",
+        "provider": "Hãng vận chuyển"
+      },
+      "toast": {
+        "packageLoaded": "Đã tải túi {sn}: {n} mục",
+        "unknownRespond": "Phản hồi không xác định ({code}): {msg}",
+        "noPrinterForProvider": "Chưa thiết lập máy in {code}, vui lòng vào \"Cài đặt máy in\"",
+        "printed": "In nhãn kiện hàng: {sn}",
+        "printFailed": "Gửi in thất bại: {reason}",
+        "noData": "Không tìm thấy kiện uỷ thác: {sn}",
+        "printError": "Không thể in nhãn: {sn}",
+        "unconfirmed": "Kiện hàng chưa xác nhận: {sn}",
+        "errorShipment": "Dữ liệu kiện hàng bất thường: {sn}",
+        "abnormalShipment": "Kiện giao hàng bất thường: {sn}",
+        "abnormalPackage": "Mã túi đơn hàng bất thường: {sn}",
+        "wrapperError": "Nhãn kiện sai: {sn}",
+        "storeClosed": "Cửa hàng đóng/chuyển — đã chặn: {sn}"
+      }
+    }
+  }
+}

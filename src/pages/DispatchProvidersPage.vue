@@ -5,7 +5,9 @@ import {
   dispatchProviderDelete,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const items = ref([])
@@ -56,17 +58,16 @@ const save = async () => {
   const name = (form.value.name || '').trim()
   const printProfile = (form.value.print_profile || '').trim()
   if (!code || !name) {
-    errorMsg.value = '代碼與名稱皆不可為空'
+    errorMsg.value = t('page.dispatch.errCodeNameRequired')
     return
   }
   if (!printProfile) {
-    errorMsg.value = '列印設定為必填'
+    errorMsg.value = t('page.dispatch.errPrintProfileRequired')
     return
   }
-  // 新增時若代碼已存在，警告
   if (editingOriginalCode.value === null
       && items.value.some(it => it.code === code)) {
-    errorMsg.value = `代碼 "${code}" 已存在`
+    errorMsg.value = t('page.dispatch.errCodeDuplicate', { code })
     return
   }
   try {
@@ -77,7 +78,7 @@ const save = async () => {
       printProfile,
     })
     dialogOpen.value = false
-    flash(editingOriginalCode.value === null ? '已新增物流商' : '已更新物流商')
+    flash(t(editingOriginalCode.value === null ? 'page.dispatch.flashCreated' : 'page.dispatch.flashUpdated'))
     await load()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
@@ -95,7 +96,7 @@ const confirmDelete = async () => {
   try {
     await dispatchProviderDelete(deleteTarget.value.code)
     deleteOpen.value = false
-    flash(`已刪除 ${deleteTarget.value.name}`)
+    flash(t('page.dispatch.flashDeleted', { name: deleteTarget.value.name }))
     deleteTarget.value = null
     await load()
   } catch (e) {
@@ -106,16 +107,16 @@ const confirmDelete = async () => {
 
 <template>
   <div>
-    <AppHeader title="指派物流" subtitle="分揀通道可選擇的物流商主檔" icon="tabler-truck-delivery">
+    <AppHeader :title="$t('page.dispatch.title')" :subtitle="$t('page.dispatch.subtitle')" icon="tabler-truck-delivery">
       <template #actions>
         <VBtn color="primary" @click="openCreate">
-          <VIcon icon="tabler-plus" size="16" class="me-1" />新增物流
+          <VIcon icon="tabler-plus" size="16" class="me-1" />{{ $t('page.dispatch.create') }}
         </VBtn>
       </template>
     </AppHeader>
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。
+      {{ $t('page.sort.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
@@ -124,11 +125,11 @@ const confirmDelete = async () => {
       <VTable hover>
         <thead>
           <tr>
-            <th class="text-center" style="width: 80px;">排序</th>
-            <th style="min-width: 100px;">代碼</th>
-            <th style="min-width: 160px;">名稱</th>
-            <th style="min-width: 180px;">列印設定</th>
-            <th class="text-end" style="width: 125px;">操作</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.dispatch.col.order') }}</th>
+            <th style="min-width: 100px;">{{ $t('page.dispatch.col.code') }}</th>
+            <th style="min-width: 160px;">{{ $t('page.dispatch.col.name') }}</th>
+            <th style="min-width: 180px;">{{ $t('page.dispatch.col.printProfile') }}</th>
+            <th class="text-end" style="width: 125px;">{{ $t('page.dispatch.col.actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -136,7 +137,7 @@ const confirmDelete = async () => {
             <td colspan="5">
               <div class="py-3 d-flex align-center justify-center text-disabled">
                 <VIcon icon="tabler-package-off" size="20" class="me-1" />
-                <span class="text-md">尚未設定物流商，按右上「新增物流」開始</span>
+                <span class="text-md">{{ $t('page.dispatch.emptyHint') }}</span>
               </div>
             </td>
           </tr>
@@ -154,16 +155,15 @@ const confirmDelete = async () => {
       </VTable>
     </VCard>
 
-    <!-- 新增 / 編輯 dialog -->
     <VDialog v-model="dialogOpen" max-width="480">
       <VCard>
-        <VCardTitle>{{ editingOriginalCode === null ? '新增物流' : '編輯' }}</VCardTitle>
+        <VCardTitle>{{ $t(editingOriginalCode === null ? 'page.dispatch.create' : 'common.edit') }}</VCardTitle>
         <VCardText>
           <div class="search-field mb-3">
-            <label>代碼</label>
+            <label>{{ $t('page.dispatch.col.code') }}</label>
             <VTextField
               v-model="form.code"
-              placeholder="例: SF / BLACK / POST"
+              :placeholder="$t('page.dispatch.codePlaceholder')"
               :disabled="editingOriginalCode !== null"
               variant="outlined"
               density="compact"
@@ -171,56 +171,58 @@ const confirmDelete = async () => {
             />
           </div>
           <div class="search-field mb-3">
-            <label>名稱</label>
+            <label>{{ $t('page.dispatch.col.name') }}</label>
             <VTextField
               v-model="form.name"
-              placeholder="例: 順豐速運"
+              :placeholder="$t('page.dispatch.namePlaceholder')"
               variant="outlined"
               density="compact"
               hide-details
             />
           </div>
           <div class="search-field mb-3">
-            <label>列印設定</label>
+            <label>{{ $t('page.dispatch.col.printProfile') }}</label>
             <VTextField
               v-model="form.print_profile"
-              placeholder="例: PAPER-01#100x150"
+              :placeholder="$t('page.dispatch.printProfilePlaceholder')"
               variant="outlined"
               density="compact"
               hide-details
             />
           </div>
           <div class="search-field">
-            <label>排序</label>
+            <label>{{ $t('page.dispatch.col.order') }}</label>
             <VNumberInput
               v-model="form.sort_order"
               :min="0"
               placeholder="0"
-              hint="數字越小越前面"
+              :hint="$t('page.dispatch.orderHint')"
             />
           </div>
         </VCardText>
         <VCardActions>
           <VSpacer />
-          <VBtn @click="dialogOpen = false">取消</VBtn>
-          <VBtn color="primary" variant="elevated" @click="save">儲存</VBtn>
+          <VBtn @click="dialogOpen = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="primary" variant="elevated" @click="save">{{ $t('common.save') }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>
 
-    <!-- 刪除確認 dialog -->
     <VDialog v-model="deleteOpen" max-width="420">
       <VCard>
-        <VCardTitle>確認刪除</VCardTitle>
+        <VCardTitle>{{ $t('page.dispatch.confirmDelete') }}</VCardTitle>
         <VCardText v-if="deleteTarget">
-          確定要刪除「<span class="font-weight-bold">{{ deleteTarget.name }}</span>」({{ deleteTarget.code }}) 嗎?
+          <i18n-t keypath="page.dispatch.confirmDeleteBody" tag="span">
+            <template #name><span class="font-weight-bold">{{ deleteTarget.name }}</span></template>
+            <template #code>{{ deleteTarget.code }}</template>
+          </i18n-t>
           <br>
-          <span class="text-caption text-disabled">已指派此物流的通道會自動清空 dispatch_code。</span>
+          <span class="text-caption text-disabled">{{ $t('page.dispatch.confirmDeleteHint') }}</span>
         </VCardText>
         <VCardActions>
           <VSpacer />
-          <VBtn @click="deleteOpen = false">取消</VBtn>
-          <VBtn color="error" variant="elevated" @click="confirmDelete">刪除</VBtn>
+          <VBtn @click="deleteOpen = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="error" variant="elevated" @click="confirmDelete">{{ $t('common.delete') }}</VBtn>
         </VCardActions>
       </VCard>
     </VDialog>

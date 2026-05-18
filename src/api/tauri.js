@@ -36,6 +36,14 @@ const MOCK_CONFIG = {
     webhook_path: '/webhook/logistic-cat',
   },
   cache: { dir: '', keep_days: 14, max_size_mb: 0 },
+  network: {
+    interval_secs: 15,
+    degrade_interval_secs: 60,
+    anchor_addr: '1.1.1.1:443',
+    anchor_timeout_ms: 1500,
+    cloud_timeout_secs: 3,
+    fail_threshold: 2,
+  },
 }
 export const getConfig = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CONFIG))
@@ -55,8 +63,8 @@ export const cloudSession = async () => {
   if (!isTauri) return { ...MOCK_SESSION }
   return await invoke('cloud_session')
 }
-export const cloudFetchLabel = (orderSn, { printType = 'ALL', enforce = false, mode = 'web_print' } = {}) =>
-  invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printType, enforce, mode } })
+export const cloudFetchLabel = (orderSn, { printType = 'ALL', enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '' } = {}) =>
+  invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printType, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser } })
 export const cloudFetchCloudPrint = (orderSn, { printType = 'ALL', enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) =>
   invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printType, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
 export const cloudExaminePackage = shipmentNo =>
@@ -153,4 +161,25 @@ export const stickerHistoryList = async () => {
 export const stickerHistoryDelete = name => {
   if (!isTauri) return Promise.resolve(0)
   return invoke('sticker_history_delete', { name })
+}
+
+// 網路健康偵測
+const MOCK_NET_HEALTH = {
+  anchor: { kind: 'ok', latency_ms: 23 },
+  cloud_api: { kind: 'not_configured' },
+  anchor_fail_streak: 0,
+  cloud_fail_streak: 0,
+  anchor_effective_ok: true,
+  cloud_effective_ok: null,
+  fail_threshold: 2,
+  effective_interval_secs: 15,
+  checked_at_ms: Date.now(),
+}
+export const networkHealthGet = async () => {
+  if (!isTauri) return MOCK_NET_HEALTH
+  return await invoke('network_health_get')
+}
+export const networkHealthCheck = async () => {
+  if (!isTauri) return MOCK_NET_HEALTH
+  return await invoke('network_health_check')
 }

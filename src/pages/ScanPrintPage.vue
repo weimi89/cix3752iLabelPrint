@@ -1,14 +1,20 @@
 <script setup>
+import { toast } from 'vue3-toastify'
 import { cloudFetchLabel, printImage } from '@/api/tauri'
 import { isPrintable, statusLabel, statusIcon, statusGroupColor, errorMessageFromException } from '@/composables/useLabelStatus'
 import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 
 const orderSnList = ref([])
 const printType = ref('ALL')
 const enforce = ref(false)
+const scannerUser = ref('')
+const stickerUser = ref('')
 
 const printList = reactive([])
 const printStatus = reactive([])
@@ -31,18 +37,18 @@ const printerMap = computed(() => {
   }
 })
 
-const PRINT_TYPE_OPTIONS = [
-  { value: 'ALL', title: '全部' },
-  { value: '7', title: '7-ELEVEN' },
-  { value: 'F', title: '全家' },
-  { value: 'O', title: '萊爾富' },
-  { value: 'C', title: '黑貓' },
-  { value: 'H', title: '新竹' },
-  { value: 'P', title: '宅配通' },
-  { value: 'E', title: '順豐速運' },
-  { value: 'S', title: '蝦皮（離線）' },
-  { value: 'A', title: '蝦皮（授權）' },
-]
+const PRINT_TYPE_OPTIONS = computed(() => [
+  { value: 'ALL', title: t('common.all') },
+  { value: '7', title: t('provider.7eleven') },
+  { value: 'F', title: t('provider.family') },
+  { value: 'O', title: t('provider.hilife') },
+  { value: 'C', title: t('provider.tcat') },
+  { value: 'H', title: t('provider.hct') },
+  { value: 'P', title: t('provider.pelican') },
+  { value: 'E', title: t('provider.sf') },
+  { value: 'S', title: t('provider.shopeeOffline') },
+  { value: 'A', title: t('provider.shopeeAuth') },
+])
 
 const initPrintList = snList => {
   printList.splice(0)
@@ -74,6 +80,8 @@ const processOne = async index => {
       printType: printType.value,
       enforce: enforce.value,
       mode: 'web_print',
+      scannerUser: scannerUser.value,
+      stickerUser: stickerUser.value,
     })
     item.code = data.print_view_status || ''
     item.shipping_no = data.print_shipping_no || ''
@@ -123,6 +131,8 @@ const stopProcessing = () => {
 }
 
 const handleQuery = async () => {
+  if (!scannerUser.value.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return }
+  if (!stickerUser.value.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return }
   if (orderSnList.value.length === 0) return
   initPrintList(orderSnList.value)
   orderSnList.value = []
@@ -209,11 +219,11 @@ const groupedStatus = computed(() => {
 
 <template>
   <div>
-    <AppHeader title="掃描列印" subtitle="逐筆載入面單列印" icon="tabler-browser">
+    <AppHeader :title="$t('page.scan.title')" :subtitle="$t('page.scan.subtitle')" icon="tabler-browser">
       <template #actions>
         <VSwitch
           v-model="enforce"
-          label="強制列印"
+          :label="$t('page.scan.enforce')"
           color="warning"
           inset
           hide-details
@@ -227,8 +237,22 @@ const groupedStatus = computed(() => {
         <div class="left-sticky">
         <VCard>
           <VCardText>
+            <div class="d-flex gap-3 mb-3">
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
+                </VLabel>
+                <VTextField v-model="scannerUser" />
+              </div>
+              <div class="flex-grow-1">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
+                </VLabel>
+                <VTextField v-model="stickerUser" />
+              </div>
+            </div>
             <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">列印範圍</VLabel>
+              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.scan.printScope') }}</VLabel>
               <VSelect
                 v-model="printType"
                 :items="PRINT_TYPE_OPTIONS"
@@ -236,11 +260,10 @@ const groupedStatus = computed(() => {
                 item-value="value"
               />
             </div>
-            <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" clearable-top />
-
+            <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
             <div v-if="totalItems > 0" class="mt-3">
               <div class="d-flex justify-space-between mb-1">
-                <span class="text-xs text-medium-emphasis">面單載入進度</span>
+                <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
                 <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
               </div>
               <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
@@ -248,7 +271,7 @@ const groupedStatus = computed(() => {
 
             <div v-if="isPrinting || printProgress.total > 0 && printProgress.done < printProgress.total" class="mt-3">
               <div class="d-flex justify-space-between mb-1">
-                <span class="text-xs text-medium-emphasis">列印進度</span>
+                <span class="text-xs text-medium-emphasis">{{ $t('page.scan.printProgress') }}</span>
                 <span class="text-xs text-medium-emphasis">{{ printProgress.done }} / {{ printProgress.total }}（{{ printProgressPct }}%）</span>
               </div>
               <VProgressLinear :model-value="printProgressPct" color="success" height="6" rounded :indeterminate="isPrinting && printProgress.total === 0" />
@@ -266,26 +289,34 @@ const groupedStatus = computed(() => {
           @click:close="printSummary = null"
         >
           <div>
-            列印完成：成功 {{ printSummary.ok }} 筆<span v-if="printSummary.fail > 0">、失敗 {{ printSummary.fail }} 筆</span><span v-if="printSummary.skip > 0">、略過 {{ printSummary.skip }} 筆（未設定印表機）</span>
+            <i18n-t keypath="page.scan.summaryLine" tag="span">
+              <template #ok>{{ printSummary.ok }}</template>
+              <template #failPart>
+                <span v-if="printSummary.fail > 0">{{ $t('page.scan.summaryFail', { n: printSummary.fail }) }}</span>
+              </template>
+              <template #skipPart>
+                <span v-if="printSummary.skip > 0">{{ $t('page.scan.summarySkip', { n: printSummary.skip }) }}</span>
+              </template>
+            </i18n-t>
           </div>
           <ul v-if="printErrors.length > 0" class="mt-1 ps-4 text-xs">
             <li v-for="(err, idx) in printErrors.slice(0, 5)" :key="idx">{{ err.sn }}：{{ err.message }}</li>
-            <li v-if="printErrors.length > 5">…（還有 {{ printErrors.length - 5 }} 筆）</li>
+            <li v-if="printErrors.length > 5">{{ $t('page.scan.summaryMoreErrors', { n: printErrors.length - 5 }) }}</li>
           </ul>
         </VAlert>
 
         <div class="d-flex justify-center gap-2 mt-3">
           <VBtn v-if="!isProcessing" color="primary" :disabled="orderSnList.length === 0 || isPrinting" @click="handleQuery">
-            <VIcon icon="tabler-search" class="me-1" />查詢
+            <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
           </VBtn>
           <VBtn v-else color="error" @click="stopProcessing">
-            <VIcon icon="tabler-player-stop" class="me-1" />停止
+            <VIcon icon="tabler-player-stop" class="me-1" />{{ $t('common.stop') }}
           </VBtn>
           <VBtn v-if="!isProcessing && successItems > 0" color="success" :loading="isPrinting" :disabled="isPrinting || completedItems < totalItems" @click="handlePrintAll">
             <VIcon icon="tabler-printer" class="me-1" />
-            <template v-if="isPrinting">列印中（{{ printProgress.done }} / {{ printProgress.total }}）</template>
-            <template v-else-if="completedItems < totalItems">面單載入中（{{ completedItems }} / {{ totalItems }}）</template>
-            <template v-else>貼標列印（{{ successItems }} 筆）</template>
+            <template v-if="isPrinting">{{ $t('page.scan.btnPrinting', { done: printProgress.done, total: printProgress.total }) }}</template>
+            <template v-else-if="completedItems < totalItems">{{ $t('page.scan.btnLoadingLabels', { done: completedItems, total: totalItems }) }}</template>
+            <template v-else>{{ $t('page.scan.btnPrintAll', { n: successItems }) }}</template>
           </VBtn>
         </div>
         </div>
@@ -294,7 +325,7 @@ const groupedStatus = computed(() => {
           <VCardItem>
             <VCardTitle class="text-body-1 d-flex align-center">
               <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
-              列印警告
+              {{ $t('page.scan.printWarnings') }}
               <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ printStatus.length }}</VChip>
             </VCardTitle>
           </VCardItem>
@@ -330,24 +361,24 @@ const groupedStatus = computed(() => {
           <VCardText>
             <div v-if="printList.length === 0" class="empty-state">
               <VIcon icon="tabler-printer" size="80" color="primary" class="empty-state__icon" />
-              <h4 class="text-h6 mt-4 mb-1">尚未載入面單</h4>
-              <p class="text-body-2 text-medium-emphasis">請在左側輸入訂單編號後按下「查詢」</p>
+              <h4 class="text-h6 mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
+              <p class="text-body-2 text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
               <div class="empty-state__steps">
                 <div class="step-item">
                   <span class="step-num">1</span>
-                  <span>選擇列印範圍與是否強制列印</span>
+                  <span>{{ $t('page.scan.step1') }}</span>
                 </div>
                 <div class="step-item">
                   <span class="step-num">2</span>
-                  <span>輸入或掃描訂單編號（可多筆）</span>
+                  <span>{{ $t('page.scan.step2') }}</span>
                 </div>
                 <div class="step-item">
                   <span class="step-num">3</span>
-                  <span>系統會逐筆載入面單</span>
+                  <span>{{ $t('page.scan.step3') }}</span>
                 </div>
                 <div class="step-item">
                   <span class="step-num">4</span>
-                  <span>確認後點「貼標列印」送印</span>
+                  <span>{{ $t('page.scan.step4') }}</span>
                 </div>
               </div>
             </div>
@@ -373,7 +404,7 @@ const groupedStatus = computed(() => {
                     <div class="repeat-overlay__content">
                       <div class="repeat-overlay__head">
                         <VIcon icon="tabler-alert-triangle" size="13" class="me-1" />
-                        <strong>重覆列印 {{ item.print_time?.length || 0 }} 次</strong>
+                        <strong>{{ $t('page.scan.repeatTitle', { n: item.print_time?.length || 0 }) }}</strong>
                       </div>
                       <div class="repeat-overlay__sn">{{ item.sn }}</div>
                       <div v-if="item.print_time && item.print_time.length > 0" class="repeat-overlay__list">
@@ -381,13 +412,13 @@ const groupedStatus = computed(() => {
                           <span class="me-1">#{{ ti + 1 }}</span>{{ t }}
                         </div>
                         <div v-if="item.print_time.length > 3" class="repeat-overlay__time text-medium-emphasis">
-                          …還有 {{ item.print_time.length - 3 }} 次
+                          {{ $t('page.scan.repeatMore', { n: item.print_time.length - 3 }) }}
                         </div>
                       </div>
                     </div>
                     <VBtn size="x-small" variant="flat" color="error" class="repeat-overlay__btn" @click="removePrintItem(item.sn)">
                       <VIcon icon="tabler-trash" size="12" class="me-1" />
-                      從列印區移除
+                      {{ $t('page.scan.removeFromPrint') }}
                     </VBtn>
                   </div>
                 </div>

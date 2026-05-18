@@ -1,6 +1,11 @@
 <script setup>
 import { getConfig, updateConfig, serverRestart, serverStatus, setAutoStart, getAutoStart } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import { useLocale } from '@/composables/useLocale'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+const { currentLocale, availableLocales, setLocale } = useLocale()
 
 const config = ref(null)
 const status = ref({ running: false, bind_addr: '' })
@@ -33,10 +38,10 @@ const save = async () => {
         await setAutoStart(config.value.server.auto_start)
         osAutoStart.value = config.value.server.auto_start
       } catch (e) {
-        errorMsg.value = `自動啟動切換失敗:${String(e?.message || e)}`
+        errorMsg.value = t('page.server.autoStartFailed', { reason: String(e?.message || e) })
       }
     }
-    flashMsg.value = '已儲存(位址/連接埠變更需點「重啟服務」生效)'
+    flashMsg.value = t('page.server.savedFlash')
     setTimeout(() => (flashMsg.value = ''), 3000)
   } catch (e) {
     errorMsg.value = String(e)
@@ -49,7 +54,7 @@ const restart = async () => {
   restarting.value = true
   try {
     status.value = await serverRestart()
-    flashMsg.value = `服務已重啟,目前綁定 ${status.value.bind_addr}`
+    flashMsg.value = t('page.server.restartedFlash', { addr: status.value.bind_addr })
     setTimeout(() => (flashMsg.value = ''), 3000)
   } catch (e) {
     errorMsg.value = String(e)
@@ -61,11 +66,11 @@ const restart = async () => {
 
 <template>
   <div v-if="config">
-    <AppHeader title="服務設定" subtitle="給分揀機工控機呼叫的本地 HTTP API" icon="tabler-server-2">
+    <AppHeader :title="$t('page.server.title')" :subtitle="$t('page.server.subtitle')" icon="tabler-server-2">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn :loading="restarting" color="warning" :disabled="!isTauriRuntime" @click="restart">
-            <VIcon icon="tabler-refresh" size="16" class="me-1" />重啟服務
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('page.server.restart') }}
           </VBtn>
         </div>
         <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
@@ -74,7 +79,7 @@ const restart = async () => {
             <VList>
               <VListItem :disabled="!isTauriRuntime" @click="restart">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
-                <VListItemTitle>重啟服務</VListItemTitle>
+                <VListItemTitle>{{ $t('page.server.restart') }}</VListItemTitle>
               </VListItem>
             </VList>
           </VMenu>
@@ -89,11 +94,11 @@ const restart = async () => {
       <VCardText>
         <VRow dense>
           <VCol cols="12" md="8">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">監聽位址</VLabel>
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.server.listenIp') }}</VLabel>
             <VTextField v-model="config.server.listen_ip" hide-details />
           </VCol>
           <VCol cols="12" md="4">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">連接埠</VLabel>
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.server.port') }}</VLabel>
             <VNumberInput v-model="config.server.port" :min="1" :max="65535" />
           </VCol>
         </VRow>
@@ -102,8 +107,8 @@ const restart = async () => {
 
         <div class="d-flex align-center justify-space-between">
           <div>
-            <div class="text-body-1 font-weight-medium">開機自動啟動本程式</div>
-            <div class="text-caption text-medium-emphasis">加入作業系統登入啟動清單,含本地 Server</div>
+            <div class="text-body-1 font-weight-medium">{{ $t('page.server.autoStartTitle') }}</div>
+            <div class="text-caption text-medium-emphasis">{{ $t('page.server.autoStartDesc') }}</div>
           </div>
           <VSwitch
             v-model="config.server.auto_start"
@@ -116,15 +121,75 @@ const restart = async () => {
         <VDivider class="my-4" />
 
         <div class="text-body-2">
-          <span class="text-medium-emphasis">目前綁定:</span>
-          <code class="ms-2">{{ status.bind_addr || '尚未啟動' }}</code>
+          <span class="text-medium-emphasis">{{ $t('page.server.currentBind') }}</span>
+          <code class="ms-2">{{ status.bind_addr || $t('page.dashboard.notStarted') }}</code>
         </div>
+      </VCardText>
+    </VCard>
+
+    <VCard class="mb-4">
+      <VCardItem>
+        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('page.server.appSection') }}</VCardTitle>
+      </VCardItem>
+      <VCardText>
+        <div class="d-flex align-center justify-space-between">
+          <div>
+            <div class="text-body-1 font-weight-medium">{{ $t('locale.label') }}</div>
+            <div class="text-caption text-medium-emphasis">{{ $t('page.server.localeDesc') }}</div>
+          </div>
+          <VSelect
+            :model-value="currentLocale"
+            :items="availableLocales"
+            item-title="label"
+            item-value="code"
+            hide-details
+            density="compact"
+            variant="outlined"
+            style="max-inline-size: 220px;"
+            @update:model-value="setLocale"
+          />
+        </div>
+      </VCardText>
+    </VCard>
+
+    <VCard class="mb-4">
+      <VCardItem>
+        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('network.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-caption">{{ $t('network.settings.desc') }}</VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <VRow dense>
+          <VCol cols="12" md="6">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.anchorAddr') }}</VLabel>
+            <VTextField v-model="config.network.anchor_addr" placeholder="1.1.1.1:443" hide-details density="compact" variant="outlined" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.intervalSecs') }}</VLabel>
+            <VNumberInput v-model="config.network.interval_secs" :min="5" :max="3600" density="compact" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.degradeIntervalSecs') }}</VLabel>
+            <VNumberInput v-model="config.network.degrade_interval_secs" :min="5" :max="3600" density="compact" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.anchorTimeoutMs') }}</VLabel>
+            <VNumberInput v-model="config.network.anchor_timeout_ms" :min="100" :max="10000" :step="100" density="compact" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.cloudTimeoutSecs') }}</VLabel>
+            <VNumberInput v-model="config.network.cloud_timeout_secs" :min="1" :max="60" density="compact" />
+          </VCol>
+          <VCol cols="12" md="6">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.failThreshold') }}</VLabel>
+            <VNumberInput v-model="config.network.fail_threshold" :min="1" :max="10" density="compact" />
+          </VCol>
+        </VRow>
       </VCardText>
     </VCard>
 
     <div class="d-flex justify-center">
       <VBtn :loading="saving" color="primary" size="large" @click="save">
-        <VIcon icon="tabler-device-floppy" class="me-1" />儲存設定
+        <VIcon icon="tabler-device-floppy" class="me-1" />{{ $t('common.saveSettings') }}
       </VBtn>
     </div>
   </div>

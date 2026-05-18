@@ -2,6 +2,7 @@
 import { eventLogList } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
+import { useI18n } from 'vue-i18n'
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
@@ -24,20 +25,22 @@ const resetSearch = () => {
   searchKeyword.value = ''
 }
 
-const LEVELS = [
-  { title: '全部', value: null },
+const { t } = useI18n()
+
+const LEVELS = computed(() => [
+  { title: t('common.all'), value: null },
   { title: 'info', value: 'info' },
   { title: 'warn', value: 'warn' },
   { title: 'error', value: 'error' },
-]
-const CATEGORIES = [
-  { title: '全部', value: null },
+])
+const CATEGORIES = computed(() => [
+  { title: t('common.all'), value: null },
   { title: 'server', value: 'server' },
   { title: 'cloud', value: 'cloud' },
   { title: 'cache', value: 'cache' },
   { title: 'queue', value: 'queue' },
   { title: 'printer', value: 'printer' },
-]
+])
 
 // 瀏覽器預覽模式 mock 資料(60 筆,展示分頁)
 const TEMPLATES = [
@@ -126,11 +129,11 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader title="事件記錄" subtitle="系統 / 雲端 / 快取 / 佇列 / 印表機事件" icon="tabler-bell-ringing">
+    <AppHeader :title="$t('page.eventLog.title')" :subtitle="$t('page.eventLog.subtitle')" icon="tabler-bell-ringing">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">
-            <VIcon icon="tabler-refresh" size="16" class="me-1" />重新載入
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
         </div>
         <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
@@ -139,7 +142,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <VList>
               <VListItem :disabled="!isTauriRuntime" @click="load">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
-                <VListItemTitle>重新載入</VListItemTitle>
+                <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>
             </VList>
           </VMenu>
@@ -148,38 +151,38 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     </AppHeader>
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入 SQLite 內的 event_log 紀錄。
+      {{ $t('page.eventLog.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
 
     <!-- 進階查詢 -->
     <VExpansionPanels v-model="searchOpen" class="mb-3 advanced-search">
       <VExpansionPanel>
-        <VExpansionPanelTitle class="advanced-search__title">進階查詢</VExpansionPanelTitle>
+        <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
             <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
               <div class="search-field">
-                <label>關鍵字</label>
-                <VTextField v-model="searchKeyword" placeholder="訊息或動作" density="compact" hide-details variant="outlined" />
+                <label>{{ $t('page.eventLog.keyword') }}</label>
+                <VTextField v-model="searchKeyword" :placeholder="$t('page.eventLog.keywordPlaceholder')" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
             <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
               <div class="search-field">
-                <label>等級</label>
+                <label>{{ $t('page.eventLog.level') }}</label>
                 <VSelect v-model="eventLevel" :items="LEVELS" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
             <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
               <div class="search-field">
-                <label>類別</label>
+                <label>{{ $t('page.eventLog.category') }}</label>
                 <VSelect v-model="eventCategory" :items="CATEGORIES" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
           </VRow>
           <div class="d-flex justify-center pt-4">
             <VBtn variant="elevated" color="primary" @click="load">
-              <VIcon icon="tabler-database-search" size="18" class="me-1" />查詢
+              <VIcon icon="tabler-database-search" size="18" class="me-1" />{{ $t('common.search') }}
             </VBtn>
           </div>
         </VExpansionPanelText>
@@ -198,11 +201,11 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
       <VTable hover class="event-table">
         <thead>
           <tr>
-            <th class="text-center" style="width: 170px;">時間</th>
-            <th class="text-center" style="width: 80px;">等級</th>
-            <th class="text-center" style="width: 100px;">類別</th>
-            <th class="text-center" style="width: 170px;">動作</th>
-            <th style="min-width: 200px;">訊息</th>
+            <th class="text-center" style="width: 170px;">{{ $t('page.eventLog.col.time') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.eventLog.col.level') }}</th>
+            <th class="text-center" style="width: 100px;">{{ $t('page.eventLog.col.category') }}</th>
+            <th class="text-center" style="width: 170px;">{{ $t('page.eventLog.col.action') }}</th>
+            <th style="min-width: 200px;">{{ $t('page.eventLog.col.message') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -210,7 +213,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <td colspan="5">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
-                <span class="text-md">查無資料</span>
+                <span class="text-md">{{ $t('common.noResults') }}</span>
               </div>
             </td>
           </tr>

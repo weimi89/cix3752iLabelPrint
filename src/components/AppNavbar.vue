@@ -10,7 +10,6 @@ defineProps({
 
 <template>
   <div class="d-flex h-100 align-center">
-    <!-- 漢堡:< lg(992px) 顯示,點擊打開 overlay sidebar -->
     <VBtn
       icon
       variant="text"
@@ -21,5 +20,7 @@ defineProps({
       <VIcon size="26" icon="tabler-menu-2" />
     </VBtn>
     <VSpacer />
+    <NetworkStatusIndicator />
+    <LocaleSwitcher />
   </div>
 </template>

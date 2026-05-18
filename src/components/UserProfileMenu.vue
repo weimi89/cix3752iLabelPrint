@@ -1,12 +1,15 @@
 <script setup>
 import { cloudLogout } from '@/api/tauri'
 import { useStatusStore } from '@/stores/status'
+import { useI18n } from 'vue-i18n'
 
 const status = useStatusStore()
 const router = useRouter()
 
-const userName = computed(() => status.cloud.user_label || '尚未登入')
-const userRole = computed(() => status.cloud.logged_in ? '系統管理員' : '訪客')
+const { t } = useI18n()
+
+const userName = computed(() => status.cloud.user_label || t('user.notLoggedIn'))
+const userRole = computed(() => t(status.cloud.logged_in ? 'user.role.admin' : 'user.role.guest'))
 
 const logout = async () => {
   await cloudLogout()
@@ -40,7 +43,7 @@ const logout = async () => {
       <VDivider />
       <div class="pa-2">
         <VBtn color="error" block @click="logout">
-          <span class="me-2">登出</span><VIcon icon="tabler-logout" size="18" />
+          <span class="me-2">{{ $t('user.logout') }}</span><VIcon icon="tabler-logout" size="18" />
         </VBtn>
       </div>
     </VCard>

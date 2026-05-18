@@ -2,6 +2,9 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { getConfig, updateConfig, cacheStats, cacheClear } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const config = ref(null)
 const stats = ref({ file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 })
@@ -31,7 +34,7 @@ const load = async () => {
       stats.value = await cacheStats()
     } catch (e) {
       // 後端 command 尚未生效時不阻塞 UI
-      errorMsg.value = `讀取快取統計失敗:${String(e?.message || e)}`
+      errorMsg.value = t('page.cache.statsLoadFailed', { reason: String(e?.message || e) })
     }
   }
 }
@@ -42,7 +45,7 @@ const save = async () => {
   saving.value = true
   try {
     config.value = await updateConfig(JSON.parse(JSON.stringify(config.value)))
-    flashMsg.value = '已儲存(快取目錄變更會立即生效)'
+    flashMsg.value = t('page.cache.savedFlash')
     setTimeout(() => (flashMsg.value = ''), 3000)
     await load()
   } catch (e) {
@@ -54,10 +57,10 @@ const save = async () => {
 
 const pickCacheDir = async () => {
   if (!isTauriRuntime) {
-    errorMsg.value = '瀏覽器模式無法開啟資料夾對話框'
+    errorMsg.value = t('error.browserCannotOpenDialog')
     return
   }
-  const dir = await openDialog({ directory: true, title: '選擇圖片快取目錄' })
+  const dir = await openDialog({ directory: true, title: t('page.cache.pickDirTitle') })
   if (typeof dir === 'string' && dir) {
     config.value.cache.dir = dir
   }
@@ -68,7 +71,7 @@ const handleClear = async () => {
   errorMsg.value = ''
   try {
     await cacheClear()
-    flashMsg.value = '快取已清空'
+    flashMsg.value = t('page.cache.clearedFlash')
     setTimeout(() => (flashMsg.value = ''), 3000)
     await load()
   } catch (e) {
@@ -81,11 +84,11 @@ const handleClear = async () => {
 
 <template>
   <div v-if="config">
-    <AppHeader title="圖片快取設定" subtitle="面單圖檔在本機保留的方式" icon="tabler-photo">
+    <AppHeader :title="$t('page.cache.title')" :subtitle="$t('page.cache.subtitle')" icon="tabler-photo">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="error" :loading="clearing" :disabled="!isTauriRuntime" @click="handleClear">
-            <VIcon icon="tabler-trash" size="16" class="me-1" />清空快取
+            <VIcon icon="tabler-trash" size="16" class="me-1" />{{ $t('page.cache.clearCache') }}
           </VBtn>
         </div>
         <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
@@ -94,7 +97,7 @@ const handleClear = async () => {
             <VList>
               <VListItem :disabled="!isTauriRuntime" @click="handleClear">
                 <template #prepend><VIcon icon="tabler-trash" size="20" /></template>
-                <VListItemTitle>清空快取</VListItemTitle>
+                <VListItemTitle>{{ $t('page.cache.clearCache') }}</VListItemTitle>
               </VListItem>
             </VList>
           </VMenu>
@@ -113,7 +116,7 @@ const handleClear = async () => {
               <VAvatar color="primary" variant="tonal"><VIcon icon="tabler-photo" /></VAvatar>
             </template>
             <VCardTitle>{{ stats.file_count }}</VCardTitle>
-            <VCardSubtitle>快取面單數</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.cache.stats.fileCount') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -124,7 +127,7 @@ const handleClear = async () => {
               <VAvatar color="info" variant="tonal"><VIcon icon="tabler-database" /></VAvatar>
             </template>
             <VCardTitle>{{ totalSizeText }}</VCardTitle>
-            <VCardSubtitle>佔用空間</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.cache.stats.totalSize') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -135,7 +138,7 @@ const handleClear = async () => {
               <VAvatar color="success" variant="tonal"><VIcon icon="tabler-target-arrow" /></VAvatar>
             </template>
             <VCardTitle>{{ hitRatePct }}%</VCardTitle>
-            <VCardSubtitle>命中率 (hit / hit+miss)</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.cache.stats.hitRate') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -146,7 +149,7 @@ const handleClear = async () => {
               <VAvatar color="warning" variant="tonal"><VIcon icon="tabler-cloud-download" /></VAvatar>
             </template>
             <VCardTitle>{{ stats.miss_count }}</VCardTitle>
-            <VCardSubtitle>Miss 次數 (本日)</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.cache.stats.missCount') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -155,27 +158,27 @@ const handleClear = async () => {
     <VCard>
       <VCardText>
         <div class="mb-4">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">快取目錄</VLabel>
+          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.cacheDir') }}</VLabel>
           <div class="d-flex gap-2">
             <VTextField
               v-model="config.cache.dir"
-              placeholder="留白代表使用預設位置 (app_data/cache/labels)"
+              :placeholder="$t('page.cache.cacheDirPlaceholder')"
               hide-details
               class="flex-grow-1"
             />
             <VBtn variant="tonal" :disabled="!isTauriRuntime" @click="pickCacheDir">
-              <VIcon icon="tabler-folder-open" size="18" class="me-1" />選擇
+              <VIcon icon="tabler-folder-open" size="18" class="me-1" />{{ $t('common.pick') }}
             </VBtn>
           </div>
         </div>
 
         <VRow dense>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">保留天數(0 = 永久)</VLabel>
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.keepDays') }}</VLabel>
             <VNumberInput v-model="config.cache.keep_days" :min="0" />
           </VCol>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">最大容量 MB(0 = 不限)</VLabel>
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.maxSizeMb') }}</VLabel>
             <VNumberInput v-model="config.cache.max_size_mb" :min="0" />
           </VCol>
         </VRow>
@@ -184,7 +187,7 @@ const handleClear = async () => {
 
     <div class="d-flex justify-center mt-4">
       <VBtn :loading="saving" color="primary" size="large" @click="save">
-        <VIcon icon="tabler-device-floppy" size="18" class="me-2" />儲存設定
+        <VIcon icon="tabler-device-floppy" size="18" class="me-2" />{{ $t('common.saveSettings') }}
       </VBtn>
     </div>
   </div>

@@ -16,7 +16,7 @@ export const { themeConfig, layoutConfig } = defineThemeConfig({
     contentLayoutNav: AppContentLayoutNav.Vertical,
     overlayNavFromBreakpoint: breakpointsBootstrapV5.lg,
     i18n: {
-      enable: false,
+      enable: true,
       defaultLocale: 'zh-Hant',
       langConfig: [
         {
@@ -25,8 +25,8 @@ export const { themeConfig, layoutConfig } = defineThemeConfig({
           isRTL: false,
         },
         {
-          label: 'English',
-          i18nLang: 'en',
+          label: 'Tiếng Việt',
+          i18nLang: 'vi-VN',
           isRTL: false,
         },
       ],

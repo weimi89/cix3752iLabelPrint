@@ -1,11 +1,35 @@
 <script setup>
 import { useStatusStore } from '@/stores/status'
 import AppHeader from '@/components/AppHeader.vue'
+import { useNetworkStatus } from '@/composables/useNetworkStatus'
 
 const status = useStatusStore()
+const {
+  osOnline, anchor, cloudApi, checkedAtMs,
+  anchorFailStreak, cloudFailStreak, failThreshold, effectiveIntervalSecs,
+  anchorEffectiveOk, cloudEffectiveOk,
+  overall, isChecking, checkNow,
+} = useNetworkStatus()
 let timer = null
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+
+const netOverallColor = computed(() => ({
+  ok: 'success',
+  degraded: 'warning',
+  down: 'error',
+}[overall.value]))
+
+const netOverallIcon = computed(() => ({
+  ok: 'tabler-wifi',
+  degraded: 'tabler-wifi-1',
+  down: 'tabler-wifi-off',
+}[overall.value]))
+
+const lastCheckedText = computed(() => {
+  if (!checkedAtMs.value) return ''
+  return new Date(checkedAtMs.value).toLocaleString()
+})
 
 onMounted(async () => {
   if (isTauriRuntime) {
@@ -29,10 +53,10 @@ const formatBytes = bytes => {
 
 <template>
   <div>
-    <AppHeader title="儀表板" subtitle="本地分揀中介服務即時狀態" icon="tabler-layout-dashboard" />
+    <AppHeader :title="$t('page.dashboard.title')" :subtitle="$t('page.dashboard.subtitle')" icon="tabler-layout-dashboard" />
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 狀態資料來自 Tauri 後端,請於桌面 App 內查看實際數值。
+      {{ $t('page.dashboard.previewModeAlert') }}
     </VAlert>
 
     <!-- 上半:即時狀態(Middleware / 雲端) -->
@@ -45,8 +69,8 @@ const formatBytes = bytes => {
                 <VIcon icon="tabler-server-bolt" />
               </VAvatar>
             </template>
-            <VCardTitle>Middleware</VCardTitle>
-            <VCardSubtitle>{{ status.server.bind_addr || '未啟動' }}</VCardSubtitle>
+            <VCardTitle>{{ $t('page.dashboard.middleware') }}</VCardTitle>
+            <VCardSubtitle>{{ status.server.bind_addr || $t('page.dashboard.notStarted') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -59,8 +83,8 @@ const formatBytes = bytes => {
                 <VIcon icon="tabler-cloud-check" />
               </VAvatar>
             </template>
-            <VCardTitle>雲端連線</VCardTitle>
-            <VCardSubtitle>{{ status.cloud.logged_in ? status.cloud.api_base : '尚未登入' }}</VCardSubtitle>
+            <VCardTitle>{{ $t('page.dashboard.cloudConnection') }}</VCardTitle>
+            <VCardSubtitle>{{ status.cloud.logged_in ? status.cloud.api_base : $t('user.notLoggedIn') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -77,7 +101,7 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ status.today.request_count }}</VCardTitle>
-            <VCardSubtitle>本日請求數</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.dashboard.todayRequests') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -90,7 +114,7 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ status.successRate }}%</VCardTitle>
-            <VCardSubtitle>本日成功率 ({{ status.today.success_count }}/{{ status.today.request_count }})</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.dashboard.todaySuccessRate', { ok: status.today.success_count, total: status.today.request_count }) }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -103,7 +127,7 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ status.cacheHitRatePct }}%</VCardTitle>
-            <VCardSubtitle>Cache 命中率 ({{ status.cache.hit_count }} hit / {{ status.cache.miss_count }} miss)</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.dashboard.cacheHitRate', { hit: status.cache.hit_count, miss: status.cache.miss_count }) }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
@@ -116,14 +140,143 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ status.cache.file_count }}</VCardTitle>
-            <VCardSubtitle>快取面單 / {{ formatBytes(status.cache.total_bytes) }}</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.dashboard.cachedLabels', { size: formatBytes(status.cache.total_bytes) }) }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>
     </VRow>
 
+    <VCard class="card-shadow mt-4">
+      <VCardItem>
+        <template #prepend>
+          <VAvatar :color="netOverallColor" variant="tonal">
+            <VIcon :icon="netOverallIcon" />
+          </VAvatar>
+        </template>
+        <VCardTitle class="d-flex align-center">
+          {{ $t('network.card.title') }}
+          <VChip :color="netOverallColor" size="x-small" variant="tonal" class="ms-2">
+            {{ $t(`network.overall.${overall}`) }}
+          </VChip>
+          <VSpacer />
+          <VBtn
+            variant="text"
+            size="small"
+            color="primary"
+            :loading="isChecking"
+            @click="checkNow"
+          >
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />
+            {{ $t('network.checkNow') }}
+          </VBtn>
+        </VCardTitle>
+        <VCardSubtitle v-if="lastCheckedText" class="text-caption">
+          {{ $t('network.lastCheckedAt') }} {{ lastCheckedText }}
+        </VCardSubtitle>
+      </VCardItem>
+      <VDivider />
+      <VList density="compact" class="py-1">
+        <VListItem>
+          <template #prepend>
+            <VIcon
+              :icon="osOnline ? 'tabler-circle-check' : 'tabler-circle-x'"
+              :color="osOnline ? 'success' : 'error'"
+              size="18"
+              class="me-2"
+            />
+          </template>
+          <VListItemTitle class="text-body-2">{{ $t('network.layer.os') }}</VListItemTitle>
+          <VListItemSubtitle class="text-caption">
+            {{ osOnline ? $t('network.statusKind.ok') : $t('network.osOffline') }}
+          </VListItemSubtitle>
+        </VListItem>
+        <VListItem>
+          <template #prepend>
+            <VIcon
+              v-if="anchor?.kind === 'ok'"
+              icon="tabler-circle-check"
+              color="success"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else-if="anchorEffectiveOk"
+              icon="tabler-refresh-alert"
+              color="warning"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else
+              icon="tabler-circle-x"
+              color="error"
+              size="18"
+              class="me-2"
+            />
+          </template>
+          <VListItemTitle class="text-body-2">{{ $t('network.layer.anchor') }}</VListItemTitle>
+          <VListItemSubtitle class="text-caption">
+            <template v-if="anchor?.kind === 'ok'">{{ $t('network.latencyMs', { n: anchor.latency_ms }) }}</template>
+            <template v-else-if="anchor && anchorEffectiveOk">
+              {{ $t('network.retryingStreak', { n: anchorFailStreak, total: failThreshold }) }} · {{ anchor.error }}
+            </template>
+            <template v-else-if="anchor">{{ anchor.error }}</template>
+            <template v-else>{{ $t('network.statusKind.unknown') }}</template>
+          </VListItemSubtitle>
+        </VListItem>
+        <VListItem>
+          <template #prepend>
+            <VIcon
+              v-if="cloudApi?.kind === 'reachable'"
+              icon="tabler-circle-check"
+              color="success"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else-if="cloudApi?.kind === 'unreachable' && cloudEffectiveOk !== false"
+              icon="tabler-refresh-alert"
+              color="warning"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else-if="cloudApi?.kind === 'unreachable'"
+              icon="tabler-circle-x"
+              color="error"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else
+              icon="tabler-circle-dashed"
+              color="grey"
+              size="18"
+              class="me-2"
+            />
+          </template>
+          <VListItemTitle class="text-body-2">{{ $t('network.layer.cloudApi') }}</VListItemTitle>
+          <VListItemSubtitle class="text-caption">
+            <template v-if="cloudApi?.kind === 'reachable'">
+              HTTP {{ cloudApi.status }} · {{ $t('network.latencyMs', { n: cloudApi.latency_ms }) }}
+            </template>
+            <template v-else-if="cloudApi?.kind === 'unreachable' && cloudEffectiveOk !== false">
+              {{ $t('network.retryingStreak', { n: cloudFailStreak, total: failThreshold }) }} · {{ cloudApi.error }}
+            </template>
+            <template v-else-if="cloudApi?.kind === 'unreachable'">{{ cloudApi.error }}</template>
+            <template v-else-if="cloudApi?.kind === 'not_configured'">{{ $t('network.statusKind.notConfigured') }}</template>
+            <template v-else>{{ $t('network.statusKind.unknown') }}</template>
+          </VListItemSubtitle>
+        </VListItem>
+      </VList>
+      <VDivider />
+      <div class="px-4 py-2 text-caption text-disabled">
+        {{ $t('network.nextCheckIn', { n: effectiveIntervalSecs }) }}
+      </div>
+    </VCard>
+
     <VAlert v-if="!status.cloud.logged_in && isTauriRuntime" type="warning" variant="tonal" class="mt-4" icon="tabler-alert-triangle">
-      尚未登入雲端 API — 請至「雲端 API」頁完成登入,否則工控機查包裹會回 401。
+      {{ $t('page.dashboard.cloudNotLoggedInAlert') }}
     </VAlert>
   </div>
 </template>

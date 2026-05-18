@@ -20,6 +20,7 @@ pub async fn update_config(
 
     state.cloud.apply_config(&new_config);
     state.cache.apply_config(&handle, &new_config)?;
+    state.health.apply_config(&new_config);
 
     *state.config.write().await = new_config.clone();
     Ok(new_config)

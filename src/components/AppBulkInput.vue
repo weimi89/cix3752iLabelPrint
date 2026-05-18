@@ -164,7 +164,7 @@ const toggleExpand = () => {
         style="line-height: 15px;"
       >
         {{ label }}
-        <span v-if="itemCount > 0" class="item-count ms-2">{{ itemCount }} 筆</span>
+        <span v-if="itemCount > 0" class="item-count ms-2">{{ $t('bulk.itemsCount', { n: itemCount }) }}</span>
       </VLabel>
       <button
         v-if="clearableTop && clearable && itemCount > 0"
@@ -172,7 +172,7 @@ const toggleExpand = () => {
         class="clear-all-btn"
         @click="clearAll"
       >
-        <VIcon icon="tabler-circle-x" size="14" class="me-1" />清空
+        <VIcon icon="tabler-circle-x" size="14" class="me-1" />{{ $t('common.clearAll') }}
       </button>
     </div>
 
@@ -213,7 +213,7 @@ const toggleExpand = () => {
                 variant="outlined"
                 @click.stop="toggleExpand"
               >
-                {{ isExpanded ? '收合' : `+${hiddenCount} 筆` }}
+                {{ isExpanded ? $t('bulk.collapse') : $t('bulk.expandMore', { n: hiddenCount }) }}
               </VChip>
 
               <input

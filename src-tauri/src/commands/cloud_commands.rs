@@ -22,6 +22,10 @@ pub struct FetchLabelRequest {
     /// "web_print" / "download" / "cloud_print"
     #[serde(default = "default_mode")]
     pub mode: String,
+    #[serde(default)]
+    pub scanner_user: Option<String>,
+    #[serde(default)]
+    pub sticker_user: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +89,14 @@ pub async fn cloud_fetch_label(
     };
     let mut result = state
         .cloud
-        .fetch_label_for_print(&req.order_sn, &req.print_type, req.enforce, mode)
+        .fetch_label_for_print(
+            &req.order_sn,
+            &req.print_type,
+            req.enforce,
+            mode,
+            req.scanner_user.as_deref(),
+            req.sticker_user.as_deref(),
+        )
         .await?;
 
     // Download / WebPrint 模式：把面單同步下載到本地快取，回給前端本地 server 路徑

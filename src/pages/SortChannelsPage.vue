@@ -7,7 +7,9 @@ import {
   stickerHistoryDelete,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const channels = ref([]) // 後端回來的 8 筆,position L1..R4
@@ -19,10 +21,10 @@ const savingAll = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
-const POSITION_LABELS = {
-  L1: '左 1', L2: '左 2', L3: '左 3', L4: '左 4',
-  R1: '右 1', R2: '右 2', R3: '右 3', R4: '右 4',
-}
+const POSITION_LABELS = computed(() => ({
+  L1: t('page.sort.pos.L1'), L2: t('page.sort.pos.L2'), L3: t('page.sort.pos.L3'), L4: t('page.sort.pos.L4'),
+  R1: t('page.sort.pos.R1'), R2: t('page.sort.pos.R2'), R3: t('page.sort.pos.R3'), R4: t('page.sort.pos.R4'),
+}))
 const LEFT_POSITIONS = ['L1', 'L2', 'L3', 'L4']
 const RIGHT_POSITIONS = ['R1', 'R2', 'R3', 'R4']
 
@@ -77,7 +79,7 @@ const saveAll = async () => {
       })
       dirty.value.delete(pos)
     }
-    flash(`已批次儲存 ${positions.length} 筆`)
+    flash(t('page.sort.savedFlash', { n: positions.length }))
     await load() // 重新拉,讓 channel_code 衝突等狀態同步
   } catch (e) {
     errorMsg.value = String(e?.message || e)
@@ -173,11 +175,11 @@ const removeStickerFromHistory = async name => {
 
 <template>
   <div>
-    <AppHeader title="分揀通道" subtitle="左 4 通道 / 右 4 通道，各自設定代碼、物流與貼標人員" icon="tabler-route">
+    <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle')" icon="tabler-route">
       <template #actions>
         <div class="d-flex ga-2">
           <VBtn variant="outlined" :loading="loading" @click="load">
-            <VIcon icon="tabler-refresh" size="16" class="me-1" />重新載入
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
           <VBtn
             color="primary"
@@ -186,14 +188,14 @@ const removeStickerFromHistory = async name => {
             @click="saveAll"
           >
             <VIcon icon="tabler-device-floppy" size="16" class="me-1" />
-            儲存全部變更 ({{ dirty.size }})
+            {{ $t('page.sort.saveAll', { n: dirty.size }) }}
           </VBtn>
         </div>
       </template>
     </AppHeader>
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。
+      {{ $t('page.sort.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
@@ -203,7 +205,7 @@ const removeStickerFromHistory = async name => {
       <VCol cols="12" md="6">
         <div class="column-label">
           <VIcon icon="tabler-arrow-narrow-left" size="18" color="primary" />
-          <span>左側 (L)</span>
+          <span>{{ $t('page.sort.leftColumn') }}</span>
         </div>
         <div class="d-flex flex-column ga-4">
           <div
@@ -216,16 +218,16 @@ const removeStickerFromHistory = async name => {
               <div class="channel-card__head">
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-left" size="18" color="primary" />
                 <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
-                <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip">未儲存</VChip>
-                <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip">已啟用</VChip>
-                <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip">未設定</VChip>
+                <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip">{{ $t('page.sort.status.unsaved') }}</VChip>
+                <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.enabled') }}</VChip>
+                <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.unset') }}</VChip>
               </div>
 
               <div class="search-field">
-                <label>通道代碼</label>
+                <label>{{ $t('page.sort.channelCode') }}</label>
                 <VTextField
                   v-model="findChannel(pos).channel_code"
-                  placeholder="例: A01"
+                  :placeholder="$t('page.sort.channelCodeExampleL')"
                   density="compact"
                   variant="outlined"
                   hide-details
@@ -233,11 +235,11 @@ const removeStickerFromHistory = async name => {
                 />
               </div>
               <div class="search-field">
-                <label>指派物流</label>
+                <label>{{ $t('page.sort.dispatch') }}</label>
                 <VSelect
                   v-model="findChannel(pos).dispatch_code"
                   :items="dispatchSelectItems"
-                  placeholder="(未指派)"
+                  :placeholder="$t('page.sort.dispatchUnassigned')"
                   density="compact"
                   variant="outlined"
                   clearable
@@ -246,11 +248,11 @@ const removeStickerFromHistory = async name => {
                 />
               </div>
               <div class="search-field">
-                <label>貼標人員</label>
+                <label>{{ $t('page.sort.sticker') }}</label>
                 <VCombobox
                   v-model="findChannel(pos).job_sticker"
                   :items="stickerHistory"
-                  placeholder="輸入或從歷史選取"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
                   density="compact"
                   variant="outlined"
                   clearable
@@ -279,7 +281,7 @@ const removeStickerFromHistory = async name => {
       <!-- 右側通道 -->
       <VCol cols="12" md="6">
         <div class="column-label" style="justify-content: flex-end;">
-          <span>右側 (R)</span>
+          <span>{{ $t('page.sort.rightColumn') }}</span>
           <VIcon icon="tabler-arrow-narrow-right" size="18" color="warning" />
         </div>
         <div class="d-flex flex-column ga-4">
@@ -292,17 +294,17 @@ const removeStickerFromHistory = async name => {
             <template v-if="findChannel(pos)">
               <div class="channel-card__head">
                 <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
-                <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip" style="margin-left: auto;">未儲存</VChip>
-                <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip" style="margin-left: auto;">已啟用</VChip>
-                <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip" style="margin-left: auto;">未設定</VChip>
+                <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.unsaved') }}</VChip>
+                <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.enabled') }}</VChip>
+                <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.unset') }}</VChip>
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-right" size="18" color="warning" />
               </div>
 
               <div class="search-field">
-                <label>通道代碼</label>
+                <label>{{ $t('page.sort.channelCode') }}</label>
                 <VTextField
                   v-model="findChannel(pos).channel_code"
-                  placeholder="例: B01"
+                  :placeholder="$t('page.sort.channelCodeExampleR')"
                   density="compact"
                   variant="outlined"
                   hide-details
@@ -310,11 +312,11 @@ const removeStickerFromHistory = async name => {
                 />
               </div>
               <div class="search-field">
-                <label>指派物流</label>
+                <label>{{ $t('page.sort.dispatch') }}</label>
                 <VSelect
                   v-model="findChannel(pos).dispatch_code"
                   :items="dispatchSelectItems"
-                  placeholder="(未指派)"
+                  :placeholder="$t('page.sort.dispatchUnassigned')"
                   density="compact"
                   variant="outlined"
                   clearable
@@ -323,11 +325,11 @@ const removeStickerFromHistory = async name => {
                 />
               </div>
               <div class="search-field">
-                <label>貼標人員</label>
+                <label>{{ $t('page.sort.sticker') }}</label>
                 <VCombobox
                   v-model="findChannel(pos).job_sticker"
                   :items="stickerHistory"
-                  placeholder="輸入或從歷史選取"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
                   density="compact"
                   variant="outlined"
                   clearable

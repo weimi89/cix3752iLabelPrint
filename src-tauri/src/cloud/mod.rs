@@ -213,6 +213,8 @@ impl CloudClient {
         print_type: &str,
         enforce: bool,
         mode: LabelFetchMode,
+        scanner_user: Option<&str>,
+        sticker_user: Option<&str>,
     ) -> AppResult<PrintViewResult> {
         let (base, token) = self.snapshot()?;
 
@@ -230,6 +232,8 @@ impl CloudClient {
             "order_sn": order_sn,
             "print_type": print_type,
             "enforce": enforce,
+            "scanner_user": scanner_user.unwrap_or(""),
+            "sticker_user": sticker_user.unwrap_or(""),
         });
 
         let http = self.inner.http.read().clone();
@@ -361,6 +365,56 @@ impl CloudClient {
         }
         Ok(api_base)
     }
+
+    /// 給網路偵測用：對 session_path 發 HEAD,只看「端點是否可達」
+    /// 200 / 401 都視為 Reachable(網路通,401 只是 token 失效);
+    /// 連線失敗 / timeout / 5xx 視為 Unreachable;
+    /// api_base 未設定回 NotConfigured。
+    pub async fn head_session(&self, timeout_secs: u64) -> CloudReachResult {
+        let (api_base, session_path) = {
+            let s = self.inner.state.read();
+            (s.api_base.clone(), s.session_path.clone())
+        };
+        if api_base.is_empty() {
+            return CloudReachResult::NotConfigured;
+        }
+        let url = join_url(&api_base, &session_path);
+        let http = self.inner.http.read().clone();
+        let started = std::time::Instant::now();
+        let result = http
+            .head(&url)
+            .timeout(Duration::from_secs(timeout_secs.max(1)))
+            .send()
+            .await;
+        let latency_ms = started.elapsed().as_millis() as u64;
+        match result {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                // 200 / 401 / 403 / 404 都代表 HTTP 端點有回應,網路是通的
+                if status >= 500 {
+                    CloudReachResult::Unreachable {
+                        error: format!("HTTP {status}"),
+                        latency_ms,
+                    }
+                } else {
+                    CloudReachResult::Reachable { status, latency_ms }
+                }
+            }
+            Err(e) => CloudReachResult::Unreachable {
+                error: e.to_string(),
+                latency_ms,
+            },
+        }
+    }
+}
+
+/// 雲端 API 可達性偵測結果
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloudReachResult {
+    NotConfigured,
+    Reachable { status: u16, latency_ms: u64 },
+    Unreachable { error: String, latency_ms: u64 },
 }
 
 #[derive(Debug, Clone, Copy)]

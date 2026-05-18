@@ -2,7 +2,9 @@
 import { queueList, queueRetryFailed, queuePurge } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const queueStatus = ref(null)
@@ -25,19 +27,19 @@ const resetSearch = () => {
   searchKeyword.value = ''
 }
 
-const QUEUE_STATUSES = [
-  { title: '全部', value: null },
-  { title: '待送', value: 'pending' },
-  { title: '傳送中', value: 'sending' },
-  { title: '成功', value: 'success' },
-  { title: '失敗', value: 'failed' },
-]
-const STATUS_LABELS = {
-  pending: '待送',
-  sending: '傳送中',
-  success: '成功',
-  failed: '失敗',
-}
+const QUEUE_STATUSES = computed(() => [
+  { title: t('common.all'), value: null },
+  { title: t('page.queue.status.pending'), value: 'pending' },
+  { title: t('page.queue.status.sending'), value: 'sending' },
+  { title: t('page.queue.status.success'), value: 'success' },
+  { title: t('page.queue.status.failed'), value: 'failed' },
+])
+const STATUS_LABELS = computed(() => ({
+  pending: t('page.queue.status.pending'),
+  sending: t('page.queue.status.sending'),
+  success: t('page.queue.status.success'),
+  failed: t('page.queue.status.failed'),
+}))
 
 const CHANNELS_SAMPLE = ['A1', 'A2', 'B1', 'B2', 'C1']
 const STICKERS_SAMPLE = ['小美', '阿傑', '阿宏', '貓宅']
@@ -94,7 +96,7 @@ const load = async () => {
 const handleRetry = async () => {
   try {
     const n = await queueRetryFailed()
-    flashMsg.value = `已重置 ${n} 筆失敗為待送,下一輪 worker 會重試`
+    flashMsg.value = t('page.queue.retryFlash', { n })
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
@@ -105,7 +107,7 @@ const handleRetry = async () => {
 const handlePurge = async () => {
   try {
     const n = await queuePurge({ status: 'success', olderThanDays: 7 })
-    flashMsg.value = `已清除 ${n} 筆超過 7 天的成功紀錄`
+    flashMsg.value = t('page.queue.purgeFlash', { n })
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
@@ -136,36 +138,34 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader title="佇列歷史" subtitle="工控機回報 / webhook 推送結果" icon="tabler-truck-loading">
+    <AppHeader :title="$t('page.queue.title')" :subtitle="$t('page.queue.subtitle')" icon="tabler-truck-loading">
       <template #actions>
-        <!-- 大尺寸(>= md):橫排按鈕 -->
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">
-            <VIcon icon="tabler-refresh" size="16" class="me-1" />重新載入
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
           <VBtn color="warning" :disabled="!isTauriRuntime" @click="handleRetry">
-            <VIcon icon="tabler-rotate" size="16" class="me-1" />重試失敗
+            <VIcon icon="tabler-rotate" size="16" class="me-1" />{{ $t('page.queue.retryFailed') }}
           </VBtn>
           <VBtn color="error" :disabled="!isTauriRuntime" @click="handlePurge">
-            <VIcon icon="tabler-trash" size="16" class="me-1" />清除舊資料
+            <VIcon icon="tabler-trash" size="16" class="me-1" />{{ $t('page.queue.purgeOld') }}
           </VBtn>
         </div>
-        <!-- 小尺寸(< md):折成單一 menu icon -->
         <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
               <VListItem :disabled="!isTauriRuntime" @click="load">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
-                <VListItemTitle>重新載入</VListItemTitle>
+                <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>
               <VListItem :disabled="!isTauriRuntime" @click="handleRetry">
                 <template #prepend><VIcon icon="tabler-rotate" size="20" /></template>
-                <VListItemTitle>重試失敗項目</VListItemTitle>
+                <VListItemTitle>{{ $t('page.queue.retryFailedItems') }}</VListItemTitle>
               </VListItem>
               <VListItem :disabled="!isTauriRuntime" @click="handlePurge">
                 <template #prepend><VIcon icon="tabler-trash" size="20" /></template>
-                <VListItemTitle>清除 7 天前舊資料</VListItemTitle>
+                <VListItemTitle>{{ $t('page.queue.purgeOld7d') }}</VListItemTitle>
               </VListItem>
             </VList>
           </VMenu>
@@ -174,7 +174,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     </AppHeader>
 
     <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
-      瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入本地佇列紀錄。
+      {{ $t('page.queue.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
@@ -182,25 +182,25 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     <!-- 進階查詢 -->
     <VExpansionPanels v-model="searchOpen" class="mb-3 advanced-search">
       <VExpansionPanel>
-        <VExpansionPanelTitle class="advanced-search__title">進階查詢</VExpansionPanelTitle>
+        <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
             <VCol cols="12" sm="6" lg="6" class="px-2 py-1">
               <div class="search-field">
-                <label>關鍵字</label>
-                <VTextField v-model="searchKeyword" placeholder="追蹤號碼 / 通道 / 貼標人員" density="compact" hide-details variant="outlined" />
+                <label>{{ $t('page.eventLog.keyword') }}</label>
+                <VTextField v-model="searchKeyword" :placeholder="$t('page.queue.keywordPlaceholder')" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
             <VCol cols="12" sm="6" lg="6" class="px-2 py-1">
               <div class="search-field">
-                <label>狀態</label>
+                <label>{{ $t('page.queue.col.status') }}</label>
                 <VSelect v-model="queueStatus" :items="QUEUE_STATUSES" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
           </VRow>
           <div class="d-flex justify-center pt-4 pb-0">
             <VBtn variant="elevated" color="primary" @click="load">
-              <VIcon icon="tabler-database-search" size="18" class="me-1" />查詢
+              <VIcon icon="tabler-database-search" size="18" class="me-1" />{{ $t('common.search') }}
             </VBtn>
           </div>
         </VExpansionPanelText>
@@ -219,14 +219,14 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
         <thead>
           <tr>
             <th class="text-center" style="width: 70px;">#</th>
-            <th class="text-center" style="min-width: 150px;">追蹤號碼</th>
-            <th class="text-center" style="width: 90px;">通道</th>
-            <th class="text-center" style="min-width: 100px;">貼標人員</th>
-            <th class="text-center" style="width: 120px;">回應 ID</th>
-            <th class="text-center" style="width: 90px;">狀態</th>
-            <th class="text-center" style="width: 80px;">重試</th>
-            <th class="text-center" style="width: 170px;">建立時間</th>
-            <th class="text-center" style="width: 170px;">推送完成</th>
+            <th class="text-center" style="min-width: 150px;">{{ $t('page.queue.col.trackingNo') }}</th>
+            <th class="text-center" style="width: 90px;">{{ $t('page.queue.col.channel') }}</th>
+            <th class="text-center" style="min-width: 100px;">{{ $t('page.queue.col.sticker') }}</th>
+            <th class="text-center" style="width: 120px;">{{ $t('page.queue.col.responseId') }}</th>
+            <th class="text-center" style="width: 90px;">{{ $t('page.queue.col.status') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.queue.col.retry') }}</th>
+            <th class="text-center" style="width: 170px;">{{ $t('page.queue.col.createdAt') }}</th>
+            <th class="text-center" style="width: 170px;">{{ $t('page.queue.col.sentAt') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -234,7 +234,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <td colspan="9">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
-                <span class="text-md">查無資料</span>
+                <span class="text-md">{{ $t('common.noResults') }}</span>
               </div>
             </td>
           </tr>

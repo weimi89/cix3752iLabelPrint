@@ -1,0 +1,403 @@
+{
+  "common": {
+    "confirm": "確認",
+    "cancel": "取消",
+    "save": "儲存",
+    "saveSettings": "儲存設定",
+    "delete": "刪除",
+    "edit": "編輯",
+    "close": "關閉",
+    "search": "查詢",
+    "reset": "重設",
+    "reload": "重新載入",
+    "loading": "載入中…",
+    "noData": "無資料",
+    "noResults": "查無資料",
+    "yes": "是",
+    "no": "否",
+    "back": "返回",
+    "next": "下一步",
+    "submit": "送出",
+    "retry": "重試",
+    "copy": "複製",
+    "refresh": "重新整理",
+    "stop": "停止",
+    "all": "全部",
+    "pick": "選擇",
+    "clearAll": "清空",
+    "advancedSearch": "進階查詢"
+  },
+  "locale": {
+    "label": "介面語言",
+    "zh-Hant": "繁體中文",
+    "vi-VN": "Tiếng Việt"
+  },
+  "nav": {
+    "section": {
+      "main": "主功能",
+      "print": "訂單列印",
+      "settings": "設定",
+      "logs": "日誌"
+    },
+    "dashboard": "儀表板",
+    "preGenerate": "面單預產",
+    "scanPrint": "掃描列印",
+    "autoPrint": "自動印單",
+    "sortChannels": "分揀通道",
+    "cacheSettings": "圖片快取",
+    "dispatchProviders": "指派物流",
+    "serverSettings": "服務設定",
+    "cloudSettings": "雲端 API",
+    "printerSettings": "印表機設定",
+    "eventLog": "事件記錄",
+    "queueLog": "佇列歷史"
+  },
+  "pagination": {
+    "pagePrefix": "第",
+    "pageSuffix": "頁",
+    "summary": "總計 {total} 筆記錄分為 {pages} 頁",
+    "perPagePrefix": "每頁",
+    "perPageSuffix": "筆"
+  },
+  "bulk": {
+    "itemsCount": "{n} 筆",
+    "collapse": "收合",
+    "expandMore": "+{n} 筆"
+  },
+  "form": {
+    "orderSn": "訂單編號",
+    "orderSnPlaceholder": "可掃描連續輸入,或貼上多筆,以換行 / 逗號 / 空白分隔"
+  },
+  "user": {
+    "notLoggedIn": "尚未登入",
+    "logout": "登出",
+    "role": {
+      "admin": "系統管理員",
+      "guest": "訪客"
+    }
+  },
+  "theme": {
+    "preset": {
+      "purple": "紫",
+      "cyan": "青",
+      "orange": "橘黃",
+      "red": "紅",
+      "blue": "藍"
+    }
+  },
+  "provider": {
+    "7eleven": "7-ELEVEN",
+    "family": "全家",
+    "hilife": "萊爾富",
+    "tcat": "黑貓",
+    "hct": "新竹",
+    "pelican": "宅配通",
+    "sf": "順豐速運",
+    "shopeeOffline": "蝦皮(離線)",
+    "shopeeAuth": "蝦皮(授權)"
+  },
+  "status": {
+    "LABEL-PROCESS": "列印成功",
+    "SHIPPING-REPEAT": "重複列印",
+    "LABEL-UNUSUAL": "不在列印範圍",
+    "ORDER-UNUSUAL": "查無此訂單",
+    "STORE-CLOSED": "門市已關轉",
+    "SHIPPING-UNUSUAL": "訂單狀態異常",
+    "UNCONFIRMED-SHIPMENT": "訂單未確認",
+    "ERROR-SHIPMENT": "訂單錯誤",
+    "ERROR": "系統錯誤",
+    "CANCELLED": "已停止"
+  },
+  "error": {
+    "browserCannotOpenDialog": "瀏覽器模式無法開啟資料夾對話框",
+    "cloudNotAuthed": "雲端未登入或 token 失效",
+    "cloudApi": "雲端 API 錯誤",
+    "timeout": "請求逾時"
+  },
+  "network": {
+    "card": {
+      "title": "網路連線狀態"
+    },
+    "overall": {
+      "ok": "全部正常",
+      "degraded": "降級(雲端 API 不通)",
+      "down": "中斷"
+    },
+    "layer": {
+      "os": "作業系統網路",
+      "anchor": "公網(1.1.1.1:443)",
+      "cloudApi": "雲端 API"
+    },
+    "statusKind": {
+      "ok": "正常",
+      "unknown": "尚未檢查",
+      "notConfigured": "未設定 api_base"
+    },
+    "osOffline": "離線(網卡未連線)",
+    "latencyMs": "{n} ms",
+    "checkNow": "立即檢查",
+    "lastCheckedAt": "最後檢查:",
+    "neverChecked": "尚未檢查",
+    "retryingStreak": "重試中 {n}/{total}",
+    "nextCheckIn": "下次檢查約 {n} 秒後(目前間隔)",
+    "settings": {
+      "section": "網路偵測",
+      "desc": "公網 anchor 與雲端 API 巡檢設定,變更後立即生效",
+      "anchorAddr": "公網 anchor host:port",
+      "intervalSecs": "巡檢間隔(秒)",
+      "degradeIntervalSecs": "斷網降頻間隔(秒)",
+      "anchorTimeoutMs": "公網 timeout(毫秒)",
+      "cloudTimeoutSecs": "雲端 timeout(秒)",
+      "failThreshold": "抖動緩衝(連續失敗次數)"
+    }
+  },
+  "page": {
+    "dashboard": {
+      "title": "儀表板",
+      "subtitle": "本地分揀中介服務即時狀態",
+      "previewModeAlert": "瀏覽器預覽模式 — 狀態資料來自 Tauri 後端,請於桌面 App 內查看實際數值。",
+      "middleware": "Middleware",
+      "notStarted": "未啟動",
+      "cloudConnection": "雲端連線",
+      "todayRequests": "本日請求數",
+      "todaySuccessRate": "本日成功率 ({ok}/{total})",
+      "cacheHitRate": "Cache 命中率 ({hit} hit / {miss} miss)",
+      "cachedLabels": "快取面單 / {size}",
+      "cloudNotLoggedInAlert": "尚未登入雲端 API — 請至「雲端 API」頁完成登入,否則工控機查包裹會回 401。"
+    },
+    "preGenerate": {
+      "title": "面單預產",
+      "subtitle": "先讓伺服器產好面單圖(不寫列印記錄、不檢查出貨狀態)",
+      "progress": "面單載入進度",
+      "empty": "尚未載入面單",
+      "emptyHint": "請在左側輸入訂單編號後按下「查詢」",
+      "downloadWarnings": "下載警告"
+    },
+    "cache": {
+      "title": "圖片快取設定",
+      "subtitle": "面單圖檔在本機保留的方式",
+      "clearCache": "清空快取",
+      "statsLoadFailed": "讀取快取統計失敗:{reason}",
+      "savedFlash": "已儲存(快取目錄變更會立即生效)",
+      "clearedFlash": "快取已清空",
+      "pickDirTitle": "選擇圖片快取目錄",
+      "cacheDir": "快取目錄",
+      "cacheDirPlaceholder": "留白代表使用預設位置 (app_data/cache/labels)",
+      "keepDays": "保留天數(0 = 永久)",
+      "maxSizeMb": "最大容量 MB(0 = 不限)",
+      "stats": {
+        "fileCount": "快取面單數",
+        "totalSize": "佔用空間",
+        "hitRate": "命中率 (hit / hit+miss)",
+        "missCount": "Miss 次數 (本日)"
+      }
+    },
+    "printer": {
+      "title": "印表機設定",
+      "subtitle": "設定每個物流商對應的本機印表機",
+      "mockPrefix": "(瀏覽器模式)",
+      "loadFailed": "無法載入印表機:{reason}",
+      "browserAlert": "目前為瀏覽器預覽模式,顯示假印表機資料以供 UI 測試。實機請於桌面 App 內開啟,系統會自動列出本機已安裝的印表機。",
+      "noPrinters": "尚未偵測到本機印表機;請檢查印表機是否已連線並安裝驅動。",
+      "selectPrinterPlaceholder": "選擇本機印表機"
+    },
+    "server": {
+      "title": "服務設定",
+      "subtitle": "給分揀機工控機呼叫的本地 HTTP API",
+      "restart": "重啟服務",
+      "autoStartFailed": "自動啟動切換失敗:{reason}",
+      "savedFlash": "已儲存(位址/連接埠變更需點「重啟服務」生效)",
+      "restartedFlash": "服務已重啟,目前綁定 {addr}",
+      "listenIp": "監聽位址",
+      "port": "連接埠",
+      "autoStartTitle": "開機自動啟動本程式",
+      "autoStartDesc": "加入作業系統登入啟動清單,含本地 Server",
+      "currentBind": "目前綁定:",
+      "appSection": "應用程式",
+      "localeDesc": "切換介面顯示語言,設定即時生效並持久化"
+    },
+    "cloud": {
+      "title": "雲端 API 設定",
+      "loggedIn": "已登入",
+      "tokenKeyringInfo": "Token 會儲存到系統 keyring(macOS Keychain / Windows Credential Vault),不會寫入 config 檔。",
+      "loginSavedFlash": "已登入並儲存設定",
+      "savedFlash": "已儲存設定",
+      "jobUserLabel": "Webhook job_user(識別這台機器)",
+      "jobUserPlaceholder": "例: 物流貓",
+      "parcelModeLabel": "包裹查詢模式",
+      "parcelMode": {
+        "forward": "轉寄 (forward) — 包裹先到倉庫再轉寄",
+        "proxy": "代寄 (proxy) — 賣家交由我方代寄"
+      },
+      "skipSslTitle": "跳過 SSL 憑證驗證",
+      "skipSslDesc": "內網 / 開發環境 (.dev、自簽憑證) 必須打開,否則 reqwest 會直接拒絕連線",
+      "advancedPaths": "進階:API 路徑設定",
+      "advancedPathsHint": "api_base + 以下 path 拼成完整 URL。Path 開頭可以有沒有 「/」 都行。",
+      "saveOnly": "僅儲存設定",
+      "loginAndVerify": "登入並驗證",
+      "paths": {
+        "parcelForward": { "label": "包裹查詢 (forward)", "hint": "會自動拼 /{queryNo}" },
+        "parcelProxy": { "label": "包裹查詢 (proxy)", "hint": "會自動拼 /{queryNo}" },
+        "session": { "label": "登入 Session", "hint": "驗證 token 用" },
+        "scanPrint": { "label": "掃描列印 (scan-print)", "hint": "操作員 UI" },
+        "preGenerate": { "label": "面單預產 (pre-generate)", "hint": "預先產面單" },
+        "cloudPrint": { "label": "雲端列印 (cloud-print)", "hint": "透過雲端列印" },
+        "examinePackage": { "label": "包裹查詢 (examine-package)", "hint": "自動印單第一步" },
+        "webhook": { "label": "Webhook (logistic-cat)", "hint": "分揀完成通知" }
+      }
+    },
+    "eventLog": {
+      "title": "事件記錄",
+      "subtitle": "系統 / 雲端 / 快取 / 佇列 / 印表機事件",
+      "browserAlert": "瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入 SQLite 內的 event_log 紀錄。",
+      "keyword": "關鍵字",
+      "keywordPlaceholder": "訊息或動作",
+      "level": "等級",
+      "category": "類別",
+      "col": {
+        "time": "時間",
+        "level": "等級",
+        "category": "類別",
+        "action": "動作",
+        "message": "訊息"
+      }
+    },
+    "sort": {
+      "title": "分揀通道",
+      "subtitle": "左 4 通道 / 右 4 通道,各自設定代碼、物流與貼標人員",
+      "browserAlert": "瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。",
+      "saveAll": "儲存全部變更 ({n})",
+      "savedFlash": "已批次儲存 {n} 筆",
+      "pos": {
+        "L1": "左 1", "L2": "左 2", "L3": "左 3", "L4": "左 4",
+        "R1": "右 1", "R2": "右 2", "R3": "右 3", "R4": "右 4"
+      },
+      "leftColumn": "左側 (L)",
+      "rightColumn": "右側 (R)",
+      "channelCode": "通道代碼",
+      "channelCodeExampleL": "例: A01",
+      "channelCodeExampleR": "例: B01",
+      "dispatch": "指派物流",
+      "dispatchUnassigned": "(未指派)",
+      "sticker": "貼標人員",
+      "stickerPlaceholder": "輸入或從歷史選取",
+      "status": {
+        "unsaved": "未儲存",
+        "enabled": "已啟用",
+        "unset": "未設定"
+      }
+    },
+    "dispatch": {
+      "title": "指派物流",
+      "subtitle": "分揀通道可選擇的物流商主檔",
+      "create": "新增物流",
+      "emptyHint": "尚未設定物流商,按右上「新增物流」開始",
+      "errCodeNameRequired": "代碼與名稱皆不可為空",
+      "errPrintProfileRequired": "列印設定為必填",
+      "errCodeDuplicate": "代碼 \"{code}\" 已存在",
+      "flashCreated": "已新增物流商",
+      "flashUpdated": "已更新物流商",
+      "flashDeleted": "已刪除 {name}",
+      "codePlaceholder": "例: SF / BLACK / POST",
+      "namePlaceholder": "例: 順豐速運",
+      "printProfilePlaceholder": "例: PAPER-01#100x150",
+      "orderHint": "數字越小越前面",
+      "confirmDelete": "確認刪除",
+      "confirmDeleteBody": "確定要刪除「{name}」({code}) 嗎?",
+      "confirmDeleteHint": "已指派此物流的通道會自動清空 dispatch_code。",
+      "col": {
+        "order": "排序",
+        "code": "代碼",
+        "name": "名稱",
+        "printProfile": "列印設定",
+        "actions": "操作"
+      }
+    },
+    "queue": {
+      "title": "佇列歷史",
+      "subtitle": "工控機回報 / webhook 推送結果",
+      "browserAlert": "瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入本地佇列紀錄。",
+      "retryFailed": "重試失敗",
+      "purgeOld": "清除舊資料",
+      "retryFailedItems": "重試失敗項目",
+      "purgeOld7d": "清除 7 天前舊資料",
+      "retryFlash": "已重置 {n} 筆失敗為待送,下一輪 worker 會重試",
+      "purgeFlash": "已清除 {n} 筆超過 7 天的成功紀錄",
+      "keywordPlaceholder": "追蹤號碼 / 通道 / 貼標人員",
+      "status": {
+        "pending": "待送",
+        "sending": "傳送中",
+        "success": "成功",
+        "failed": "失敗"
+      },
+      "col": {
+        "trackingNo": "追蹤號碼",
+        "channel": "通道",
+        "sticker": "貼標人員",
+        "responseId": "回應 ID",
+        "status": "狀態",
+        "retry": "重試",
+        "createdAt": "建立時間",
+        "sentAt": "推送完成"
+      }
+    },
+    "scan": {
+      "title": "掃描列印",
+      "subtitle": "逐筆載入面單列印",
+      "enforce": "強制列印",
+      "scannerUser": "操作人員",
+      "stickerUser": "貼單人員",
+      "errScannerUserRequired": "未填寫操作人員",
+      "errStickerUserRequired": "未填寫貼單人員",
+      "printScope": "列印範圍",
+      "printProgress": "列印進度",
+      "summaryLine": "列印完成:成功 {ok} 筆{failPart}{skipPart}",
+      "summaryFail": "、失敗 {n} 筆",
+      "summarySkip": "、略過 {n} 筆(未設定印表機)",
+      "summaryMoreErrors": "…(還有 {n} 筆)",
+      "btnPrinting": "列印中({done} / {total})",
+      "btnLoadingLabels": "面單載入中({done} / {total})",
+      "btnPrintAll": "貼標列印({n} 筆)",
+      "printWarnings": "列印警告",
+      "step1": "選擇列印範圍與是否強制列印",
+      "step2": "輸入或掃描訂單編號(可多筆)",
+      "step3": "系統會逐筆載入面單",
+      "step4": "確認後點「貼標列印」送印",
+      "repeatTitle": "重覆列印 {n} 次",
+      "repeatMore": "…還有 {n} 次",
+      "removeFromPrint": "從列印區移除"
+    },
+    "auto": {
+      "title": "自動印單",
+      "subtitle": "掃描自動送印",
+      "noPrinterAlert": "尚未設定任何印表機,請先至「印表機設定」頁完成配置。",
+      "printType": "列印類型",
+      "packageBarcode": "包裹訂單條碼",
+      "orderSn": "系統訂單編號",
+      "packageSn": "袋號",
+      "totalCount": "總筆數",
+      "noScannedPackage": "尚未掃描包裹",
+      "noCode": "無 code",
+      "col": {
+        "orderShipping": "訂單編號 / 配送單號",
+        "lastPrintTime": "最後列印時間",
+        "provider": "物流"
+      },
+      "toast": {
+        "packageLoaded": "已載入袋號 {sn}:{n} 筆",
+        "unknownRespond": "未知回應 ({code}):{msg}",
+        "noPrinterForProvider": "未設定 {code} 印表機,請至「印表機設定」",
+        "printed": "列印包裹貼標:{sn}",
+        "printFailed": "送印失敗:{reason}",
+        "noData": "查無代寄包裹:{sn}",
+        "printError": "無法列印貼標:{sn}",
+        "unconfirmed": "包裹尚未確認:{sn}",
+        "errorShipment": "包裹資料異常:{sn}",
+        "abnormalShipment": "包裹異常出貨:{sn}",
+        "abnormalPackage": "訂單異常袋號:{sn}",
+        "wrapperError": "包裹錯誤貼標:{sn}",
+        "storeClosed": "門市關轉異常攔截:{sn}"
+      }
+    }
+  }
+}

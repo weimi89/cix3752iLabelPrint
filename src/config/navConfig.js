@@ -5,23 +5,23 @@
  * { title, icon: {icon}, children: [...] } — group with nested children
  */
 export const navItems = [
-  { heading: '主功能' },
-  { title: '儀表板', icon: { icon: 'tabler-layout-dashboard' }, to: { name: 'dashboard' } },
-  { title: '面單預產', icon: { icon: 'tabler-photo-down' }, to: { name: 'pre-generate' } },
+  { heading: 'nav.section.main' },
+  { title: 'nav.dashboard', icon: { icon: 'tabler-layout-dashboard' }, to: { name: 'dashboard' } },
+  { title: 'nav.preGenerate', icon: { icon: 'tabler-photo-down' }, to: { name: 'pre-generate' } },
 
-  { heading: '訂單列印' },
-  { title: '掃描列印', icon: { icon: 'tabler-scan' }, to: { name: 'scan-print' } },
-  { title: '自動印單', icon: { icon: 'tabler-bolt' }, to: { name: 'auto-print' } },
+  { heading: 'nav.section.print' },
+  { title: 'nav.scanPrint', icon: { icon: 'tabler-scan' }, to: { name: 'scan-print' } },
+  { title: 'nav.autoPrint', icon: { icon: 'tabler-bolt' }, to: { name: 'auto-print' } },
 
-  { heading: '設定' },
-  { title: '分揀通道', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
-  { title: '圖片快取', icon: { icon: 'tabler-photo' }, to: { name: 'cache-settings' } },
-  { title: '指派物流', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'dispatch-providers' } },
-  { title: '服務設定', icon: { icon: 'tabler-server-2' }, to: { name: 'server-settings' } },
-  { title: '雲端 API', icon: { icon: 'tabler-cloud' }, to: { name: 'cloud-settings' } },
-  { title: '印表機設定', icon: { icon: 'tabler-printer' }, to: { name: 'printer-settings' } },
+  { heading: 'nav.section.settings' },
+  { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
+  { title: 'nav.cacheSettings', icon: { icon: 'tabler-photo' }, to: { name: 'cache-settings' } },
+  { title: 'nav.dispatchProviders', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'dispatch-providers' } },
+  { title: 'nav.serverSettings', icon: { icon: 'tabler-server-2' }, to: { name: 'server-settings' } },
+  { title: 'nav.cloudSettings', icon: { icon: 'tabler-cloud' }, to: { name: 'cloud-settings' } },
+  { title: 'nav.printerSettings', icon: { icon: 'tabler-printer' }, to: { name: 'printer-settings' } },
 
-  { heading: '日誌' },
-  { title: '事件記錄', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },
-  { title: '佇列歷史', icon: { icon: 'tabler-truck-loading' }, to: { name: 'queue-log' } },
+  { heading: 'nav.section.logs' },
+  { title: 'nav.eventLog', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },
+  { title: 'nav.queueLog', icon: { icon: 'tabler-truck-loading' }, to: { name: 'queue-log' } },
 ]

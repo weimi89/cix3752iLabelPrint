@@ -34,7 +34,7 @@ const separator = n => new Intl.NumberFormat('en-US').format(n || 0)
     <div class="d-flex flex-wrap ga-2 align-center justify-center">
       <!-- 右側:跳頁 + 翻頁(header mode 也顯示) -->
       <div class="d-flex align-center ga-2 ml-md-auto" :class="{ 'hidden-page-change': !header && false }">
-        <div>第</div>
+        <div>{{ $t('pagination.pagePrefix') }}</div>
         <div>
           <VSelect
             :items="pageOptions"
@@ -42,7 +42,7 @@ const separator = n => new Intl.NumberFormat('en-US').format(n || 0)
             @update:model-value="setPage"
           />
         </div>
-        <div>頁</div>
+        <div>{{ $t('pagination.pageSuffix') }}</div>
         <div class="d-flex ga-1">
           <VBtn icon variant="text" size="small" :disabled="page === 1" @click="onFirst">
             <VIcon icon="tabler-player-skip-back" size="22" />
@@ -65,10 +65,10 @@ const separator = n => new Intl.NumberFormat('en-US').format(n || 0)
         class="d-flex flex-wrap ga-2 align-center justify-center order-sm-first"
       >
         <span class="d-md-none d-lg-flex text-nowrap">
-          總計 {{ separator(total) }} 筆記錄分為 {{ separator(totalPages) }} 頁
+          {{ $t('pagination.summary', { total: separator(total), pages: separator(totalPages) }) }}
         </span>
         <div class="d-flex align-center ga-2">
-          <span class="text-nowrap">每頁</span>
+          <span class="text-nowrap">{{ $t('pagination.perPagePrefix') }}</span>
           <div>
             <VSelect
               :items="pageSizes.map(String)"
@@ -76,7 +76,7 @@ const separator = n => new Intl.NumberFormat('en-US').format(n || 0)
               @update:model-value="v => emit('update:perPage', Number(v))"
             />
           </div>
-          <span class="text-nowrap">筆</span>
+          <span class="text-nowrap">{{ $t('pagination.perPageSuffix') }}</span>
         </div>
       </div>
     </div>

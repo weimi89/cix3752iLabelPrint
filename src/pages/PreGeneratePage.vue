@@ -91,17 +91,17 @@ const handleQuery = async () => {
 
 <template>
   <div>
-    <AppHeader title="面單預產" subtitle="先讓伺服器產好面單圖（不寫列印記錄、不檢查出貨狀態）" icon="tabler-photo-down" />
+    <AppHeader :title="$t('page.preGenerate.title')" :subtitle="$t('page.preGenerate.subtitle')" icon="tabler-photo-down" />
 
     <VRow>
       <VCol cols="12" lg="5">
         <div class="left-sticky">
           <VCard>
             <VCardText>
-              <AppBulkInput v-model="orderSnList" label="訂單編號" placeholder="可掃描連續輸入，或貼上多筆，以換行 / 逗號 / 空白分隔" clearable-top />
+              <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
               <div v-if="totalItems > 0" class="mt-3">
                 <div class="d-flex justify-space-between mb-1">
-                  <span class="text-xs text-medium-emphasis">面單載入進度</span>
+                  <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
                   <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
                 </div>
                 <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
@@ -111,10 +111,10 @@ const handleQuery = async () => {
 
           <div class="d-flex justify-center gap-2 mt-3">
             <VBtn v-if="!isProcessing" color="primary" @click="handleQuery">
-              <VIcon icon="tabler-search" class="me-1" />查詢
+              <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
             </VBtn>
             <VBtn v-else color="error" @click="stopProcessing">
-              <VIcon icon="tabler-player-stop" class="me-1" />停止
+              <VIcon icon="tabler-player-stop" class="me-1" />{{ $t('common.stop') }}
             </VBtn>
           </div>
         </div>
@@ -125,8 +125,8 @@ const handleQuery = async () => {
           <VCardText>
             <div v-if="downloadList.length === 0" class="text-center py-12">
               <VIcon icon="tabler-photo-down" size="80" color="primary" class="opacity-50" />
-              <h4 class="text-h6 mt-4 mb-1">尚未載入面單</h4>
-              <p class="text-body-2 text-medium-emphasis">請在左側輸入訂單編號後按下「查詢」</p>
+              <h4 class="text-h6 mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
+              <p class="text-body-2 text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
             </div>
             <div v-else class="label-grid">
               <div v-for="item in downloadList" :key="item.sn" class="cell">
@@ -150,7 +150,7 @@ const handleQuery = async () => {
       <VCardText>
         <div class="text-body-1 mb-2">
           <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
-          下載警告
+          {{ $t('page.preGenerate.downloadWarnings') }}
           <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ downloadStatus.length }}</VChip>
         </div>
       </VCardText>

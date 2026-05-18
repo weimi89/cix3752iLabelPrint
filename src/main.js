@@ -5,6 +5,7 @@ import App from './App.vue'
 import router from './router'
 import vuetify from './plugins/vuetify'
 import toastify from './plugins/toastify'
+import i18n from './plugins/i18n'
 import { createLayouts } from '@layouts'
 import { themeConfig } from '@themeConfig'
 
@@ -17,6 +18,7 @@ const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
+i18n(app)
 app.use(vuetify)
 toastify(app)
 // @layouts plugin (初始化 layoutConfig + cookie 同步)
