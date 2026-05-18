@@ -9,7 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # macOS arm64 / macOS x64 / Windows — tauri-action 標準流程
+  release-desktop:
     strategy:
       fail-fast: false
       matrix:
@@ -20,9 +21,6 @@ jobs:
           - platform: macos-13
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            args: ''
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ''
@@ -47,19 +45,6 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            patchelf \
-            build-essential \
-            curl wget file libssl-dev
-
       - name: Install npm deps
         run: npm install
 
@@ -78,15 +63,167 @@ jobs:
             | macOS Apple Silicon (M1/M2/M3+) | `*_aarch64.dmg` |
             | macOS Intel | `*_x64.dmg` |
             | Windows x64 | `*_x64-setup.exe` (NSIS) 或 `*_x64_en-US.msi` |
-            | Linux x64 | `*_amd64.deb` 或 `*_amd64.AppImage` |
+            | Linux (Ubuntu 20.04 工控機) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
 
             ## 首次啟動注意
 
             - **macOS**:本版未經 Apple Developer ID 簽章,首次開啟會被 Gatekeeper 攔下。
               請至「系統設定 → 隱私權與安全性 → 仍要開啟」放行。
             - **Windows**:首次開啟會看到 SmartScreen 警告,按「更多資訊 → 仍要執行」即可。
-            - **Linux**:Ubuntu 22.04+ 可直接執行;20.04 可能 glibc 不夠新,需要從原始碼自編譯。
+            - **Linux (Ubuntu 20.04)**:解壓 tarball 後 `sudo bash install.sh` 一次,
+              會把 webkit2gtk-4.1 與主程式都裝起來。後續升級只換主程式 .deb。
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
           includeUpdaterJson: false
+
+  # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build,
+  # 確保 binary link 到 glibc 2.31,工控機才跑得起來
+  release-linux:
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:20.04
+      options: --user root
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - name: Install base build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            curl wget git ca-certificates gnupg lsb-release \
+            software-properties-common dpkg-dev fakeroot \
+            build-essential pkg-config \
+            libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
+            libayatana-appindicator3-dev libsoup-3.0-dev \
+            patchelf file
+
+      # Tauri 2 要求 webkit2gtk-4.1,Ubuntu 20.04 套件庫只有 4.0
+      # 用社區 backport PPA(lukasstabe/ubuntu-focal-webkit)補上
+      # 若 PPA 失效,需 fallback 到 source build(workflow 會 fail 出來再處理)
+      - name: Add webkit2gtk-4.1 PPA (community focal backport)
+        run: |
+          add-apt-repository -y ppa:lukasstabe/ubuntu-focal-webkit
+          apt-get update
+          apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            gir1.2-javascriptcoregtk-4.1 \
+            gir1.2-webkit2-4.1
+
+      - name: Setup Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Setup Node 20
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+
+      - uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm deps
+        run: npm install
+
+      - name: Tauri build .deb
+        run: npm run tauri:build -- --bundles deb
+
+      - name: Collect webkit2gtk-4.1 .deb (從本機 cache 撈出來打進 tarball)
+        run: |
+          mkdir -p /tmp/webkit-debs
+          cd /tmp/webkit-debs
+          # 從本機 apt cache 找 webkit 相關 .deb;沒有就用 apt download
+          for pkg in libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0 \
+                     gir1.2-webkit2-4.1 gir1.2-javascriptcoregtk-4.1; do
+            apt-get download "$pkg" 2>/dev/null || echo "warn: $pkg not downloadable"
+          done
+          ls -lh /tmp/webkit-debs/
+
+      - name: Package tarball (webkit2gtk + 主程式 + install.sh)
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE_NAME="cix3752iLabelPrint-${VERSION}-ubuntu-20.04"
+          STAGE="/tmp/${STAGE_NAME}"
+          mkdir -p "$STAGE"
+
+          # webkit2gtk-4.1 系列 .deb
+          cp /tmp/webkit-debs/*.deb "$STAGE/" 2>/dev/null || true
+
+          # 主程式 .deb(Tauri build 出來)
+          cp src-tauri/target/release/bundle/deb/*.deb "$STAGE/"
+
+          # install.sh
+          cat > "$STAGE/install.sh" <<'INSTALL_EOF'
+          #!/bin/bash
+          set -e
+          cd "$(dirname "$0")"
+
+          echo "=== 智配通 面單列印 — Ubuntu 20.04 安裝 ==="
+          echo ""
+          echo "1/2 安裝 webkit2gtk-4.1 系列套件(Ubuntu 20.04 預設沒有)"
+          # 先裝 javascriptcoregtk(webkit2gtk 依賴它)
+          sudo dpkg -i libjavascriptcoregtk-4.1-*.deb 2>/dev/null || true
+          sudo dpkg -i gir1.2-javascriptcoregtk-4.1*.deb 2>/dev/null || true
+          sudo dpkg -i libwebkit2gtk-4.1-*.deb 2>/dev/null || true
+          sudo dpkg -i gir1.2-webkit2-4.1*.deb 2>/dev/null || true
+          sudo apt-get install -f -y
+
+          echo ""
+          echo "2/2 安裝主程式"
+          # 主程式 .deb 檔名因 Tauri 版本不同,glob 抓所有非 webkit 的
+          for deb in *.deb; do
+            case "$deb" in
+              libwebkit2gtk-4.1-*|libjavascriptcoregtk-4.1-*|gir1.2-webkit2-4.1*|gir1.2-javascriptcoregtk-4.1*)
+                ;;
+              *)
+                sudo dpkg -i "$deb"
+                ;;
+            esac
+          done
+          sudo apt-get install -f -y
+
+          echo ""
+          echo "=== 完成 ==="
+          echo "從應用選單開啟「智配通 面單列印」,或於 terminal 執行:cix3752i-label-print"
+          INSTALL_EOF
+          chmod +x "$STAGE/install.sh"
+
+          # README
+          cat > "$STAGE/README.txt" <<'README_EOF'
+          智配通 面單列印 — Ubuntu 20.04 安裝包
+          =====================================
+
+          內含:
+            - libwebkit2gtk-4.1-*.deb  (Tauri 2 必要,Ubuntu 20.04 預設無)
+            - libjavascriptcoregtk-4.1-*.deb
+            - gir1.2-* .deb
+            - 智配通 面單列印 主程式 .deb
+            - install.sh
+
+          安裝:
+            sudo bash install.sh
+
+          後續升級:
+            只需 sudo dpkg -i <新版主程式.deb>(webkit 已在系統內,不必重裝)
+          README_EOF
+
+          # 打 tarball
+          cd /tmp
+          tar czf "${STAGE_NAME}.tar.gz" "${STAGE_NAME}"
+          ls -lh "${STAGE_NAME}.tar.gz"
+
+          echo "TARBALL=/tmp/${STAGE_NAME}.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload tarball to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.TARBALL }}
+          draft: true
