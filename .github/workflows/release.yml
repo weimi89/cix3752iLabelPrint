@@ -96,6 +96,10 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
+      # 讓 pkg-config / linker 優先找 /usr/local(我們編的 glib 2.78 / libsoup3 / webkit2gtk-4.1)
+      # 否則 Rust build 用系統 focal glib 2.64,缺 g_uri_error_quark 等新 symbol
+      PKG_CONFIG_PATH: /usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig
+      LD_LIBRARY_PATH: /usr/local/lib/x86_64-linux-gnu:/usr/local/lib
     steps:
       - name: Bootstrap apt + 升級 toolchain (GCC 11 / CMake / meson)
         run: |
