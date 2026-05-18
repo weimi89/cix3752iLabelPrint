@@ -230,6 +230,8 @@ jobs:
             -DENABLE_JOURNALD_LOG=OFF \
             -DENABLE_GAMEPAD=OFF \
             -DUSE_LIBBACKTRACE=OFF \
+            -DENABLE_WAYLAND_TARGET=OFF \
+            -DENABLE_X11_TARGET=ON \
             .. 2>&1 | tail -60
           echo "::endgroup::"
           echo "::group::webkit2gtk ninja (1-2 hr)"
