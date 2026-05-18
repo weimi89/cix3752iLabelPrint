@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.weimi.cix3752i.labelprint",
   "build": {
-    "beforeDevCommand": "yarn dev",
-    "beforeBuildCommand": "yarn build",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
