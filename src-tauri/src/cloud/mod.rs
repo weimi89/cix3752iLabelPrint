@@ -389,8 +389,10 @@ impl CloudClient {
         let latency_ms = started.elapsed().as_millis() as u64;
         match result {
             Ok(resp) => {
+                // 2xx/3xx/4xx 視為 Reachable(網路通,401/404 屬 application 層);
+                // 5xx 視為 Unreachable — 即使 TCP/TLS 握手通,server 端真故障對工控機業務
+                // (查包裹)等同雲端不可用,要降級(UI 亮黃)讓現場人員察覺。
                 let status = resp.status().as_u16();
-                // 200 / 401 / 403 / 404 都代表 HTTP 端點有回應,網路是通的
                 if status >= 500 {
                     CloudReachResult::Unreachable {
                         error: format!("HTTP {status}"),
