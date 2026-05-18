@@ -1,0 +1,13 @@
+# Dev codesign hook
+#
+# `cargo run`(包含 `tauri dev` 內部使用)會把要執行的 binary 路徑
+# 當第一個參數丟給 runner;wrapper 在 exec binary 前先 codesign。
+#
+# 用意:讓 dev binary 永遠用同一個 identity 簽章,macOS keychain ACL
+# 一旦選「永遠允許」就持續有效,不會每次重編都跳 keychain 對話框。
+#
+# Identity 名稱:環境變數 CIX3752I_DEV_SIGN_IDENTITY,預設 ad-hoc(`-`)
+# 推薦用既有 Apple Development identity,或建一個 self-signed 後 export
+
+[target.'cfg(target_os = "macos")']
+runner = "scripts/dev-codesign-run.sh"
