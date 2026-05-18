@@ -283,18 +283,7 @@ jobs:
       - name: Tauri build .deb
         run: npm run tauri:build -- --bundles deb
 
-      - name: Collect webkit2gtk-4.1 .deb (從本機 cache 撈出來打進 tarball)
-        run: |
-          mkdir -p /tmp/webkit-debs
-          cd /tmp/webkit-debs
-          # 從本機 apt cache 找 webkit 相關 .deb;沒有就用 apt download
-          for pkg in libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0 \
-                     gir1.2-webkit2-4.1 gir1.2-javascriptcoregtk-4.1; do
-            apt-get download "$pkg" 2>/dev/null || echo "warn: $pkg not downloadable"
-          done
-          ls -lh /tmp/webkit-debs/
-
-      - name: Package tarball (webkit2gtk + 主程式 + install.sh)
+      - name: Package tarball (stack libs + 主程式 .deb + install.sh)
         env:
           TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
@@ -302,15 +291,20 @@ jobs:
           VERSION="${TAG_NAME#v}"
           STAGE_NAME="cix3752iLabelPrint-${VERSION}-ubuntu-20.04"
           STAGE="/tmp/${STAGE_NAME}"
-          mkdir -p "$STAGE"
+          mkdir -p "$STAGE/stack"
 
-          # webkit2gtk-4.1 系列 .deb
-          cp /tmp/webkit-debs/*.deb "$STAGE/" 2>/dev/null || true
+          # 合併 /opt/cix-stack/{glib,libsoup3,webkit}/usr/local → STAGE/stack/usr/local
+          # (DESTDIR=/opt/cix-stack/X 安裝時各自把 /usr/local 寫進)
+          for src in /opt/cix-stack/glib /opt/cix-stack/libsoup3 /opt/cix-stack/webkit; do
+            [ -d "$src/usr/local" ] && cp -a "$src/usr/local/." "$STAGE/stack/usr/local/" || true
+          done
+          du -sh "$STAGE/stack" || true
 
           # 主程式 .deb(Tauri build 出來)
           cp src-tauri/target/release/bundle/deb/*.deb "$STAGE/"
+          ls "$STAGE/"
 
-          # install.sh
+          # install.sh:複製 stack 到 /usr/local + ldconfig + dpkg -i 主程式
           cat > "$STAGE/install.sh" <<'INSTALL_EOF'
           #!/bin/bash
           set -e
@@ -318,27 +312,20 @@ jobs:
 
           echo "=== 智配通 面單列印 — Ubuntu 20.04 安裝 ==="
           echo ""
-          echo "1/2 安裝 webkit2gtk-4.1 系列套件(Ubuntu 20.04 預設沒有)"
-          # 先裝 javascriptcoregtk(webkit2gtk 依賴它)
-          sudo dpkg -i libjavascriptcoregtk-4.1-*.deb 2>/dev/null || true
-          sudo dpkg -i gir1.2-javascriptcoregtk-4.1*.deb 2>/dev/null || true
-          sudo dpkg -i libwebkit2gtk-4.1-*.deb 2>/dev/null || true
-          sudo dpkg -i gir1.2-webkit2-4.1*.deb 2>/dev/null || true
-          sudo apt-get install -f -y
+          echo "1/3 複製 webkit2gtk-4.1 / libsoup3 / glib 2.78 → /usr/local"
+          if [ -d stack/usr/local ]; then
+            sudo cp -a stack/usr/local/. /usr/local/
+          fi
 
-          echo ""
-          echo "2/2 安裝主程式"
-          # 主程式 .deb 檔名因 Tauri 版本不同,glob 抓所有非 webkit 的
-          for deb in *.deb; do
-            case "$deb" in
-              libwebkit2gtk-4.1-*|libjavascriptcoregtk-4.1-*|gir1.2-webkit2-4.1*|gir1.2-javascriptcoregtk-4.1*)
-                ;;
-              *)
-                sudo dpkg -i "$deb"
-                ;;
-            esac
-          done
-          sudo apt-get install -f -y
+          echo "2/3 更新 dynamic linker cache"
+          # 確保 /usr/local/lib 在 ld.so 搜尋路徑(focal 預設已有,但保險)
+          if ! grep -q '/usr/local/lib' /etc/ld.so.conf.d/*.conf 2>/dev/null; then
+            echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/usr-local.conf
+          fi
+          sudo ldconfig
+
+          echo "3/3 安裝主程式 .deb"
+          sudo dpkg -i *.deb || sudo apt-get install -f -y
 
           echo ""
           echo "=== 完成 ==="
@@ -352,10 +339,9 @@ jobs:
           =====================================
 
           內含:
-            - libwebkit2gtk-4.1-*.deb  (Tauri 2 必要,Ubuntu 20.04 預設無)
-            - libjavascriptcoregtk-4.1-*.deb
-            - gir1.2-* .deb
-            - 智配通 面單列印 主程式 .deb
+            - stack/usr/local/         自編的 glib 2.78 + libsoup3 + webkit2gtk-4.1
+                                       (Ubuntu 20.04 套件源無此版本,我們從 source build)
+            - 主程式 .deb              cix3752i-label-print
             - install.sh
 
           安裝:
