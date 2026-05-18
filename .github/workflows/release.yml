@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag 名稱(已存在的 tag,例 v0.1.0)'
+        required: true
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -33,7 +39,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -96,10 +101,10 @@ jobs:
             software-properties-common dpkg-dev fakeroot \
             build-essential pkg-config \
             libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
-            libayatana-appindicator3-dev libsoup-3.0-dev \
+            libayatana-appindicator3-dev \
             patchelf file
 
-      # Tauri 2 要求 webkit2gtk-4.1,Ubuntu 20.04 套件庫只有 4.0
+      # Tauri 2 要求 webkit2gtk-4.1 + libsoup-3.0,Ubuntu 20.04 套件庫只有 4.0 / libsoup-2.4
       # 用社區 backport PPA(lukasstabe/ubuntu-focal-webkit)補上
       # 若 PPA 失效,需 fallback 到 source build(workflow 會 fail 出來再處理)
       - name: Add webkit2gtk-4.1 PPA (community focal backport)
@@ -107,6 +112,7 @@ jobs:
           add-apt-repository -y ppa:lukasstabe/ubuntu-focal-webkit
           apt-get update
           apt-get install -y \
+            libsoup-3.0-dev \
             libwebkit2gtk-4.1-dev \
             gir1.2-javascriptcoregtk-4.1 \
             gir1.2-webkit2-4.1
