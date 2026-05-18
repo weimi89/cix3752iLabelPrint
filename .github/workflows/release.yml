@@ -124,7 +124,7 @@ jobs:
             liblcms2-dev libjpeg-dev libwebp-dev libopenjp2-7-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
             libenchant-2-dev libhyphen-dev libwoff-dev \
-            libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev \
+            libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libgbm-dev libdrm-dev \
             libgudev-1.0-dev libnotify-dev libsoup2.4-dev
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 \
             --slave /usr/bin/g++ g++ /usr/bin/g++-11
