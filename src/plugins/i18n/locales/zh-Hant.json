@@ -132,7 +132,9 @@
     "statusKind": {
       "ok": "正常",
       "unknown": "尚未檢查",
-      "notConfigured": "未設定 api_base"
+      "notConfigured": "未設定 api_base",
+      "unauthorized": "未登入",
+      "businessError": "業務錯誤"
     },
     "osOffline": "離線(網卡未連線)",
     "latencyMs": "{n} ms",

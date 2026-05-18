@@ -236,7 +236,7 @@ async fn get_parcel(
             // 第二階段:若 print_num > 1,套用列印次數浮水印(對齊雲端 OrderPrintController)
             // 浮水印失敗(字型缺、寫檔失敗等)時 fallback 回原圖,不阻斷正常出單流程
             let print_num = info.print_num.unwrap_or(0);
-            let effective_key = if original_ok && print_num > 1 && state.watermark.is_enabled() {
+            let effective_key = if original_ok && print_num > 1 {
                 let repeat_key = derive_repeat_key(&label_key, &info.shipping_provider);
                 let src = state.cache.local_path_for_key(&label_key);
                 let dst = cache_base.join(&repeat_key);

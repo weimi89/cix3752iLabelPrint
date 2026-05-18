@@ -67,6 +67,11 @@ imageproc = { version = "0.25", default-features = false }
 ab_glyph = "0.2"
 base64 = "0.22"
 
+# macOS Dock 名稱:dev binary 沒 .app bundle,embed_plist 把最小 Info.plist
+# 編譯期內嵌進 __TEXT,__info_plist section;production .app 仍用 bundle 內 plist 不受影響
+[target.'cfg(target_os = "macos")'.dependencies]
+embed_plist = "1"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

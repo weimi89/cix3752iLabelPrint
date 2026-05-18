@@ -371,9 +371,11 @@ impl CloudClient {
     /// 連線失敗 / timeout / 5xx 視為 Unreachable;
     /// api_base 未設定回 NotConfigured。
     pub async fn head_session(&self, timeout_secs: u64) -> CloudReachResult {
-        let (api_base, session_path) = {
+        // 有 token 就 bearer auth(反映「業務可用性」:已登入應回 200,token 失效回 401);
+        // 沒 token 就 anonymous(server 必定回 401,代表未登入)。
+        let (api_base, session_path, token) = {
             let s = self.inner.state.read();
-            (s.api_base.clone(), s.session_path.clone())
+            (s.api_base.clone(), s.session_path.clone(), s.token.clone())
         };
         if api_base.is_empty() {
             return CloudReachResult::NotConfigured;
@@ -381,11 +383,13 @@ impl CloudClient {
         let url = join_url(&api_base, &session_path);
         let http = self.inner.http.read().clone();
         let started = std::time::Instant::now();
-        let result = http
+        let mut req = http
             .head(&url)
-            .timeout(Duration::from_secs(timeout_secs.max(1)))
-            .send()
-            .await;
+            .timeout(Duration::from_secs(timeout_secs.max(1)));
+        if !token.is_empty() {
+            req = req.bearer_auth(&token);
+        }
+        let result = req.send().await;
         let latency_ms = started.elapsed().as_millis() as u64;
         match result {
             Ok(resp) => {

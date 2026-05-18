@@ -132,7 +132,9 @@
     "statusKind": {
       "ok": "Bình thường",
       "unknown": "Chưa kiểm tra",
-      "notConfigured": "Chưa cấu hình api_base"
+      "notConfigured": "Chưa cấu hình api_base",
+      "unauthorized": "Chưa đăng nhập",
+      "businessError": "Lỗi nghiệp vụ"
     },
     "osOffline": "Ngoại tuyến (card mạng chưa kết nối)",
     "latencyMs": "{n} ms",

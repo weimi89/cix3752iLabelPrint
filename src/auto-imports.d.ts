@@ -8,7 +8,6 @@ export {}
 declare global {
   const EffectScope: typeof import('vue')['EffectScope']
   const STATUS_GROUP_ICON: typeof import('./composables/useLabelStatus.js')['STATUS_GROUP_ICON']
-  const STATUS_LABEL: typeof import('./composables/useLabelStatus.js')['STATUS_LABEL']
   const acceptHMRUpdate: typeof import('pinia')['acceptHMRUpdate']
   const alphaDashValidator: typeof import('./@core/utils/validators.js')['alphaDashValidator']
   const alphaValidator: typeof import('./@core/utils/validators.js')['alphaValidator']

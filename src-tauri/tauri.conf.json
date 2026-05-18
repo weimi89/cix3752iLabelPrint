@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "智配通 LabelPrint",
+  "productName": "智配通 面單列印",
   "version": "0.1.0",
   "identifier": "com.weimi.cix3752i.labelprint",
   "build": {
@@ -15,8 +15,8 @@
         "title": "智配通 - 本地分揀中介",
         "width": 1280,
         "height": 800,
-        "minWidth": 1024,
-        "minHeight": 720,
+        "minWidth": 480,
+        "minHeight": 360,
         "resizable": true,
         "fullscreen": false,
         "center": true
@@ -42,6 +42,6 @@
     ],
     "category": "Productivity",
     "shortDescription": "本地分揀中介與面單列印工具",
-    "longDescription": "整合本地分揀中介 HTTP 服務、雲端 API 包裹查詢、本機面單列印的智配通 LabelPrint工具。"
+    "longDescription": "整合本地分揀中介 HTTP 服務、雲端 API 包裹查詢、本機面單列印的智配通 面單列印工具。"
   }
 }

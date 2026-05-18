@@ -31,7 +31,7 @@ async fn process_label_for_ui(
 
     // 2. print_num > 1 → 套用浮水印
     let effective_key = match (print_num, provider) {
-        (Some(n), Some(p)) if n > 1 && state.watermark.is_enabled() => {
+        (Some(n), Some(p)) if n > 1 => {
             let repeat_key = derive_repeat_key(&label_key, p);
             let cache_base = state.cache.base_dir();
             let src = state.cache.local_path_for_key(&label_key);

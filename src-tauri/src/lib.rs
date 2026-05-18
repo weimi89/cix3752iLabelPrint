@@ -112,7 +112,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
     cache.start_cleaner();
 
     let label_resolver = server::LabelPathResolver::new(&app_config);
-    let watermark = watermark::WatermarkRenderer::new(&handle);
+    let watermark = watermark::WatermarkRenderer::new();
 
     let server_handle = server::start(
         &app_config,

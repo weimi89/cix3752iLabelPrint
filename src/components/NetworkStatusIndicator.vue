@@ -63,10 +63,22 @@ function cloudLine() {
     return { label: t('network.layer.cloudApi'), ok: null, detail: t('network.statusKind.notConfigured') }
   }
   if (c.kind === 'reachable') {
+    const lat = t('network.latencyMs', { n: c.latency_ms })
+    // 4xx:server 通但業務不可用(401/403 = 未登入;404 等其他)
+    if (c.status >= 400) {
+      const hintKey = (c.status === 401 || c.status === 403)
+        ? 'network.statusKind.unauthorized'
+        : 'network.statusKind.businessError'
+      return {
+        label: t('network.layer.cloudApi'),
+        ok: 'warn',
+        detail: `${t(hintKey)} · HTTP ${c.status} · ${lat}`,
+      }
+    }
     return {
       label: t('network.layer.cloudApi'),
       ok: true,
-      detail: `HTTP ${c.status} · ${t('network.latencyMs', { n: c.latency_ms })}`,
+      detail: `HTTP ${c.status} · ${lat}`,
     }
   }
   // unreachable but in buffer
@@ -118,6 +130,13 @@ const lines = computed(() => [osLine(), anchorLine(), cloudLine()])
             <VIcon
               v-else-if="ln.ok === 'retry'"
               icon="tabler-refresh-alert"
+              color="warning"
+              size="18"
+              class="me-2"
+            />
+            <VIcon
+              v-else-if="ln.ok === 'warn'"
+              icon="tabler-alert-circle"
               color="warning"
               size="18"
               class="me-2"

@@ -2,7 +2,7 @@
 title: "cix3752iLabelPrint 本地 HTTP API 規範"
 subtitle: "給分揀機工控機調用"
 author: "cix3752iLabelPrint"
-date: "2026-05-17"
+date: "2026-05-17（2026-05-18 修訂：浮水印字型內嵌化）"
 lang: zh-Hant
 documentclass: report
 ---
@@ -197,25 +197,14 @@ Host: <middleware-ip>:18080
 
 雲端 `/api/parcel` 回應夾帶 `print_num` 欄位(累計列印次數)。當 `print_num > 1` 時,Middleware 會生成一份帶浮水印的副本,`label_path` 指向該副本(原圖保留不改)。
 
-- **觸發條件**:`print_num > 1` 且字型已備妥
-- **浮水印**:`({print_num})` Verdana Bold 16pt 純黑
+- **觸發條件**:`print_num > 1`
+- **浮水印**:`({print_num})` 16pt 純黑(字型已隨應用內嵌,使用者無需部署字型檔)
 - **位置**:
   - 順豐速運(`shipping_provider = "E"`):右下角,距右 30px、距下 50px
   - 其他物流商:右上角,距右 15px、距上 50px
 - **副本 key**:`@repeat/W{provider}-{原檔名}` (例:`@repeat/WH-abc.png`)
 - **覆寫策略**:每次 GET 同包裹都重新生成(成本低,確保 `print_num` 變化即時反映)
-
-### 啟用浮水印 — 字型放置
-
-字型檔 **Verdana Bold(`verdanab.ttf`)** 需放在 app data 目錄下:
-
-| 平台 | 路徑 |
-|---|---|
-| macOS | `~/Library/Application Support/<bundle id>/fonts/verdanab.ttf` |
-| Windows | `%APPDATA%\<bundle id>\fonts\verdanab.ttf` |
-| Linux | `~/.config/<bundle id>/fonts/verdanab.ttf` |
-
-字型載入失敗時,`print_num > 1` 不會中斷出單,而是 fallback 回原圖並在 log 警告。
+- **fallback**:浮水印生成失敗(讀檔、寫檔 I/O 異常)→ 回原圖,log 警告,不阻斷出單
 
 ## 工控機使用注意事項
 
@@ -444,7 +433,7 @@ HTTP 200 { "message": "OK" }
 
 # 附錄 A：版本與來源
 
-- **本文件版本**：2026-05-17 初版
+- **本文件版本**:2026-05-17 初版;2026-05-18 修訂(浮水印字型改為內嵌,移除字型放置教學;API 對外契約未變動)
 - **規格書來源**：`~/Desktop/local_sorting_middleware_plan.md`（2026-05-15 修訂版）
 - **實作來源**：
   - `src-tauri/src/server/mod.rs`
