@@ -7,6 +7,12 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 const { currentLocale, availableLocales, setLocale } = useLocale()
 
+const labelPathModeItems = computed(() => [
+  { value: 'local', title: t('label.mode.local') },
+  { value: 'share', title: t('label.mode.share') },
+  { value: 'http', title: t('label.mode.http') },
+])
+
 const config = ref(null)
 const status = ref({ running: false, bind_addr: '' })
 const osAutoStart = ref(false)
@@ -184,6 +190,57 @@ const restart = async () => {
             <VNumberInput v-model="config.network.fail_threshold" :min="1" :max="10" density="compact" />
           </VCol>
         </VRow>
+      </VCardText>
+    </VCard>
+
+    <VCard class="mb-4">
+      <VCardItem>
+        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('label.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-caption">{{ $t('label.settings.desc') }}</VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <VRow dense>
+          <VCol cols="12" md="4">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.mode') }}</VLabel>
+            <VSelect
+              v-model="config.label_path.mode"
+              :items="labelPathModeItems"
+              item-title="title"
+              item-value="value"
+              hide-details
+              density="compact"
+              variant="outlined"
+            />
+          </VCol>
+          <VCol v-if="config.label_path.mode === 'share'" cols="12" md="8">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.shareRoot') }}</VLabel>
+            <VTextField
+              v-model="config.label_path.share_root"
+              :placeholder="$t('label.settings.shareRootPlaceholder')"
+              hide-details
+              density="compact"
+              variant="outlined"
+            />
+          </VCol>
+        </VRow>
+
+        <VAlert
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mt-3"
+          :icon="false"
+        >
+          <div class="text-caption">
+            {{
+              config.label_path.mode === 'share'
+                ? $t('label.settings.shareRootHint')
+                : config.label_path.mode === 'http'
+                  ? $t('label.settings.httpHint')
+                  : $t('label.settings.localHint')
+            }}
+          </div>
+        </VAlert>
       </VCardText>
     </VCard>
 

@@ -151,6 +151,23 @@
       "failThreshold": "抖動緩衝(連續失敗次數)"
     }
   },
+  "label": {
+    "mode": {
+      "local": "本機端路徑",
+      "share": "共用目錄",
+      "http": "HTTP URL"
+    },
+    "settings": {
+      "section": "面單路徑回傳模式",
+      "desc": "工控機呼叫 GET /api/parcel 時,label_path 欄位的呈現格式,變更後立即生效",
+      "mode": "回傳模式",
+      "shareRoot": "共用目錄根路徑",
+      "shareRootPlaceholder": "例:\\\\10.0.0.1\\labels 或 /Volumes/labels",
+      "shareRootHint": "需與本機 cache 根目錄指向同一份檔案的不同視角;結尾不需斜線",
+      "httpHint": "內網模式自動採用工控機請求的 Host header 組裝 URL,無須額外設定",
+      "localHint": "本機絕對路徑,工控機需與 Middleware 同機"
+    }
+  },
   "page": {
     "dashboard": {
       "title": "儀表板",

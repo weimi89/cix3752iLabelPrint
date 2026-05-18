@@ -44,6 +44,10 @@ const MOCK_CONFIG = {
     cloud_timeout_secs: 3,
     fail_threshold: 2,
   },
+  label_path: {
+    mode: 'local',
+    share_root: '',
+  },
 }
 export const getConfig = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CONFIG))

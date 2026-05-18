@@ -4,7 +4,52 @@ use tauri::State;
 use crate::cache::derive_label_key;
 use crate::cloud::LabelFetchMode;
 use crate::models::{CloudPrintResult, CloudSession, ExaminePackageResult, PrintViewResult};
+use crate::watermark::derive_repeat_key;
 use crate::{AppResult, SharedState};
+
+/// 把雲端面單 URL 處理成前端 UI 可用的 middleware 本機 URL:
+///   1. 下載原圖到 cache(若未命中)
+///   2. 若 `print_num > 1` 且字型可用,生成 `@repeat/W{provider}-{basename}.png`
+///   3. 回 `http://127.0.0.1:{port}/images/{effective_key}`
+///
+/// 任何步驟失敗都退回原雲端 URL,讓前端 fallback 顯示。
+async fn process_label_for_ui(
+    state: &SharedState,
+    raw_url: &str,
+    print_num: Option<u32>,
+    provider: Option<&str>,
+) -> String {
+    let label_key = derive_label_key(raw_url);
+
+    // 1. 確保原圖已在 cache
+    if !state.cache.has_local(&label_key) {
+        if let Err(e) = state.cache.fetch_now(&label_key, raw_url).await {
+            tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗,回原雲端 URL");
+            return raw_url.to_string();
+        }
+    }
+
+    // 2. print_num > 1 → 套用浮水印
+    let effective_key = match (print_num, provider) {
+        (Some(n), Some(p)) if n > 1 && state.watermark.is_enabled() => {
+            let repeat_key = derive_repeat_key(&label_key, p);
+            let cache_base = state.cache.base_dir();
+            let src = state.cache.local_path_for_key(&label_key);
+            let dst = cache_base.join(&repeat_key);
+            match state.watermark.apply(&src, &dst, n, p) {
+                Ok(()) => repeat_key,
+                Err(e) => {
+                    tracing::warn!(label_key = %label_key, print_num = n, %e, "浮水印生成失敗,回原圖");
+                    label_key
+                }
+            }
+        }
+        _ => label_key,
+    };
+
+    let port = state.config.read().await.server.port;
+    format!("http://127.0.0.1:{port}/images/{effective_key}")
+}
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
@@ -99,24 +144,15 @@ pub async fn cloud_fetch_label(
         )
         .await?;
 
-    // Download / WebPrint 模式：把面單同步下載到本地快取，回給前端本地 server 路徑
-    // → 後續列印直接讀 cache,不重打雲端
+    // Download / WebPrint 模式:下載到本地快取 + 套用列印次數浮水印,
+    // 回給前端本地 server 路徑(後續列印直接讀 cache,不重打雲端)
     // CloudPrint 模式由雲端直接送印,本地不需要 cache
     if matches!(mode, LabelFetchMode::Download | LabelFetchMode::WebPrint) {
         if let Some(url) = result.print_file_path.clone() {
-            // 保留雲端 URL 的子資料夾結構 (labels/{provider}/{date}/{hash}.png)
-            let label_key = derive_label_key(&url);
-            match state.cache.fetch_now(&label_key, &url).await {
-                Ok(()) => {
-                    let port = state.config.read().await.server.port;
-                    result.print_file_path =
-                        Some(format!("http://127.0.0.1:{port}/images/{label_key}"));
-                }
-                Err(e) => {
-                    tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗，回原雲端 URL");
-                    // result.print_file_path 維持原雲端 URL，前端仍可顯示
-                }
-            }
+            let provider = result.print_shipping_provider.as_deref();
+            let local_url =
+                process_label_for_ui(state.inner(), &url, result.print_num, provider).await;
+            result.print_file_path = Some(local_url);
         }
     }
 
@@ -137,13 +173,13 @@ pub async fn cloud_examine_package(
     state.cloud.examine_package(&req.shipment_no).await
 }
 
-/// 自動印單專用：cloud-print 端點回應 schema 與 PrintViewResult 不同,需獨立 command
+/// 自動印單專用:cloud-print 端點回應 schema 與 PrintViewResult 不同,需獨立 command
 #[tauri::command]
 pub async fn cloud_fetch_cloud_print(
     state: State<'_, SharedState>,
     req: FetchCloudPrintRequest,
 ) -> AppResult<CloudPrintResult> {
-    state
+    let mut result = state
         .cloud
         .fetch_cloud_print_label(
             &req.order_sn,
@@ -153,5 +189,15 @@ pub async fn cloud_fetch_cloud_print(
             req.scanner_user.as_deref(),
             req.sticker_user.as_deref(),
         )
-        .await
+        .await?;
+
+    // PRINT-SUCCESS 才有 image_path / print_num,套用浮水印並改寫成 middleware URL
+    if let Some(url) = result.image_path.clone() {
+        let provider = result.provider_code.as_deref();
+        let local_url =
+            process_label_for_ui(state.inner(), &url, result.print_num, provider).await;
+        result.image_path = Some(local_url);
+    }
+
+    Ok(result)
 }

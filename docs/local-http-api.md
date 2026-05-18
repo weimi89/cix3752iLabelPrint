@@ -154,7 +154,7 @@ Host: <middleware-ip>:18080
 |---|---|---|---|
 | `channel_code` | string \| null | 是 | 分揀通道代碼（本地 `sort_channels`，用雲端 `shipping_provider` 查 `dispatch_code` 後依 round-robin 取一個）。無對應通道時為 `null` |
 | `print_profile` | string \| null | 是 | 對應本機印表機設定（本地 `dispatch_provider.print_profile`，用 `shipping_provider` 查）。無對應設定時為 `null` |
-| `label_path` | string \| null | 是 | 本地面單檔案絕對路徑。同步下載失敗時為 `null`，工控機可重試 |
+| `label_path` | string \| null | 是 | 面單存取路徑;格式由「面單路徑回傳模式」設定決定(三選一,見下)。同步下載失敗時為 `null`,工控機可重試 |
 | `response_id` | integer \| null | 是 | 雲端列印記錄 ID，工控機需於 `POST /api/report` 帶回以利配對；雲端 debug 模式時為 `null` |
 
 **失敗**
@@ -177,13 +177,54 @@ Host: <middleware-ip>:18080
 
 無論成功或失敗，`daily_stats.request_count` 皆會 +1。
 
+## 面單路徑回傳模式
+
+`label_path` 的形態由 `config.toml` 中 `[label_path]` 區塊或設定頁「面單路徑回傳模式」決定,可在執行期熱套用(不需重啟 server)。三種模式:
+
+| `mode` | `label_path` 範例 | 設定欄位 | 工控機行為 |
+|---|---|---|---|
+| `local`(預設) | `/Users/.../labels/2026/05/SF.png` | — | 直接讀本機檔(僅同機器有效) |
+| `share` | `\\10.0.0.1\labels\2026\05\SF.png` | `share_root` | 經 SMB / NFS 掛載讀檔 |
+| `http` | `http://192.168.1.50:18080/images/SF.png` | — | 走 HTTP GET 下載 |
+
+**`share` 模式**:Middleware 把本地 `cache_root` 前綴替換為 `share_root`,再依 `share_root` 含 `\` 與否決定分隔符風格。`share_root` 必須與 cache 根目錄指向同一份檔案的不同視角。
+
+**`http` 模式**:設計為內網部署,直接以工控機請求的 Host header 組合 `http://{host}/images/{label_key}`,**無須額外設定**。內部走現有靜態檔案端點(第 4 節)。
+
+**設定錯誤的退化策略**:`share_root` 為空時退回 `local`。
+
+## 列印次數浮水印(對齊雲端 OrderPrintController)
+
+雲端 `/api/parcel` 回應夾帶 `print_num` 欄位(累計列印次數)。當 `print_num > 1` 時,Middleware 會生成一份帶浮水印的副本,`label_path` 指向該副本(原圖保留不改)。
+
+- **觸發條件**:`print_num > 1` 且字型已備妥
+- **浮水印**:`({print_num})` Verdana Bold 16pt 純黑
+- **位置**:
+  - 順豐速運(`shipping_provider = "E"`):右下角,距右 30px、距下 50px
+  - 其他物流商:右上角,距右 15px、距上 50px
+- **副本 key**:`@repeat/W{provider}-{原檔名}` (例:`@repeat/WH-abc.png`)
+- **覆寫策略**:每次 GET 同包裹都重新生成(成本低,確保 `print_num` 變化即時反映)
+
+### 啟用浮水印 — 字型放置
+
+字型檔 **Verdana Bold(`verdanab.ttf`)** 需放在 app data 目錄下:
+
+| 平台 | 路徑 |
+|---|---|
+| macOS | `~/Library/Application Support/<bundle id>/fonts/verdanab.ttf` |
+| Windows | `%APPDATA%\<bundle id>\fonts\verdanab.ttf` |
+| Linux | `~/.config/<bundle id>/fonts/verdanab.ttf` |
+
+字型載入失敗時,`print_num > 1` 不會中斷出單,而是 fallback 回原圖並在 log 警告。
+
 ## 工控機使用注意事項
 
-- `label_path` 為**絕對路徑**，工控機需有權限讀取此檔
-- 若 `label_path` 為 `null`，工控機可選擇：
-  1. 重新呼叫 `GET /api/parcel/{queryNo}`（首次未命中觸發了下載，第二次通常會命中本地快取）
-  2. 改用 `/images/{label_key}` 走 HTTP 拉取（見第 4 節）
-- `response_id` 在後續 `POST /api/report` 為**必填**；若為 `null`，本次查詢不會寫 `parcel_query_log`，後續無法回報
+- `local` / `share` 模式下 `label_path` 為**絕對路徑**,工控機需有檔案系統讀取權限
+- `http` 模式下 `label_path` 為 URL,工控機需用 HTTP GET 取得 binary
+- 若 `label_path` 為 `null`,工控機可選擇:
+  1. 重新呼叫 `GET /api/parcel/{queryNo}`(首次未命中觸發了下載,第二次通常會命中本地快取)
+  2. 改用 `/images/{label_key}` 走 HTTP 拉取(見第 4 節)
+- `response_id` 在後續 `POST /api/report` 為**必填**;若為 `null`,本次查詢不會寫 `parcel_query_log`,後續無法回報
 
 ---
 

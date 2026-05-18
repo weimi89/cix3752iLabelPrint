@@ -63,6 +63,8 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # 本機印表機（跨平台）
 printers = "2"
 image = "0.25"
+imageproc = { version = "0.25", default-features = false }
+ab_glyph = "0.2"
 base64 = "0.22"
 
 [features]

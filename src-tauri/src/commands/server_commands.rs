@@ -35,6 +35,8 @@ pub async fn server_restart(state: State<'_, SharedState>) -> AppResult<ServerSt
             state.cloud.clone(),
             state.cache.clone(),
             state.queue.clone(),
+            state.label_resolver.clone(),
+            state.watermark.clone(),
         )
         .await?;
         let old = std::mem::replace(&mut *guard, new);

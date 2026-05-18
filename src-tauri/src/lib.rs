@@ -10,6 +10,7 @@ mod models;
 mod printer;
 mod queue;
 mod server;
+mod watermark;
 
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ use tokio::sync::RwLock;
 
 pub use error::{AppError, AppResult};
 
-/// 全域應用狀態，所有 Tauri command / 背景 worker / HTTP handler 共享
+/// 全域應用狀態,所有 Tauri command / 背景 worker / HTTP handler 共享
 pub struct AppState {
     pub config: RwLock<config::AppConfig>,
     pub db: db::DbPool,
@@ -27,6 +28,8 @@ pub struct AppState {
     pub queue: queue::QueueManager,
     pub server: RwLock<server::ServerHandle>,
     pub health: health::HealthChecker,
+    pub label_resolver: server::LabelPathResolver,
+    pub watermark: watermark::WatermarkRenderer,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -107,12 +110,17 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
     queue.start_worker();
     cache.start_cleaner();
 
+    let label_resolver = server::LabelPathResolver::new(&app_config);
+    let watermark = watermark::WatermarkRenderer::new(&handle);
+
     let server_handle = server::start(
         &app_config,
         db_pool.clone(),
         cloud.clone(),
         cache.clone(),
         queue.clone(),
+        label_resolver.clone(),
+        watermark.clone(),
     )
     .await?;
 
@@ -131,5 +139,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         queue,
         server: RwLock::new(server_handle),
         health,
+        label_resolver,
+        watermark,
     }))
 }

@@ -151,6 +151,23 @@
       "failThreshold": "Bộ đệm chống nhiễu (số lần lỗi liên tiếp)"
     }
   },
+  "label": {
+    "mode": {
+      "local": "Đường dẫn cục bộ",
+      "share": "Thư mục chia sẻ",
+      "http": "HTTP URL"
+    },
+    "settings": {
+      "section": "Chế độ trả về đường dẫn nhãn",
+      "desc": "Định dạng trường label_path khi máy công nghiệp gọi GET /api/parcel, có hiệu lực ngay sau khi thay đổi",
+      "mode": "Chế độ trả về",
+      "shareRoot": "Đường dẫn gốc thư mục chia sẻ",
+      "shareRootPlaceholder": "VD: \\\\10.0.0.1\\labels hoặc /Volumes/labels",
+      "shareRootHint": "Phải trỏ tới cùng tập tin với thư mục cache cục bộ (góc nhìn khác); không cần dấu / ở cuối",
+      "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
+      "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với Middleware"
+    }
+  },
   "page": {
     "dashboard": {
       "title": "Bảng điều khiển",

@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::Path as StdPath;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Host, Path, State},
     http::StatusCode,
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
 };
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -20,13 +21,80 @@ use tower_http::trace::TraceLayer;
 
 use crate::cache::{derive_label_key, CacheManager};
 use crate::cloud::CloudClient;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, LabelPathConfig, LabelPathMode};
 use crate::db::DbPool;
 use crate::models::{
     ApiErrorBody, DataEnvelope, ParcelData, ReportPayload, SuccessEnvelope,
 };
 use crate::queue::QueueManager;
+use crate::watermark::{derive_repeat_key, WatermarkRenderer};
 use crate::{AppError, AppResult};
+
+/// 面單路徑解析器:依設定把本地絕對路徑轉成 local / share / http 三種形態
+#[derive(Clone)]
+pub struct LabelPathResolver {
+    inner: Arc<RwLock<LabelPathConfig>>,
+}
+
+impl LabelPathResolver {
+    pub fn new(config: &AppConfig) -> Self {
+        Self { inner: Arc::new(RwLock::new(config.label_path.clone())) }
+    }
+
+    pub fn apply_config(&self, config: &AppConfig) {
+        *self.inner.write() = config.label_path.clone();
+    }
+
+    /// 將本地絕對路徑依當前模式轉換為要回給工控機的字串
+    /// - `local_abs`: cache 命中後產生的本地絕對路徑
+    /// - `cache_base`: cache 根目錄(用來推出相對路徑)
+    /// - `label_key`: 相對 key(fallback 用)
+    /// - `host`: 請求的 Host header(http 模式 base 留空時自動採用)
+    pub fn resolve(
+        &self,
+        local_abs: &StdPath,
+        cache_base: &StdPath,
+        label_key: &str,
+        host: Option<&str>,
+    ) -> String {
+        let cfg = self.inner.read();
+        match cfg.mode {
+            LabelPathMode::Local => local_abs.to_string_lossy().to_string(),
+            LabelPathMode::Share => {
+                let root = cfg.share_root.trim();
+                if root.is_empty() {
+                    return local_abs.to_string_lossy().to_string();
+                }
+                let relative = local_abs
+                    .strip_prefix(cache_base)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| label_key.trim_start_matches('/').to_string());
+                join_share(root, &relative)
+            }
+            LabelPathMode::Http => {
+                let key = label_key.trim_start_matches('/');
+                match host {
+                    Some(h) => format!("http://{}/images/{}", h, key),
+                    None => format!("/images/{}", key),
+                }
+            }
+        }
+    }
+}
+
+/// 依 share_root 的分隔符風格(`\\` 或 `/`)合成路徑
+fn join_share(root: &str, relative: &str) -> String {
+    let use_backslash = root.contains('\\');
+    let rel_normalized = if use_backslash {
+        relative.replace('/', "\\")
+    } else {
+        relative.replace('\\', "/")
+    };
+    let sep = if use_backslash { '\\' } else { '/' };
+    let root_trimmed = root.trim_end_matches(['\\', '/']);
+    let rel_trimmed = rel_normalized.trim_start_matches(['\\', '/']);
+    format!("{}{}{}", root_trimmed, sep, rel_trimmed)
+}
 
 /// 每個物流商代碼下一次該分配的 channel 索引（round-robin）
 type RoundRobinState = Arc<Mutex<HashMap<String, usize>>>;
@@ -38,6 +106,8 @@ struct ServerState {
     cache: CacheManager,
     queue: QueueManager,
     rr: RoundRobinState,
+    label_resolver: LabelPathResolver,
+    watermark: WatermarkRenderer,
 }
 
 pub struct ServerHandle {
@@ -54,13 +124,15 @@ impl ServerHandle {
     }
 }
 
-/// 啟動 axum HTTP server，回傳一個可以關閉它的 handle
+/// 啟動 axum HTTP server,回傳一個可以關閉它的 handle
 pub async fn start(
     config: &AppConfig,
     db: DbPool,
     cloud: CloudClient,
     cache: CacheManager,
     queue: QueueManager,
+    label_resolver: LabelPathResolver,
+    watermark: WatermarkRenderer,
 ) -> AppResult<ServerHandle> {
     let addr: SocketAddr = format!("{}:{}", config.server.listen_ip, config.server.port)
         .parse()
@@ -72,6 +144,8 @@ pub async fn start(
         cache: cache.clone(),
         queue,
         rr: Arc::new(Mutex::new(HashMap::new())),
+        label_resolver,
+        watermark,
     };
 
     let images_service = ServeDir::new(cache.base_dir());
@@ -135,28 +209,59 @@ fn err_resp(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json
 /// GET /api/parcel/:query_no — 工控機呼叫
 async fn get_parcel(
     State(state): State<ServerState>,
+    Host(host): Host,
     Path(query_no): Path<String>,
 ) -> Result<Json<DataEnvelope<ParcelData>>, (StatusCode, Json<ApiErrorBody>)> {
     match state.cloud.fetch_parcel(&query_no).await {
         Ok(info) => {
             // 用 shipping_no 作為快取 key (檔名末段帶副檔名,從 shipping_image URL 推得)
             let label_key = derive_label_key(&info.shipping_image);
+            let cache_base = state.cache.base_dir();
 
-            // 本地沒快取就同步下載到完成,完成才回最新路徑給工控機
-            let label_path = if state.cache.has_local(&label_key) {
+            // 第一階段:確保原圖已在本地快取
+            let original_ok = if state.cache.has_local(&label_key) {
                 let _ = state.cache.record_hit(&label_key).await;
-                Some(state.cache.local_path_for_key(&label_key).to_string_lossy().to_string())
+                true
             } else {
                 let _ = state.cache.record_miss().await;
                 match state.cache.fetch_now(&label_key, &info.shipping_image).await {
-                    Ok(()) => Some(
-                        state.cache.local_path_for_key(&label_key).to_string_lossy().to_string(),
-                    ),
+                    Ok(()) => true,
                     Err(e) => {
                         tracing::warn!(label_key = %label_key, ?e, "同步下載快取失敗");
-                        None
+                        false
                     }
                 }
+            };
+
+            // 第二階段:若 print_num > 1,套用列印次數浮水印(對齊雲端 OrderPrintController)
+            // 浮水印失敗(字型缺、寫檔失敗等)時 fallback 回原圖,不阻斷正常出單流程
+            let print_num = info.print_num.unwrap_or(0);
+            let effective_key = if original_ok && print_num > 1 && state.watermark.is_enabled() {
+                let repeat_key = derive_repeat_key(&label_key, &info.shipping_provider);
+                let src = state.cache.local_path_for_key(&label_key);
+                let dst = cache_base.join(&repeat_key);
+                match state.watermark.apply(&src, &dst, print_num, &info.shipping_provider) {
+                    Ok(()) => repeat_key,
+                    Err(e) => {
+                        tracing::warn!(label_key = %label_key, print_num, %e, "浮水印生成失敗,回原圖");
+                        label_key.clone()
+                    }
+                }
+            } else {
+                label_key.clone()
+            };
+
+            // 第三階段:依 label_path.mode 把絕對路徑轉成回應字串
+            let label_path = if original_ok {
+                let local_abs = cache_base.join(&effective_key);
+                Some(state.label_resolver.resolve(
+                    &local_abs,
+                    &cache_base,
+                    &effective_key,
+                    Some(host.as_str()),
+                ))
+            } else {
+                None
             };
 
             // 依雲端回的物流商代碼 (shipping_provider) 查所有對應分揀通道

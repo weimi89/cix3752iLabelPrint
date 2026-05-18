@@ -17,6 +17,8 @@ pub struct AppConfig {
     pub cache: CacheConfig,
     #[serde(default)]
     pub network: NetworkConfig,
+    #[serde(default)]
+    pub label_path: LabelPathConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,6 +137,43 @@ impl Default for NetworkConfig {
     }
 }
 
+/// `GET /api/parcel/{queryNo}` 回應的 `label_path` 呈現模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LabelPathMode {
+    /// 本機絕對路徑(預設、僅同機器可讀)
+    Local,
+    /// 共用目錄路徑(SMB/NFS 等;以 share_root 替換 cache_root 前綴)
+    Share,
+    /// HTTP URL(指向 Middleware 的 /images/{label_key} 端點)
+    Http,
+}
+
+impl Default for LabelPathMode {
+    fn default() -> Self { LabelPathMode::Local }
+}
+
+/// 面單路徑回傳模式設定
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelPathConfig {
+    /// 回傳模式:local / share / http
+    #[serde(default)]
+    pub mode: LabelPathMode,
+    /// share 模式用:共用目錄根路徑(例:`\\\\10.0.0.1\\labels` 或 `/Volumes/labels`)
+    /// 結構需與 cache_root 之下的相對路徑對齊
+    #[serde(default)]
+    pub share_root: String,
+}
+
+impl Default for LabelPathConfig {
+    fn default() -> Self {
+        Self {
+            mode: LabelPathMode::default(),
+            share_root: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
     /// 圖片快取目錄；空字串代表使用系統「圖片」資料夾（~/Pictures）
@@ -155,6 +194,7 @@ impl Default for AppConfig {
             cloud: CloudConfig::default(),
             cache: CacheConfig::default(),
             network: NetworkConfig::default(),
+            label_path: LabelPathConfig::default(),
         }
     }
 }

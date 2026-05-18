@@ -6,16 +6,19 @@ pub struct CloudOrderResponse {
     pub data: ParcelInfo,
 }
 
-/// 雲端回應的 data 內容（對應雲端 API 真實格式）
+/// 雲端回應的 data 內容(對應雲端 API 真實格式)
 #[derive(Debug, Clone, Deserialize)]
 pub struct ParcelInfo {
     pub order_sn: String,
     pub shipping_no: String,
-    /// 物流商代碼：7/F/O/C/H/P/S/A/J/E
+    /// 物流商代碼:7/F/O/C/H/P/S/A/J/E
     pub shipping_provider: String,
-    /// v2: CDN URL；v1: base64 PNG（目前只支援 v2）
+    /// v2: CDN URL;v1: base64 PNG(目前只支援 v2)
     pub shipping_image: String,
-    /// 列印記錄 ID（debug 模式不回，所以是 Option）
+    /// 累計列印次數(雲端維護,本次列印應顯示在面單上)
+    #[serde(default)]
+    pub print_num: Option<u32>,
+    /// 列印記錄 ID(debug 模式不回,所以是 Option)
     #[serde(default)]
     pub response_id: Option<i64>,
 }
@@ -81,7 +84,7 @@ pub struct CloudSession {
     pub user_label: Option<String>,
 }
 
-/// 訂單列印單筆結果（給操作員 UI 的「掃描列印」用，對齊既有 Web 回傳）
+/// 訂單列印單筆結果(給操作員 UI 的「掃描列印」用,對齊既有 Web 回傳)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrintViewResult {
     pub print_view_status: String,
@@ -90,6 +93,9 @@ pub struct PrintViewResult {
     pub print_file_path: Option<String>,
     #[serde(default)]
     pub print_time: Vec<String>,
+    /// 累計列印次數(雲端 addRepeatWatermark=false,middleware 自行依此值疊加浮水印)
+    #[serde(default)]
+    pub print_num: Option<u32>,
 }
 
 /// 包裹查詢結果（自動印單第一步：掃包裹條碼取訂單清單）
@@ -122,7 +128,7 @@ pub struct ExaminePackageOrder {
     pub extras: serde_json::Map<String, serde_json::Value>,
 }
 
-/// 雲端列印單筆結果（自動印單 cloud-print 端點專用，回應 schema 與 PrintViewResult 不同）
+/// 雲端列印單筆結果(自動印單 cloud-print 端點專用,回應 schema 與 PrintViewResult 不同)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudPrintResult {
     pub respond_code: String,
@@ -136,4 +142,10 @@ pub struct CloudPrintResult {
     pub provider_code: Option<String>,
     #[serde(default)]
     pub image_path: Option<String>,
+    /// 雲端相對路徑(供 middleware 推 cache key 用)
+    #[serde(default)]
+    pub file_path: Option<String>,
+    /// 累計列印次數(PRINT-SUCCESS 時才帶)
+    #[serde(default)]
+    pub print_num: Option<u32>,
 }
