@@ -154,12 +154,15 @@ jobs:
           tar xf "glib-${GLIB_VER}.tar.xz"
           echo "::endgroup::"
           cd "glib-${GLIB_VER}"
+          echo "::group::glib meson_options.txt"
+          cat meson_options.txt | head -60 || true
+          echo "::endgroup::"
           echo "::group::glib meson setup"
           meson setup _build \
             --prefix=/usr/local \
             --buildtype=release \
-            -Dtests=false -Dman=false -Ddocumentation=false \
-            -Dlibmount=enabled -Dintrospection=disabled 2>&1 | tail -40
+            -Dtests=false \
+            -Dlibmount=enabled 2>&1 | tail -50
           echo "::endgroup::"
           echo "::group::glib ninja (~5-10 min)"
           ninja -C _build 2>&1 | tail -50
