@@ -84,8 +84,10 @@ jobs:
 
   # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build,
   # 確保 binary link 到 glibc 2.31,工控機才跑得起來
+  # Tauri 2 要求 webkit2gtk-4.1 + libsoup-3.0 都不在 focal 套件源,自編 from jammy source
   release-linux:
     runs-on: ubuntu-22.04
+    continue-on-error: true  # source build 試錯中,fail 不阻 macOS/Windows release
     container:
       image: ubuntu:20.04
       options: --user root
@@ -98,24 +100,88 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             curl wget git ca-certificates gnupg lsb-release \
-            software-properties-common dpkg-dev fakeroot \
+            software-properties-common dpkg-dev devscripts fakeroot \
             build-essential pkg-config \
             libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
             libayatana-appindicator3-dev \
             patchelf file
 
-      # Tauri 2 要求 webkit2gtk-4.1 + libsoup-3.0,Ubuntu 20.04 套件庫只有 4.0 / libsoup-2.4
-      # 用社區 backport PPA(lukasstabe/ubuntu-focal-webkit)補上
-      # 若 PPA 失效,需 fallback 到 source build(workflow 會 fail 出來再處理)
-      - name: Add webkit2gtk-4.1 PPA (community focal backport)
+      - name: Add jammy deb-src(取 webkit2gtk-4.1 / libsoup3 source 用)
         run: |
-          add-apt-repository -y ppa:lukasstabe/ubuntu-focal-webkit
+          cat > /etc/apt/sources.list.d/jammy-src.list <<'EOF'
+          deb-src http://archive.ubuntu.com/ubuntu jammy main universe
+          deb-src http://archive.ubuntu.com/ubuntu jammy-updates main universe
+          EOF
           apt-get update
-          apt-get install -y \
-            libsoup-3.0-dev \
-            libwebkit2gtk-4.1-dev \
-            gir1.2-javascriptcoregtk-4.1 \
-            gir1.2-webkit2-4.1
+
+      - name: Cache built webkit2gtk-4.1 + libsoup3 .deb
+        id: cache-webkit
+        uses: actions/cache@v4
+        with:
+          path: /tmp/webkit-debs
+          key: focal-built-webkit2gtk-4.1-libsoup3-v1
+
+      - name: Build libsoup3 from jammy source
+        if: steps.cache-webkit.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/build /tmp/webkit-debs
+          cd /tmp/build
+          echo "===== libsoup3: source pull ====="
+          apt-get source libsoup3 || apt-get source libsoup-3.0
+          ls -d libsoup* | head -5
+
+          SRC_DIR=$(find . -maxdepth 1 -type d -name "libsoup*" | head -1)
+          cd "$SRC_DIR"
+
+          echo "===== libsoup3: Build-Depends ====="
+          grep -A 50 "^Build-Depends" debian/control | head -50
+
+          echo "===== libsoup3: build-dep install ====="
+          apt-get build-dep -y . 2>&1 | tail -30 || echo "WARN: some build deps missing"
+
+          echo "===== libsoup3: dpkg-buildpackage ====="
+          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -40 || echo "WARN: build failed"
+
+          cd ..
+          ls *.deb 2>/dev/null | head
+          cp *.deb /tmp/webkit-debs/ 2>/dev/null || echo "WARN: no .deb produced"
+
+      - name: Build webkit2gtk-4.1 from jammy source
+        if: steps.cache-webkit.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp/build
+
+          echo "===== install libsoup3 first(webkit deps on it)====="
+          dpkg -i /tmp/webkit-debs/*soup*.deb 2>&1 | tail -10 || apt-get install -f -y
+
+          echo "===== webkit2gtk: source pull ====="
+          apt-get source webkit2gtk
+          ls -d webkit2gtk* | head -5
+
+          SRC_DIR=$(find . -maxdepth 1 -type d -name "webkit2gtk*" | head -1)
+          cd "$SRC_DIR"
+
+          echo "===== webkit2gtk: Build-Depends ====="
+          grep -A 80 "^Build-Depends" debian/control | head -80
+
+          echo "===== webkit2gtk: build-dep install ====="
+          apt-get build-dep -y . 2>&1 | tail -40 || echo "WARN: some build deps missing"
+
+          echo "===== webkit2gtk: dpkg-buildpackage(1-2 小時,首次 build)====="
+          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -60 || echo "WARN: build failed"
+
+          cd ..
+          ls *.deb 2>/dev/null | head
+          cp libwebkit2gtk-4.1*.deb libjavascriptcoregtk-4.1*.deb gir1.2-webkit2-4.1*.deb gir1.2-javascriptcoregtk-4.1*.deb /tmp/webkit-debs/ 2>/dev/null || echo "WARN: missing some .deb"
+
+      - name: Install built webkit2gtk-4.1 + libsoup3
+        run: |
+          echo "===== /tmp/webkit-debs contents ====="
+          ls -lh /tmp/webkit-debs/
+          dpkg -i /tmp/webkit-debs/*.deb 2>&1 | tail -20 || apt-get install -f -y
+          echo "===== verify pkg-config ====="
+          pkg-config --modversion webkit2gtk-4.1 || echo "webkit2gtk-4.1 still not installed"
+          pkg-config --modversion libsoup-3.0 || echo "libsoup-3.0 still not installed"
 
       - name: Setup Rust
         run: |
