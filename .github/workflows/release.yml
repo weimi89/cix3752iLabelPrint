@@ -82,12 +82,14 @@ jobs:
           args: ${{ matrix.args }}
           includeUpdaterJson: false
 
-  # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build,
-  # 確保 binary link 到 glibc 2.31,工控機才跑得起來
-  # Tauri 2 要求 webkit2gtk-4.1 + libsoup-3.0 都不在 focal 套件源,自編 from jammy source
+  # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build
+  # Tauri 2 hard-requires glib >= 2.70 + libsoup-3.0 + webkit2gtk-4.1
+  # 全都不在 focal 套件源,自編 from jammy source
+  # 流程:升 toolchain(GCC10/CMake/meson)→ 編 glib → 編 libsoup3 → 編 webkit → tauri build
   release-linux:
     runs-on: ubuntu-22.04
     continue-on-error: true  # source build 試錯中,fail 不阻 macOS/Windows release
+    timeout-minutes: 300
     container:
       image: ubuntu:20.04
       options: --user root
@@ -95,18 +97,39 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
     steps:
-      - name: Install base build tools
+      - name: Bootstrap apt + 升級 toolchain (GCC 10 / CMake / meson)
         run: |
+          set -e
           apt-get update
           apt-get install -y --no-install-recommends \
-            curl wget git ca-certificates gnupg lsb-release \
-            software-properties-common dpkg-dev devscripts fakeroot \
-            build-essential pkg-config \
+            curl wget gnupg ca-certificates lsb-release tzdata \
+            software-properties-common
+          # GCC 10+ from toolchain PPA
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          # CMake 3.20+ from Kitware
+          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
+            | gpg --dearmor -o /usr/share/keyrings/kitware.gpg
+          echo "deb [signed-by=/usr/share/keyrings/kitware.gpg] https://apt.kitware.com/ubuntu/ focal main" \
+            > /etc/apt/sources.list.d/kitware.list
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git build-essential dpkg-dev devscripts fakeroot \
+            gcc-10 g++-10 cmake ninja-build \
+            pkg-config python3 python3-pip python3-setuptools \
             libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
             libayatana-appindicator3-dev \
             patchelf file
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 \
+            --slave /usr/bin/g++ g++ /usr/bin/g++-10
+          # newer meson(focal 內建 0.53,jammy glib 要 0.60+)
+          pip3 install --upgrade pip
+          pip3 install meson==1.3.2
+          echo "===== toolchain versions ====="
+          gcc --version | head -1
+          cmake --version | head -1
+          meson --version
 
-      - name: Add jammy deb-src(取 webkit2gtk-4.1 / libsoup3 source 用)
+      - name: Add jammy deb-src(拉 glib / libsoup3 / webkit2gtk source)
         run: |
           cat > /etc/apt/sources.list.d/jammy-src.list <<'EOF'
           deb-src http://archive.ubuntu.com/ubuntu jammy main universe
@@ -114,74 +137,101 @@ jobs:
           EOF
           apt-get update
 
-      - name: Cache built webkit2gtk-4.1 + libsoup3 .deb
-        id: cache-webkit
+      - name: Cache built stack .deb (glib + libsoup3 + webkit)
+        id: cache-stack
         uses: actions/cache@v4
         with:
-          path: /tmp/webkit-debs
-          key: focal-built-webkit2gtk-4.1-libsoup3-v1
+          path: /tmp/stack-debs
+          key: focal-stack-glib-libsoup3-webkit-v1
+
+      - name: Build glib 2.70+ from jammy source
+        if: steps.cache-stack.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/build /tmp/stack-debs
+          cd /tmp/build
+          echo "::group::glib2.0 source pull"
+          apt-get source glib2.0
+          ls -d glib2.0* | head -3
+          echo "::endgroup::"
+          SRC_DIR=$(find . -maxdepth 1 -type d -name "glib2.0*" | head -1)
+          cd "$SRC_DIR"
+          echo "::group::glib2.0 Build-Depends"
+          grep -A 80 "^Build-Depends" debian/control | head -80
+          echo "::endgroup::"
+          echo "::group::glib2.0 build-dep"
+          apt-get build-dep -y . 2>&1 | tail -60 || echo "WARN: glib build-dep partial fail"
+          echo "::endgroup::"
+          echo "::group::glib2.0 dpkg-buildpackage"
+          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -80 || echo "WARN: glib build failed"
+          echo "::endgroup::"
+          cd ..
+          ls *.deb 2>/dev/null | head -30
+          cp *.deb /tmp/stack-debs/ 2>/dev/null || echo "WARN: no glib .deb produced"
 
       - name: Build libsoup3 from jammy source
-        if: steps.cache-webkit.outputs.cache-hit != 'true'
+        if: steps.cache-stack.outputs.cache-hit != 'true'
         run: |
-          mkdir -p /tmp/build /tmp/webkit-debs
           cd /tmp/build
-          echo "===== libsoup3: source pull ====="
+          echo "::group::install built glib first"
+          dpkg -i /tmp/stack-debs/libglib*.deb /tmp/stack-debs/gir1.2-glib*.deb 2>&1 | tail -20 \
+            || apt-get install -f -y
+          echo "::endgroup::"
+          echo "::group::libsoup3 source pull"
           apt-get source libsoup3 || apt-get source libsoup-3.0
-          ls -d libsoup* | head -5
-
+          ls -d libsoup* | head -3
+          echo "::endgroup::"
           SRC_DIR=$(find . -maxdepth 1 -type d -name "libsoup*" | head -1)
           cd "$SRC_DIR"
-
-          echo "===== libsoup3: Build-Depends ====="
+          echo "::group::libsoup3 Build-Depends"
           grep -A 50 "^Build-Depends" debian/control | head -50
-
-          echo "===== libsoup3: build-dep install ====="
-          apt-get build-dep -y . 2>&1 | tail -30 || echo "WARN: some build deps missing"
-
-          echo "===== libsoup3: dpkg-buildpackage ====="
-          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -40 || echo "WARN: build failed"
-
+          echo "::endgroup::"
+          echo "::group::libsoup3 build-dep"
+          apt-get build-dep -y . 2>&1 | tail -30 || echo "WARN"
+          echo "::endgroup::"
+          echo "::group::libsoup3 dpkg-buildpackage"
+          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -40 || echo "WARN: libsoup3 fail"
+          echo "::endgroup::"
           cd ..
           ls *.deb 2>/dev/null | head
-          cp *.deb /tmp/webkit-debs/ 2>/dev/null || echo "WARN: no .deb produced"
+          cp *.deb /tmp/stack-debs/ 2>/dev/null || echo "WARN: no libsoup3 .deb"
 
-      - name: Build webkit2gtk-4.1 from jammy source
-        if: steps.cache-webkit.outputs.cache-hit != 'true'
+      - name: Build webkit2gtk-4.1 from jammy source (1-2 hr first time)
+        if: steps.cache-stack.outputs.cache-hit != 'true'
         run: |
           cd /tmp/build
-
-          echo "===== install libsoup3 first(webkit deps on it)====="
-          dpkg -i /tmp/webkit-debs/*soup*.deb 2>&1 | tail -10 || apt-get install -f -y
-
-          echo "===== webkit2gtk: source pull ====="
+          echo "::group::install built libsoup3 first"
+          dpkg -i /tmp/stack-debs/*soup*.deb 2>&1 | tail -10 || apt-get install -f -y
+          echo "::endgroup::"
+          echo "::group::webkit2gtk source pull"
           apt-get source webkit2gtk
-          ls -d webkit2gtk* | head -5
-
+          ls -d webkit2gtk* | head -3
+          echo "::endgroup::"
           SRC_DIR=$(find . -maxdepth 1 -type d -name "webkit2gtk*" | head -1)
           cd "$SRC_DIR"
-
-          echo "===== webkit2gtk: Build-Depends ====="
-          grep -A 80 "^Build-Depends" debian/control | head -80
-
-          echo "===== webkit2gtk: build-dep install ====="
-          apt-get build-dep -y . 2>&1 | tail -40 || echo "WARN: some build deps missing"
-
-          echo "===== webkit2gtk: dpkg-buildpackage(1-2 小時,首次 build)====="
-          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -60 || echo "WARN: build failed"
-
+          echo "::group::webkit2gtk Build-Depends"
+          grep -A 100 "^Build-Depends" debian/control | head -100
+          echo "::endgroup::"
+          echo "::group::webkit2gtk build-dep"
+          apt-get build-dep -y . 2>&1 | tail -60 || echo "WARN"
+          echo "::endgroup::"
+          echo "::group::webkit2gtk dpkg-buildpackage(長,1-2 小時)"
+          dpkg-buildpackage -b -uc -us -j$(nproc) 2>&1 | tail -80 || echo "WARN: webkit fail"
+          echo "::endgroup::"
           cd ..
-          ls *.deb 2>/dev/null | head
-          cp libwebkit2gtk-4.1*.deb libjavascriptcoregtk-4.1*.deb gir1.2-webkit2-4.1*.deb gir1.2-javascriptcoregtk-4.1*.deb /tmp/webkit-debs/ 2>/dev/null || echo "WARN: missing some .deb"
+          ls *.deb 2>/dev/null | head -20
+          cp libwebkit2gtk-4.1*.deb libjavascriptcoregtk-4.1*.deb \
+             gir1.2-webkit2-4.1*.deb gir1.2-javascriptcoregtk-4.1*.deb \
+             /tmp/stack-debs/ 2>/dev/null || echo "WARN: missing some webkit .deb"
 
-      - name: Install built webkit2gtk-4.1 + libsoup3
+      - name: Install full built stack + verify
         run: |
-          echo "===== /tmp/webkit-debs contents ====="
-          ls -lh /tmp/webkit-debs/
-          dpkg -i /tmp/webkit-debs/*.deb 2>&1 | tail -20 || apt-get install -f -y
+          echo "===== /tmp/stack-debs contents ====="
+          ls -lh /tmp/stack-debs/ || echo "empty"
+          dpkg -i /tmp/stack-debs/*.deb 2>&1 | tail -30 || apt-get install -f -y
           echo "===== verify pkg-config ====="
-          pkg-config --modversion webkit2gtk-4.1 || echo "webkit2gtk-4.1 still not installed"
-          pkg-config --modversion libsoup-3.0 || echo "libsoup-3.0 still not installed"
+          pkg-config --modversion glib-2.0 || echo "glib still not OK"
+          pkg-config --modversion libsoup-3.0 || echo "libsoup-3.0 still not OK"
+          pkg-config --modversion webkit2gtk-4.1 || echo "webkit2gtk-4.1 still not OK"
 
       - name: Setup Rust
         run: |
