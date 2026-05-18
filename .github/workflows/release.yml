@@ -124,7 +124,7 @@ jobs:
             liblcms2-dev libjpeg-dev libwebp-dev libopenjp2-7-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
             libenchant-2-dev libhyphen-dev libwoff-dev \
-            libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libgbm-dev libdrm-dev libxt-dev \
+            libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libgbm-dev libdrm-dev libxt-dev libcups2-dev \
             libgudev-1.0-dev libnotify-dev libsoup2.4-dev
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 \
             --slave /usr/bin/g++ g++ /usr/bin/g++-11
@@ -135,9 +135,9 @@ jobs:
           cmake --version | head -1
           meson --version
 
-      - name: Cache built upstream stack (glib + libsoup3 + webkit2gtk)
+      - name: Restore built upstream stack cache
         id: cache-stack
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: /opt/cix-stack
           key: focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1
@@ -259,6 +259,14 @@ jobs:
           pkg-config --modversion glib-2.0
           pkg-config --modversion libsoup-3.0
           pkg-config --modversion webkit2gtk-4.1
+
+      # 強制 save:即使 Tauri build / packaging 後續 fail,webkit 編好的成果也保住
+      - name: Save built upstream stack cache (always)
+        if: always() && steps.cache-stack.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/cix-stack
+          key: focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1
 
       - name: Setup Rust
         run: |
