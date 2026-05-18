@@ -58,8 +58,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: '智配通 面單列印 ${{ github.ref_name }}'
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: '智配通 面單列印 ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
             ## 安裝包
 
@@ -295,9 +295,11 @@ jobs:
           ls -lh /tmp/webkit-debs/
 
       - name: Package tarball (webkit2gtk + 主程式 + install.sh)
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG_NAME#v}"
           STAGE_NAME="cix3752iLabelPrint-${VERSION}-ubuntu-20.04"
           STAGE="/tmp/${STAGE_NAME}"
           mkdir -p "$STAGE"
@@ -373,6 +375,6 @@ jobs:
       - name: Upload tarball to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: ${{ env.TARBALL }}
           draft: true
