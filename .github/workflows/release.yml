@@ -292,6 +292,20 @@ jobs:
       - name: Install npm deps
         run: npm install
 
+      # 系統 focal 套件還是 link 到 /usr/lib glib 2.64(linker -L 順序系統路徑在前)
+      # 直接用 /usr/local 編好的覆蓋系統 .so,讓 -lglib-2.0 等找到新版
+      - name: Override system glib/soup/webkit with /usr/local
+        run: |
+          for lib in libglib-2.0 libgobject-2.0 libgio-2.0 libgmodule-2.0 libgthread-2.0 \
+                     libsoup-3.0 libjavascriptcoregtk-4.1 libwebkit2gtk-4.1; do
+            for f in /usr/local/lib/x86_64-linux-gnu/${lib}.so* /usr/local/lib/${lib}.so*; do
+              [ -e "$f" ] && cp -fP "$f" /usr/lib/x86_64-linux-gnu/ 2>/dev/null || true
+            done
+          done
+          ldconfig
+          echo "===系統 glib 版本(應為 2.78)==="
+          ls -l /usr/lib/x86_64-linux-gnu/libglib-2.0.so* | head -5
+
       - name: Tauri build .deb
         run: npm run tauri:build -- --bundles deb
 
