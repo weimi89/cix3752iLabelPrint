@@ -184,13 +184,15 @@ jobs:
           echo "::endgroup::"
           cd "libsoup-${SOUP_VER}"
           echo "::group::libsoup3 meson setup"
+          # tls_check=false:不檢查 glib-networking(focal 內建有,runtime 會找到)
           meson setup _build \
             --prefix=/usr/local \
             --buildtype=release \
             -Dtests=false -Dvapi=disabled -Ddocs=disabled \
             -Dgssapi=disabled -Dsysprof=disabled -Dintrospection=disabled \
             -Dpkcs11_tests=disabled -Dautobahn=disabled \
-            -Dntlm=disabled -Dbrotli=disabled 2>&1 | tail -40
+            -Dntlm=disabled -Dbrotli=disabled \
+            -Dtls_check=false 2>&1 | tail -40
           echo "::endgroup::"
           echo "::group::libsoup3 ninja (~3-5 min)"
           ninja -C _build 2>&1 | tail -40
