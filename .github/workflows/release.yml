@@ -10,6 +10,15 @@ on:
         description: 'Tag 名稱(已存在的 tag,例 v0.1.0)'
         required: true
         default: 'v0.1.0'
+      only:
+        description: '只跑指定 job(all / linux / desktop)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - linux
+          - desktop
 
 permissions:
   contents: write
@@ -22,6 +31,9 @@ concurrency:
 jobs:
   # macOS arm64 / macOS x64 / Windows — tauri-action 標準流程
   release-desktop:
+    # workflow_dispatch 指定 only=linux 時跳過(避免重 build 撞 assets already_exists)
+    # push tag 觸發時 inputs.only 為空字串,!= 'linux' 為 true,正常跑
+    if: github.event.inputs.only != 'linux'
     strategy:
       fail-fast: false
       matrix:
@@ -73,15 +85,17 @@ jobs:
             | macOS Apple Silicon (M1/M2/M3+) | `*_aarch64.dmg` |
             | macOS Intel | `*_x64.dmg` |
             | Windows x64 | `*_x64-setup.exe` (NSIS) 或 `*_x64_en-US.msi` |
-            | Linux (Ubuntu 20.04 工控機) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
+            | Linux Ubuntu 20.04 工控機(離線) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
+            | Linux Ubuntu 22.04 | `*-ubuntu-22.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
+            | Linux Ubuntu 24.04 | `*-ubuntu-24.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
 
             ## 首次啟動注意
 
             - **macOS**:本版未經 Apple Developer ID 簽章,首次開啟會被 Gatekeeper 攔下。
               請至「系統設定 → 隱私權與安全性 → 仍要開啟」放行。
             - **Windows**:首次開啟會看到 SmartScreen 警告,按「更多資訊 → 仍要執行」即可。
-            - **Linux (Ubuntu 20.04)**:解壓 tarball 後 `sudo bash install.sh` 一次,
-              會把 webkit2gtk-4.1 與主程式都裝起來。後續升級只換主程式 .deb。
+            - **Linux**:解壓對應版本的 tarball 後 `sudo bash install.sh` 一次。
+              20.04 走離線 stack(無網路也能跑);22.04 / 24.04 走 apt 抓系統 webkit2gtk-4.1。
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
@@ -90,29 +104,45 @@ jobs:
           # 寫死 ASCII pattern,release asset 名乾淨;Finder / Dock 的 .app 仍中文(來自 bundle 內)
           assetNamePattern: 'cix3752iLabelPrint_[version]_[arch][_setup][ext]'
 
-  # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build
-  # Tauri 2 hard-requires glib >= 2.70 + libsoup-3.0 + webkit2gtk-4.1
-  # 全都不在 focal 套件源,自編 from jammy source
-  # 流程:升 toolchain(GCC10/CMake/meson)→ 編 glib → 編 libsoup3 → 編 webkit → tauri build
+  # Linux 多版本 tarball — matrix 跑 Ubuntu 20.04 / 22.04 / 24.04 三個 container
+  # 20.04:focal 無 webkit2gtk-4.1,自編 glib 2.78 + libsoup3 + webkit2gtk-4.1 整套
+  # 22.04 / 24.04:系統有 libwebkit2gtk-4.1-0,直接 link 系統 .so,install.sh 跑 apt
   release-linux:
+    if: github.event.inputs.only != 'desktop'
     runs-on: ubuntu-22.04
-    continue-on-error: true  # source build 試錯中,fail 不阻 macOS/Windows release
+    continue-on-error: true  # source build / 新 distro 試錯中,fail 不阻其他 matrix
     timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-20.04
+            image: ubuntu:20.04
+            source_build: true
+            deb_depends: 'libgtk-3-0, libayatana-appindicator3-1'
+          - distro: ubuntu-22.04
+            image: ubuntu:22.04
+            source_build: false
+            deb_depends: 'libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1'
+          - distro: ubuntu-24.04
+            image: ubuntu:24.04
+            source_build: false
+            deb_depends: 'libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1'
     container:
-      image: ubuntu:20.04
+      image: ${{ matrix.image }}
       options: --user root
     env:
       DEBIAN_FRONTEND: noninteractive
       TZ: Etc/UTC
-      # 讓 pkg-config / linker 優先找 /usr/local(我們編的 glib 2.78 / libsoup3 / webkit2gtk-4.1)
-      # 否則 Rust build 用系統 focal glib 2.64,缺 g_uri_error_quark 等新 symbol
+      # 讓 pkg-config / linker 優先找 /usr/local(20.04 自編 stack 用;22.04+ 不影響系統 lib)
       PKG_CONFIG_PATH: /usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig
       LD_LIBRARY_PATH: /usr/local/lib/x86_64-linux-gnu:/usr/local/lib
-      # RUNPATH 寫死 binary:client runtime 跳過 ld.so.cache 直接找 /usr/local 的 .so
-      # (Ubuntu 22.04 有 system libwebkit2gtk-4.1 2.36 但 ABI 不兼容我們的 2.42)
+      # RUNPATH 寫進 binary;client runtime 跳過 ld.so.cache 直接找 /usr/local
+      # 22.04 上系統 libwebkit2gtk-4.1 與我們無干涉(/usr/local 空,fallback 走 /usr/lib)
       RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/lib/x86_64-linux-gnu -C link-arg=-Wl,-rpath,/usr/local/lib"
     steps:
-      - name: Bootstrap apt + 升級 toolchain (GCC 11 / CMake / meson)
+      - name: Bootstrap apt (20.04 — source build webkit toolchain)
+        if: matrix.distro == 'ubuntu-20.04'
         run: |
           set -e
           apt-get update
@@ -150,15 +180,33 @@ jobs:
           cmake --version | head -1
           meson --version
 
-      - name: Restore built upstream stack cache
+      - name: Bootstrap apt (22.04 / 24.04 — system webkit2gtk-4.1)
+        if: matrix.distro != 'ubuntu-20.04'
+        run: |
+          set -e
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            curl wget ca-certificates lsb-release tzdata \
+            git build-essential pkg-config patchelf file xz-utils unzip \
+            libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
+            libayatana-appindicator3-dev libsoup-3.0-dev \
+            libwebkit2gtk-4.1-dev
+          echo "===== toolchain / webkit 版本 ====="
+          gcc --version | head -1
+          pkg-config --modversion webkit2gtk-4.1 || true
+          pkg-config --modversion libsoup-3.0 || true
+          pkg-config --modversion glib-2.0 || true
+
+      - name: Restore built upstream stack cache (20.04 only)
+        if: matrix.distro == 'ubuntu-20.04'
         id: cache-stack
         uses: actions/cache/restore@v4
         with:
           path: /opt/cix-stack
           key: focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1
 
-      - name: Build glib 2.78 from upstream tarball
-        if: steps.cache-stack.outputs.cache-hit != 'true'
+      - name: Build glib 2.78 from upstream tarball (20.04 only)
+        if: matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
         run: |
           set -e
           mkdir -p /tmp/build /opt/cix-stack
@@ -169,9 +217,6 @@ jobs:
           tar xf "glib-${GLIB_VER}.tar.xz"
           echo "::endgroup::"
           cd "glib-${GLIB_VER}"
-          echo "::group::glib meson_options.txt"
-          cat meson_options.txt | head -60 || true
-          echo "::endgroup::"
           echo "::group::glib meson setup"
           meson setup _build \
             --prefix=/usr/local \
@@ -187,8 +232,8 @@ jobs:
           DESTDIR=/opt/cix-stack/glib ninja -C _build install >/dev/null
           pkg-config --modversion glib-2.0
 
-      - name: Build libsoup3 3.4 from upstream tarball
-        if: steps.cache-stack.outputs.cache-hit != 'true'
+      - name: Build libsoup3 3.4 from upstream tarball (20.04 only)
+        if: matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
         run: |
           set -e
           cd /tmp/build
@@ -199,7 +244,6 @@ jobs:
           echo "::endgroup::"
           cd "libsoup-${SOUP_VER}"
           echo "::group::libsoup3 meson setup"
-          # tls_check=false:不檢查 glib-networking(focal 內建有,runtime 會找到)
           meson setup _build \
             --prefix=/usr/local \
             --buildtype=release \
@@ -217,8 +261,8 @@ jobs:
           DESTDIR=/opt/cix-stack/libsoup3 ninja -C _build install >/dev/null
           pkg-config --modversion libsoup-3.0
 
-      - name: Build webkit2gtk-4.1 from upstream tarball (1-2 hr)
-        if: steps.cache-stack.outputs.cache-hit != 'true'
+      - name: Build webkit2gtk-4.1 from upstream tarball (20.04 only, 1-2 hr)
+        if: matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
         run: |
           set -e
           cd /tmp/build
@@ -262,8 +306,8 @@ jobs:
           DESTDIR=/opt/cix-stack/webkit ninja install >/dev/null
           pkg-config --modversion webkit2gtk-4.1
 
-      - name: Cache hit — restore from /opt/cix-stack into /usr/local
-        if: steps.cache-stack.outputs.cache-hit == 'true'
+      - name: Cache hit — restore /opt/cix-stack into /usr/local (20.04 only)
+        if: matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit == 'true'
         run: |
           for d in glib libsoup3 webkit; do
             if [ -d /opt/cix-stack/$d ]; then
@@ -276,8 +320,8 @@ jobs:
           pkg-config --modversion webkit2gtk-4.1
 
       # 強制 save:即使 Tauri build / packaging 後續 fail,webkit 編好的成果也保住
-      - name: Save built upstream stack cache (always)
-        if: always() && steps.cache-stack.outputs.cache-hit != 'true'
+      - name: Save built upstream stack cache (20.04 only, always)
+        if: always() && matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: /opt/cix-stack
@@ -299,13 +343,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: ${{ matrix.distro }}
 
       - name: Install npm deps
         run: npm install
 
-      # 系統 focal 套件還是 link 到 /usr/lib glib 2.64(linker -L 順序系統路徑在前)
+      # 20.04 only:系統 focal 套件還是 link 到 /usr/lib glib 2.64(linker -L 順序系統路徑在前)
       # 直接用 /usr/local 編好的覆蓋系統 .so,讓 -lglib-2.0 等找到新版
-      - name: Override system glib/soup/webkit with /usr/local
+      - name: Override system glib/soup/webkit with /usr/local (20.04 only)
+        if: matrix.distro == 'ubuntu-20.04'
         run: |
           for lib in libglib-2.0 libgobject-2.0 libgio-2.0 libgmodule-2.0 libgthread-2.0 \
                      libsoup-3.0 libjavascriptcoregtk-4.1 libwebkit2gtk-4.1; do
@@ -322,7 +368,11 @@ jobs:
 
       # Tauri 用 productName(中文)當 .deb Package 名,違反 Debian 規範(只允許小寫
       # 字母 / 數字 / + - .)導致 dpkg -i 拒絕安裝。手動改 control 內 Package 為 ASCII
-      - name: Rewrite .deb Package name to ASCII
+      # Depends 也依 distro 重寫:20.04 不能列 libwebkit2gtk-4.1-0(focal 無此套件),
+      # 22.04+ 走系統 webkit 必須列
+      - name: Rewrite .deb Package name + Depends to per-distro
+        env:
+          DEB_DEPENDS: ${{ matrix.deb_depends }}
         run: |
           set -e
           DEB_DIR=src-tauri/target/release/bundle/deb
@@ -334,9 +384,7 @@ jobs:
           echo "=== 原 control ==="
           cat "$WORK/DEBIAN/control"
           sed -i 's/^Package:.*/Package: cix3752i-label-print/' "$WORK/DEBIAN/control"
-          # 整行替換 Depends:移除 webkit2gtk-4.1(自帶),補完整 GTK runtime 系列
-          # 線上 client 跑 apt-get install -f 自動把這些 deps 裝起來;離線 client 走 tarball stack/ 內 .so
-          sed -i 's/^Depends:.*/Depends: libgtk-3-0, libayatana-appindicator3-1/' "$WORK/DEBIAN/control"
+          sed -i "s/^Depends:.*/Depends: ${DEB_DEPENDS}/" "$WORK/DEBIAN/control"
           echo "=== 新 control ==="
           cat "$WORK/DEBIAN/control"
           NEW_DEB="$DEB_DIR/cix3752i-label-print_0.1.0_amd64.deb"
@@ -344,60 +392,63 @@ jobs:
           dpkg-deb -b "$WORK" "$NEW_DEB"
           ls -lh "$DEB_DIR"
 
-      - name: Package tarball (stack libs + 主程式 .deb + install.sh)
+      - name: Package tarball (stack [20.04] + 主程式 .deb + install.sh)
         env:
           TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+          DISTRO: ${{ matrix.distro }}
+          SOURCE_BUILD: ${{ matrix.source_build }}
         run: |
           set -e
           VERSION="${TAG_NAME#v}"
-          STAGE_NAME="cix3752iLabelPrint-${VERSION}-ubuntu-20.04"
+          STAGE_NAME="cix3752iLabelPrint-${VERSION}-${DISTRO}"
           STAGE="/tmp/${STAGE_NAME}"
-          mkdir -p "$STAGE/stack/usr/local"
+          mkdir -p "$STAGE"
 
-          # 合併 /opt/cix-stack/{glib,libsoup3,webkit}/usr/local → STAGE/stack/usr/local
-          # (DESTDIR=/opt/cix-stack/X 安裝時各自把 /usr/local 寫進)
-          for src in /opt/cix-stack/glib /opt/cix-stack/libsoup3 /opt/cix-stack/webkit; do
-            if [ -d "$src/usr/local" ]; then
-              cp -a "$src/usr/local/." "$STAGE/stack/usr/local/"
-            fi
-          done
-          # 從 build container 抓 runtime .so + libstdc++(GCC11 版,focal 預設缺 GLIBCXX_3.4.29)
-          # 用 ldconfig -p 找實際路徑(handle symlink + 真檔的差別,例如
-          # libopenjp2.so.7 是 symlink 指向 libopenjp2.so.2.3.1)
-          mkdir -p "$STAGE/stack/usr/local/lib/x86_64-linux-gnu"
-          for soname in \
-              libxslt.so.1 libwoff2dec.so.1.0.2 libwoff2common.so.1.0.2 \
-              libharfbuzz-icu.so.0 libopenjp2.so.7 libwebpdemux.so.2 \
-              libenchant-2.so.2 libsecret-1.so.0 libhyphen.so.0 \
-              libgbm.so.1 libdrm.so.2 libnghttp2.so.14 libatomic.so.1 \
-              libwayland-server.so.0 libstdc++.so.6; do
-            real=$(ldconfig -p 2>/dev/null | awk -v s="$soname" '$1==s{print $NF; exit}')
-            if [ -n "$real" ] && [ -e "$real" ]; then
-              # cp link 連同 real target(從 link 解到實際檔名)
-              cp -P "$real" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
-              actual=$(readlink -f "$real")
-              [ "$actual" != "$real" ] && cp "$actual" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
-              # 多個 soname symlink 也建(libopenjp2.so.7 → libopenjp2.so.2.3.1)
-              if [ "$real" != "$actual" ]; then
-                base=$(basename "$actual")
-                (cd "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" && ln -sf "$base" "$soname" 2>/dev/null || true)
+          if [ "$SOURCE_BUILD" = "true" ]; then
+            # 20.04 — ship 完整 stack(glib 2.78 + libsoup3 + webkit2gtk-4.1)+ runtime .so
+            mkdir -p "$STAGE/stack/usr/local"
+            for src in /opt/cix-stack/glib /opt/cix-stack/libsoup3 /opt/cix-stack/webkit; do
+              if [ -d "$src/usr/local" ]; then
+                cp -a "$src/usr/local/." "$STAGE/stack/usr/local/"
               fi
-            else
-              echo "WARN: $soname not found via ldconfig"
-            fi
-          done
+            done
+            # 從 build container 抓 runtime .so + libstdc++(GCC11 版,focal 預設缺 GLIBCXX_3.4.29)
+            # 用 ldconfig -p 找實際路徑(handle symlink + 真檔的差別)
+            mkdir -p "$STAGE/stack/usr/local/lib/x86_64-linux-gnu"
+            for soname in \
+                libxslt.so.1 libwoff2dec.so.1.0.2 libwoff2common.so.1.0.2 \
+                libharfbuzz-icu.so.0 libopenjp2.so.7 libwebpdemux.so.2 \
+                libenchant-2.so.2 libsecret-1.so.0 libhyphen.so.0 \
+                libgbm.so.1 libdrm.so.2 libnghttp2.so.14 libatomic.so.1 \
+                libwayland-server.so.0 libstdc++.so.6; do
+              real=$(ldconfig -p 2>/dev/null | awk -v s="$soname" '$1==s{print $NF; exit}')
+              if [ -n "$real" ] && [ -e "$real" ]; then
+                cp -P "$real" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
+                actual=$(readlink -f "$real")
+                [ "$actual" != "$real" ] && cp "$actual" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
+                if [ "$real" != "$actual" ]; then
+                  base=$(basename "$actual")
+                  (cd "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" && ln -sf "$base" "$soname" 2>/dev/null || true)
+                fi
+              else
+                echo "WARN: $soname not found via ldconfig"
+              fi
+            done
+            du -sh "$STAGE/stack" || true
+            echo "=== sanity:核心 .so ==="
+            ls "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" | grep -E "libwebkit2gtk-4\.1|libsoup-3\.0|libstdc\+\+|libxslt|libgbm" | head
+          else
+            # 22.04 / 24.04 — 不 ship stack,系統有 webkit2gtk-4.1
+            echo "走系統 webkit2gtk-4.1,不打包 stack/"
+          fi
 
-          du -sh "$STAGE/stack" || true
-          # sanity:預期看到 libwebkit2gtk-4.1.so* 與一票 runtime 依賴
-          echo "=== sanity:核心 .so ==="
-          ls "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" | grep -E "libwebkit2gtk-4\.1|libsoup-3\.0|libstdc\+\+|libxslt|libgbm" | head
-
-          # 主程式 .deb(Tauri build 出來)
+          # 主程式 .deb(Tauri build 出來,已 rewrite Package + Depends)
           cp src-tauri/target/release/bundle/deb/*.deb "$STAGE/"
           ls "$STAGE/"
 
-          # install.sh:複製 stack 到 /usr/local + ldconfig + dpkg -i 主程式
-          cat > "$STAGE/install.sh" <<'INSTALL_EOF'
+          # install.sh:依 SOURCE_BUILD 動態生(20.04 三步;22.04+ 兩步走 apt)
+          if [ "$SOURCE_BUILD" = "true" ]; then
+            cat > "$STAGE/install.sh" <<'INSTALL_EOF'
           #!/bin/bash
           set -e
           cd "$(dirname "$0")"
@@ -411,7 +462,7 @@ jobs:
 
           echo "2/3 更新 dynamic linker cache"
           # 00- 前綴讓字母順序排在 /etc/ld.so.conf.d 內系統 conf 之前,
-          # 確保 ldconfig 優先索引 /usr/local 的 .so(而非 Ubuntu 22.04 的 system libwebkit2gtk-4.1)
+          # 確保 ldconfig 優先索引 /usr/local 的 .so(而非系統的舊版)
           # 含 multiarch 子目錄(x86_64-linux-gnu),否則 .so 不會被 cache
           sudo tee /etc/ld.so.conf.d/00-cix3752iLabelPrint.conf > /dev/null <<'LDCONF'
           /usr/local/lib/x86_64-linux-gnu
@@ -426,12 +477,31 @@ jobs:
           echo "=== 完成 ==="
           echo "從應用選單開啟「智配通 面單列印」,或於 terminal 執行:cix3752i-label-print"
           INSTALL_EOF
+          else
+            cat > "$STAGE/install.sh" <<INSTALL_EOF
+          #!/bin/bash
+          set -e
+          cd "\$(dirname "\$0")"
+
+          echo "=== 智配通 面單列印 — ${DISTRO} 安裝 ==="
+          echo ""
+          echo "1/2 透過 apt 安裝主程式與系統依賴(webkit2gtk-4.1 / gtk-3 / appindicator3)"
+          # 用 apt install ./*.deb 讓 apt 自動解 Depends 並從套件源拉缺失的 lib
+          sudo apt-get update
+          sudo apt-get install -y ./\$(ls *.deb | head -1)
+
+          echo "2/2 完成"
+          echo ""
+          echo "從應用選單開啟「智配通 面單列印」,或於 terminal 執行:cix3752i-label-print"
+          INSTALL_EOF
+          fi
           chmod +x "$STAGE/install.sh"
 
-          # README
-          cat > "$STAGE/README.txt" <<'README_EOF'
-          智配通 面單列印 — Ubuntu 20.04 安裝包
-          =====================================
+          # README — 依 distro 動態
+          if [ "$SOURCE_BUILD" = "true" ]; then
+            cat > "$STAGE/README.txt" <<'README_EOF'
+          智配通 面單列印 — Ubuntu 20.04 離線安裝包
+          =========================================
 
           內含:
             - stack/usr/local/         自編的 glib 2.78 + libsoup3 + webkit2gtk-4.1
@@ -439,12 +509,28 @@ jobs:
             - 主程式 .deb              cix3752i-label-print
             - install.sh
 
-          安裝:
+          安裝(可在離線環境執行):
             sudo bash install.sh
 
           後續升級:
             只需 sudo dpkg -i <新版主程式.deb>(webkit 已在系統內,不必重裝)
           README_EOF
+          else
+            cat > "$STAGE/README.txt" <<README_EOF
+          智配通 面單列印 — ${DISTRO} 安裝包
+          ===============================================
+
+          內含:
+            - 主程式 .deb              cix3752i-label-print
+            - install.sh
+
+          安裝(需要網路,apt 會自動解 webkit2gtk-4.1 等系統依賴):
+            sudo bash install.sh
+
+          後續升級:
+            sudo dpkg -i <新版主程式.deb>(或 sudo apt install ./<新版.deb>)
+          README_EOF
+          fi
 
           # 打 tarball
           cd /tmp
