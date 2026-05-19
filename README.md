@@ -62,7 +62,7 @@
 
 ## 系統需求
 
-- **作業系統**:macOS 11+、Windows 10+、Linux(GTK 3 + WebKit2GTK **4.1**;Ubuntu 22.04+ 或 20.04 用我們的安裝包)
+- **作業系統**:macOS 11+、Windows 10+、Linux(GTK 3 + WebKit2GTK **4.1**;Ubuntu 20.04 / 22.04 / 24.04 三版各有對應 tarball)
 - **開發工具**:
   - Node.js 18+(專案以 npm 為主,`yarn.lock` 不入版控)
   - Rust 1.78+(`rustup`)
@@ -222,22 +222,48 @@ git push origin v0.1.0
 
 | Runner | 產物 |
 |---|---|
-| `macos-latest` (arm64) | `*_aarch64.dmg`、`*_aarch64.app.tar.gz` |
-| `macos-13` (Intel) | `*_x64.dmg`、`*_x64.app.tar.gz` |
-| `windows-latest` | `*_x64-setup.exe` (NSIS)、`*_x64_en-US.msi` |
-| `ubuntu:20.04` container | `cix3752iLabelPrint-{version}-ubuntu-20.04.tar.gz` (含 webkit2gtk-4.1.deb + 主程式.deb + install.sh) |
+| `macos-latest` (arm64) | `cix3752iLabelPrint_{version}_aarch64.dmg`、`*_aarch64.app.tar.gz` |
+| `macos-13` (Intel) | `cix3752iLabelPrint_{version}_x64.dmg`、`*_x64.app.tar.gz` |
+| `windows-latest` | `cix3752iLabelPrint_{version}_x64-setup.exe` (NSIS only,跳過 MSI 避中文路徑 bug) |
+| `ubuntu:20.04` container | `cix3752iLabelPrint-{version}-ubuntu-20.04.tar.gz`(離線:含自編 webkit2gtk-4.1 + glib 2.78 + libsoup3 + runtime .so + 主程式.deb + install.sh) |
+| `ubuntu:22.04` container | `cix3752iLabelPrint-{version}-ubuntu-22.04.tar.gz`(走系統 `libwebkit2gtk-4.1-0`,install.sh 跑 apt) |
+| `ubuntu:24.04` container | `cix3752iLabelPrint-{version}-ubuntu-24.04.tar.gz`(走系統 `libwebkit2gtk-4.1-0`,install.sh 跑 apt) |
 
-**Linux tarball 客戶端安裝**(Ubuntu 20.04 工控機):
+**Linux tarball 客戶端安裝**:
 
 ```bash
+# Ubuntu 20.04(離線可裝,內含完整 webkit2gtk-4.1 stack)
 tar xzf cix3752iLabelPrint-0.1.0-ubuntu-20.04.tar.gz
-cd cix3752iLabelPrint-0.1.0-ubuntu-20.04
-sudo bash install.sh
+cd cix3752iLabelPrint-0.1.0-ubuntu-20.04 && sudo bash install.sh
+
+# Ubuntu 22.04 / 24.04(需網路,apt 自動解 webkit2gtk-4.1 等系統依賴)
+tar xzf cix3752iLabelPrint-0.1.0-ubuntu-22.04.tar.gz   # 或 ubuntu-24.04
+cd cix3752iLabelPrint-0.1.0-ubuntu-22.04 && sudo bash install.sh
 ```
 
-後續主程式升級只換主 `.deb`,webkit2gtk-4.1 已在系統內不必重裝。
+後續主程式升級只換主 `.deb`(`sudo dpkg -i` 或 `sudo apt install ./*.deb`)。
 
-> 首版未經 Apple Developer ID 簽章或 Windows EV cert 簽章;macOS 首次開啟需「系統設定 → 隱私與安全性 → 仍要開啟」放行,Windows 首次開啟需 SmartScreen「仍要執行」。
+### Release 實測狀態(v0.1.0)
+
+| 平台 | GHA build | 本地實測 | 備註 |
+|---|---|---|---|
+| macOS arm64 | ✅ | ✅ | M1/M2/M3 開發機驗過 |
+| macOS Intel (x64) | ⚠️ | — | `macos-13` runner 排隊嚴重,可能 cancel(已加 60min job timeout) |
+| Windows x64 (NSIS) | ✅ | — | MSI 跳過(WiX `light.exe` 對中文路徑有 bug) |
+| Linux Ubuntu 20.04 | ✅ | ✅ | docker `ubuntu:20.04` 內 ldd 全 link,install.sh 三步完成 |
+| Linux Ubuntu 22.04 | ✅ | ✅ | docker `ubuntu:22.04` 內 ldd 全 link 系統 jammy 套件 |
+| Linux Ubuntu 24.04 | ✅ | ✅ | docker `ubuntu:24.04` 內 ldd 全 link 系統 noble 套件 |
+
+> 本地 docker 測試腳本:`tests/docker-ubuntu-build.sh 22.04 install`(隔離 host node_modules,需 OrbStack/Docker)。
+
+### Known limitations
+
+- **未簽章**:macOS 首次開啟需「系統設定 → 隱私與安全性 → 仍要開啟」;Windows 首次開啟需 SmartScreen「更多資訊 → 仍要執行」。改善要 Apple Dev ID($99/年)+ notarization 與 Windows EV cert($200~600/年)
+- **macOS Intel**:GHA `macos-13` runner queue 嚴重,Intel `.dmg` 可能拿不到。Workaround:本地 `npm run tauri:build -- --target x86_64-apple-darwin` 自編
+- **Linux 跨 distro**:不要把 20.04 tarball 拿去 22.04+ 安裝(自編 glib 2.78 / webkit 2.42 會跟系統 2.36 衝突),反之亦然 — 認對 distro
+- **Linux 離線部署**:目前只有 20.04 tarball 是完整 self-contained;22.04 / 24.04 仍需網路給 apt
+- **Windows MSI**:沒出,只出 NSIS(`light.exe` 對中文 path bug)
+- **Linux Ubuntu 18.04 以下 / RHEL / Debian**:沒測,不保證
 
 ---
 

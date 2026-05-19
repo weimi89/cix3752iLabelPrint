@@ -49,6 +49,9 @@ jobs:
             args: --bundles nsis
 
     runs-on: ${{ matrix.platform }}
+    # 60 分鐘上限:macOS arm64 / Windows ~20-30 min,macos-13 排不到 runner 或 hang 時不至於拖死整個 release
+    # (排隊本身不算 timeout;timeout 從 job 真正開始跑算起。配 fail-fast:false,單個 matrix item 卡也不影響其他)
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
