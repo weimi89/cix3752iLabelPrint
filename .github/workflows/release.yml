@@ -361,9 +361,24 @@ jobs:
               cp -a "$src/usr/local/." "$STAGE/stack/usr/local/"
             fi
           done
+          # 從 build container 額外 ship 12+ runtime .so + libstdc++(GCC11 版,
+          # focal client 預設 libstdc++ 太舊缺 GLIBCXX_3.4.29)
+          # 這些 lib 系統 webkit2gtk runtime 必要;每個 cp 真實檔(含版本後綴的 .so.N.N.N)
+          mkdir -p "$STAGE/stack/usr/local/lib/x86_64-linux-gnu"
+          for pattern in \
+              libxslt.so.1* libwoff2dec.so.1* libharfbuzz-icu.so.0* libopenjp2.so.7* \
+              libwebpdemux.so.2* libenchant-2.so.2* libsecret-1.so.0* libhyphen.so.0* \
+              libgbm.so.1* libdrm.so.2* libnghttp2.so.14* libatomic.so.1* \
+              libstdc++.so.6*; do
+            for f in /usr/lib/x86_64-linux-gnu/$pattern /usr/lib/gcc/x86_64-linux-gnu/11/$pattern; do
+              [ -e "$f" ] && cp -P "$f" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" 2>/dev/null || true
+            done
+          done
+
           du -sh "$STAGE/stack" || true
-          # sanity:預期看到 libwebkit2gtk-4.1.so*
-          find "$STAGE/stack" -name "libwebkit2gtk-4.1.so*" | head -3
+          # sanity:預期看到 libwebkit2gtk-4.1.so* 與一票 runtime 依賴
+          echo "=== sanity:核心 .so ==="
+          ls "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" | grep -E "libwebkit2gtk-4\.1|libsoup-3\.0|libstdc\+\+|libxslt|libgbm" | head
 
           # 主程式 .deb(Tauri build 出來)
           cp src-tauri/target/release/bundle/deb/*.deb "$STAGE/"
