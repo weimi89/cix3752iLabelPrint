@@ -13,6 +13,7 @@
   22.04+ 走系統 webkit2gtk-4.1,本地 docker 驗證 ldd 全 link(待 GHA workflow_dispatch 觸發驗證)
 - **README 補 release 實測 table + Known limitations**(2026-05-19)
 - **release-desktop 加 60min job timeout**(macos-13 hang 不拖死整個 release)
+- **docs/local-http-api.md 對齊 code**(2026-05-19):補 `print_num` / `parcel_query_log.shipping_provider`
 
 ---
 
@@ -52,7 +53,7 @@
 ## 中優先 🟢 — 文件與後續
 
 8. ~~**README** 加 release 流程實測結果 + Known limitations~~ ✅ 2026-05-19 完成
-9. **docs/local-http-api.md** 與現有 code 對齊
+9. ~~**docs/local-http-api.md** 與現有 code 對齊~~ ✅ 2026-05-19 完成(補 `print_num` 為雲端回應第 6 欄、`parcel_query_log` 表格補 `shipping_provider`;對外契約未變動)
 10. ~~**.deb Depends** 補完整 runtime deps~~ ✅ 2026-05-19 完成(per-distro 設定:20.04 `libgtk-3-0` + `appindicator3-1`;22.04+ 加 `libwebkit2gtk-4.1-0`)
 
 ## 低優先 🔵 — DX 改善
