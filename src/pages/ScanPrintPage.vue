@@ -29,11 +29,19 @@ const providerDisplay = (code) => {
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 
+const SCANNER_USER_KEY = 'cix3752iLabelPrint.scannerUser'
+const STICKER_USER_KEY = 'cix3752iLabelPrint.stickerUser'
+const PRINT_TYPE_KEY = 'cix3752iLabelPrint.scanPrintType'
+
 const orderSnList = ref([])
-const printType = ref('ALL')
+const printType = ref(localStorage.getItem(PRINT_TYPE_KEY) || 'ALL')
 const enforce = ref(false)
-const scannerUser = ref('')
-const stickerUser = ref('')
+// 操作人員 / 貼單人員記在本機 — 跟 AutoPrintPage 共用同一個 localStorage key
+const scannerUser = ref(localStorage.getItem(SCANNER_USER_KEY) || '')
+const stickerUser = ref(localStorage.getItem(STICKER_USER_KEY) || '')
+watch(scannerUser, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
+watch(stickerUser, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
+watch(printType, v => localStorage.setItem(PRINT_TYPE_KEY, v || 'ALL'))
 
 const printList = reactive([])
 const printStatus = reactive([])
@@ -56,8 +64,9 @@ const printerMap = computed(() => {
   }
 })
 
-const PRINT_TYPE_OPTIONS = computed(() => [
-  { value: 'ALL', title: t('common.all') },
+// 「列印範圍」下拉只列出有設印表機的物流商(避免選了卻無法出單)
+// 完全沒設印表機時,至少保留「全部」讓 user 仍能查詢看清單;dialog 會在送印時擋
+const ALL_PROVIDER_ITEMS = computed(() => [
   { value: '7', title: t('provider.7eleven') },
   { value: 'F', title: t('provider.family') },
   { value: 'O', title: t('provider.hilife') },
@@ -68,6 +77,14 @@ const PRINT_TYPE_OPTIONS = computed(() => [
   { value: 'S', title: t('provider.shopeeOffline') },
   { value: 'A', title: t('provider.shopeeAuth') },
 ])
+const PRINT_TYPE_OPTIONS = computed(() => [
+  { value: 'ALL', title: t('common.all') },
+  ...ALL_PROVIDER_ITEMS.value.filter(p => printerMap.value[p.value]),
+])
+// 若使用者前次選了 'C',之後把 C 的印表機刪掉導致 'C' 從選單消失 → reset 回 'ALL'
+watch(PRINT_TYPE_OPTIONS, opts => {
+  if (!opts.some(o => o.value === printType.value)) printType.value = 'ALL'
+})
 
 const initPrintList = snList => {
   printList.splice(0)

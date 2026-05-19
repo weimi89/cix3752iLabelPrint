@@ -17,7 +17,8 @@ const printerMap = computed(() => {
   }
 })
 
-const PRINT_TYPE_OPTIONS = computed(() => [
+// 物流商下拉只列出有設印表機的(避免選了卻無法出單;此頁強制單選,沒設就要先去設)
+const ALL_PROVIDER_ITEMS = computed(() => [
   { value: '7', title: t('provider.7eleven') },
   { value: 'F', title: t('provider.family') },
   { value: 'O', title: t('provider.hilife') },
@@ -28,16 +29,37 @@ const PRINT_TYPE_OPTIONS = computed(() => [
   { value: 'S', title: t('provider.shopeeOffline') },
   { value: 'A', title: t('provider.shopeeAuth') },
 ])
+const PRINT_TYPE_OPTIONS = computed(() =>
+  ALL_PROVIDER_ITEMS.value.filter(p => printerMap.value[p.value]),
+)
+
+// 操作人員 / 貼單人員 / 列印類型記在本機 — 操作人員 / 貼單人員與 ScanPrintPage 共用 key
+const SCANNER_USER_KEY = 'cix3752iLabelPrint.scannerUser'
+const STICKER_USER_KEY = 'cix3752iLabelPrint.stickerUser'
+const PRINT_TYPE_KEY = 'cix3752iLabelPrint.autoPrintType'
 
 const form = reactive({
   shipment_no: '',
   order_sn: '',
   package_sn: '',
-  print_type: '7',
-  scanner_user: '',
-  sticker_user: '',
+  // 由下方 immediate watch 校正:讀回的值若不在當前 options 內(該物流商 printer 後來被刪),
+  // 會被自動 reset 為第一個可用 option;若 printerMap 全空則保持空字串
+  print_type: localStorage.getItem(PRINT_TYPE_KEY) || '',
+  scanner_user: localStorage.getItem(SCANNER_USER_KEY) || '',
+  sticker_user: localStorage.getItem(STICKER_USER_KEY) || '',
   enforce: false,
 })
+watch(() => form.scanner_user, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
+watch(() => form.sticker_user, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
+watch(() => form.print_type, v => localStorage.setItem(PRINT_TYPE_KEY, v || ''))
+
+// 初始 + 每次 PRINT_TYPE_OPTIONS 變動時:若當前 print_type 不在可用選項內,自動同步
+// immediate: true 解決初始 form.print_type 對不上 options 時 VSelect 顯示 raw code 的 bug
+watch(PRINT_TYPE_OPTIONS, opts => {
+  if (!opts.some(o => o.value === form.print_type)) {
+    form.print_type = opts[0]?.value || ''
+  }
+}, { immediate: true })
 
 const packageOrders = ref([])
 const shipmentNoRef = ref(null)
@@ -154,7 +176,7 @@ onMounted(() => shipmentNoRef.value?.focus())
 
     <VRow>
       <VCol cols="12" lg="5">
-        <VCard class="py-1">
+        <VCard>
           <VCardText>
             <div class="d-flex gap-3 mb-3">
               <div class="flex-grow-1">
@@ -177,6 +199,7 @@ onMounted(() => shipmentNoRef.value?.focus())
                 :items="PRINT_TYPE_OPTIONS"
                 item-title="title"
                 item-value="value"
+                :no-data-text="$t('common.noPrintersConfigured')"
               />
             </div>
             <div class="mb-3">

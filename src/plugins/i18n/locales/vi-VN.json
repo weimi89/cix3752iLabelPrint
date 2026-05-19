@@ -13,6 +13,7 @@
     "loading": "Đang tải…",
     "noData": "Không có dữ liệu",
     "noResults": "Không có dữ liệu",
+    "noPrintersConfigured": "Chưa gán máy in cho hãng vận chuyển nào, vui lòng vào trang \"Cài đặt máy in\" để cấu hình",
     "yes": "Có",
     "no": "Không",
     "back": "Quay lại",
