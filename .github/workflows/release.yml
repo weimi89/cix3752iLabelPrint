@@ -190,7 +190,7 @@ jobs:
             git build-essential pkg-config patchelf file xz-utils unzip \
             libssl-dev libgtk-3-dev libxdo-dev librsvg2-dev \
             libayatana-appindicator3-dev libsoup-3.0-dev \
-            libwebkit2gtk-4.1-dev
+            libwebkit2gtk-4.1-dev libcups2-dev
           echo "===== toolchain / webkit 版本 ====="
           gcc --version | head -1
           pkg-config --modversion webkit2gtk-4.1 || true

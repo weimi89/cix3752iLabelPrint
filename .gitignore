@@ -44,3 +44,6 @@ backups/
 # === AI 工具工作目錄 ===
 .claude/
 .serena/
+
+# === 測試產物(tests/docker-ubuntu-build.sh build 出的 tarball,40MB+ 不入 git)===
+/tests/tarballs/
