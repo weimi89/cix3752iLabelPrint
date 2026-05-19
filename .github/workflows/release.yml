@@ -334,9 +334,9 @@ jobs:
           echo "=== 原 control ==="
           cat "$WORK/DEBIAN/control"
           sed -i 's/^Package:.*/Package: cix3752i-label-print/' "$WORK/DEBIAN/control"
-          # 整行替換 Depends(我們 tarball 自帶 webkit2gtk-4.1,focal 系統沒此套件,
-          # apt-get install -f 找不到會把主程式移除)
-          sed -i 's/^Depends:.*/Depends: libgtk-3-0/' "$WORK/DEBIAN/control"
+          # 整行替換 Depends:移除 webkit2gtk-4.1(自帶),補完整 GTK runtime 系列
+          # 線上 client 跑 apt-get install -f 自動把這些 deps 裝起來;離線 client 走 tarball stack/ 內 .so
+          sed -i 's/^Depends:.*/Depends: libgtk-3-0, libayatana-appindicator3-1/' "$WORK/DEBIAN/control"
           echo "=== 新 control ==="
           cat "$WORK/DEBIAN/control"
           NEW_DEB="$DEB_DIR/cix3752i-label-print_0.1.0_amd64.deb"
@@ -361,18 +361,30 @@ jobs:
               cp -a "$src/usr/local/." "$STAGE/stack/usr/local/"
             fi
           done
-          # 從 build container 額外 ship 12+ runtime .so + libstdc++(GCC11 版,
-          # focal client 預設 libstdc++ 太舊缺 GLIBCXX_3.4.29)
-          # 這些 lib 系統 webkit2gtk runtime 必要;每個 cp 真實檔(含版本後綴的 .so.N.N.N)
+          # 從 build container 抓 runtime .so + libstdc++(GCC11 版,focal 預設缺 GLIBCXX_3.4.29)
+          # 用 ldconfig -p 找實際路徑(handle symlink + 真檔的差別,例如
+          # libopenjp2.so.7 是 symlink 指向 libopenjp2.so.2.3.1)
           mkdir -p "$STAGE/stack/usr/local/lib/x86_64-linux-gnu"
-          for pattern in \
-              libxslt.so.1* libwoff2dec.so.1* libharfbuzz-icu.so.0* libopenjp2.so.7* \
-              libwebpdemux.so.2* libenchant-2.so.2* libsecret-1.so.0* libhyphen.so.0* \
-              libgbm.so.1* libdrm.so.2* libnghttp2.so.14* libatomic.so.1* \
-              libstdc++.so.6*; do
-            for f in /usr/lib/x86_64-linux-gnu/$pattern /usr/lib/gcc/x86_64-linux-gnu/11/$pattern; do
-              [ -e "$f" ] && cp -P "$f" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" 2>/dev/null || true
-            done
+          for soname in \
+              libxslt.so.1 libwoff2dec.so.1.0.2 libwoff2common.so.1.0.2 \
+              libharfbuzz-icu.so.0 libopenjp2.so.7 libwebpdemux.so.2 \
+              libenchant-2.so.2 libsecret-1.so.0 libhyphen.so.0 \
+              libgbm.so.1 libdrm.so.2 libnghttp2.so.14 libatomic.so.1 \
+              libwayland-server.so.0 libstdc++.so.6; do
+            real=$(ldconfig -p 2>/dev/null | awk -v s="$soname" '$1==s{print $NF; exit}')
+            if [ -n "$real" ] && [ -e "$real" ]; then
+              # cp link 連同 real target(從 link 解到實際檔名)
+              cp -P "$real" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
+              actual=$(readlink -f "$real")
+              [ "$actual" != "$real" ] && cp "$actual" "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/"
+              # 多個 soname symlink 也建(libopenjp2.so.7 → libopenjp2.so.2.3.1)
+              if [ "$real" != "$actual" ]; then
+                base=$(basename "$actual")
+                (cd "$STAGE/stack/usr/local/lib/x86_64-linux-gnu/" && ln -sf "$base" "$soname" 2>/dev/null || true)
+              fi
+            else
+              echo "WARN: $soname not found via ldconfig"
+            fi
           done
 
           du -sh "$STAGE/stack" || true
