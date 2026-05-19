@@ -1,13 +1,11 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useStatusStore } from '@/stores/status'
-import { printStatsSummary } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
 
 const router = useRouter()
 const status = useStatusStore()
-const printStats = ref({ today: 0, yesterday: 0 })
 const goPrintStats = () => router.push({ name: 'print-stats' })
 const {
   osOnline, anchor, cloudApi, checkedAtMs,
@@ -15,7 +13,6 @@ const {
   anchorEffectiveOk, cloudEffectiveOk,
   overall, isChecking, checkNow,
 } = useNetworkStatus()
-let timer = null
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
@@ -38,26 +35,6 @@ const lastCheckedText = computed(() => {
   return new Date(checkedAtMs.value).toLocaleString()
 })
 
-const refreshPrintStats = async () => {
-  try {
-    const s = await printStatsSummary()
-    if (s) printStats.value = { today: s.today || 0, yesterday: s.yesterday || 0 }
-  } catch (e) {
-    console.warn('印單統計載入失敗', e)
-  }
-}
-
-onMounted(async () => {
-  if (isTauriRuntime) {
-    await status.refreshAll()
-    timer = setInterval(() => status.refreshAll(), 5000)
-  }
-  await refreshPrintStats()
-})
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
-})
-
 const formatBytes = bytes => {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -76,9 +53,9 @@ const formatBytes = bytes => {
       {{ $t('page.dashboard.previewModeAlert') }}
     </VAlert>
 
-    <!-- 上半:即時狀態(Middleware / 雲端) -->
+    <!-- 上半:即時狀態(Middleware / 雲端 / 印單統計) -->
     <VRow dense>
-      <VCol cols="12" md="6">
+      <VCol cols="12" md="4">
         <VCard class="card-shadow">
           <VCardItem>
             <template #prepend>
@@ -92,7 +69,7 @@ const formatBytes = bytes => {
         </VCard>
       </VCol>
 
-      <VCol cols="12" md="6">
+      <VCol cols="12" md="4">
         <VCard class="card-shadow">
           <VCardItem>
             <template #prepend>
@@ -105,34 +82,35 @@ const formatBytes = bytes => {
           </VCardItem>
         </VCard>
       </VCol>
-    </VRow>
 
-    <!-- 印單統計快覽:今日 / 昨日,點卡片跳轉至完整統計頁 -->
-    <VCard class="card-shadow mt-3 print-stats-card" @click="goPrintStats">
-      <VCardItem>
-        <template #prepend>
-          <VAvatar color="primary" variant="tonal">
-            <VIcon icon="tabler-chart-bar" />
-          </VAvatar>
-        </template>
-        <VCardTitle>{{ $t('page.dashboard.printStatsTitle') }}</VCardTitle>
-        <VCardSubtitle>{{ $t('page.dashboard.printStatsSubtitle') }}</VCardSubtitle>
-        <template #append>
-          <div class="d-flex align-center gap-4 pe-2">
-            <div class="text-end">
-              <div class="text-h4 text-primary">{{ printStats.today }}</div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.today') }}</div>
-            </div>
-            <VDivider vertical />
-            <div class="text-end">
-              <div class="text-h5">{{ printStats.yesterday }}</div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.yesterday') }}</div>
-            </div>
-            <VIcon icon="tabler-chevron-right" class="text-medium-emphasis" />
-          </div>
-        </template>
-      </VCardItem>
-    </VCard>
+      <VCol cols="12" md="4">
+        <VCard class="card-shadow print-stats-card h-100" @click="goPrintStats">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="primary" variant="tonal">
+                <VIcon icon="tabler-chart-bar" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.dashboard.printStatsTitle') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.dashboard.printStatsSubtitle') }}</VCardSubtitle>
+            <template #append>
+              <div class="d-flex align-center gap-3 pe-1">
+                <div class="text-end">
+                  <div class="text-h5 text-primary">{{ status.printStats.today }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.today') }}</div>
+                </div>
+                <VDivider vertical />
+                <div class="text-end">
+                  <div class="text-h6">{{ status.printStats.yesterday }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.yesterday') }}</div>
+                </div>
+                <VIcon icon="tabler-chevron-right" class="text-medium-emphasis" />
+              </div>
+            </template>
+          </VCardItem>
+        </VCard>
+      </VCol>
+    </VRow>
 
     <!-- 下半:本日統計(請求/成功率/cache 命中率/快取容量) -->
     <VRow dense class="mt-1">

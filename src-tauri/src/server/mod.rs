@@ -108,6 +108,7 @@ struct ServerState {
     rr: RoundRobinState,
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
+    app: tauri::AppHandle,
 }
 
 pub struct ServerHandle {
@@ -133,6 +134,7 @@ pub async fn start(
     queue: QueueManager,
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
+    app: tauri::AppHandle,
 ) -> AppResult<ServerHandle> {
     let addr: SocketAddr = format!("{}:{}", config.server.listen_ip, config.server.port)
         .parse()
@@ -146,6 +148,7 @@ pub async fn start(
         rr: Arc::new(Mutex::new(HashMap::new())),
         label_resolver,
         watermark,
+        app,
     };
 
     let images_service = ServeDir::new(cache.base_dir());
@@ -359,7 +362,7 @@ async fn get_parcel(
             } else {
                 None
             };
-            let _ = sqlx::query(
+            let insert_res = sqlx::query(
                 "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user)
                  VALUES ('ipc', ?, ?, ?)",
             )
@@ -368,6 +371,13 @@ async fn get_parcel(
             .bind(&sticker_user)
             .execute(&state.db)
             .await;
+            if insert_res.is_ok() {
+                crate::commands::print_stats_commands::emit_print_stats_updated(
+                    &state.app,
+                    "ipc",
+                    &info.shipping_no,
+                );
+            }
 
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,

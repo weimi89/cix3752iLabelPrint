@@ -127,6 +127,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         queue.clone(),
         label_resolver.clone(),
         watermark.clone(),
+        handle.clone(),
     )
     .await?;
 

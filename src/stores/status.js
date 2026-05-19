@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { cloudSession, serverStatus, queueStats, cacheStats, dailyStats } from '@/api/tauri'
+import { cloudSession, serverStatus, queueStats, cacheStats, dailyStats, printStatsSummary } from '@/api/tauri'
 
 export const useStatusStore = defineStore('status', {
   state: () => ({
@@ -8,6 +8,7 @@ export const useStatusStore = defineStore('status', {
     queue: { pending: 0, sending: 0, success: 0, failed: 0 },
     cache: { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 },
     today: { date: '', request_count: 0, success_count: 0, cache_hit: 0, cache_miss: 0 },
+    printStats: { today: 0, yesterday: 0 },
     refreshingAt: null,
   }),
   getters: {
@@ -21,13 +22,22 @@ export const useStatusStore = defineStore('status', {
     },
   },
   actions: {
+    async refreshPrintStats() {
+      try {
+        const s = await printStatsSummary()
+        if (s) this.printStats = { today: s.today || 0, yesterday: s.yesterday || 0 }
+      } catch (e) {
+        console.warn('印單統計載入失敗', e)
+      }
+    },
     async refreshAll() {
-      const [c, s, q, ca, d] = await Promise.allSettled([
+      const [c, s, q, ca, d, p] = await Promise.allSettled([
         cloudSession(),
         serverStatus(),
         queueStats(),
         cacheStats(),
         dailyStats({ days: 1 }),
+        printStatsSummary(),
       ])
       if (c.status === 'fulfilled') this.cloud = c.value
       if (s.status === 'fulfilled') this.server = s.value
@@ -37,6 +47,9 @@ export const useStatusStore = defineStore('status', {
         this.today = d.value[0]
       } else if (d.status === 'fulfilled') {
         this.today = { date: '', request_count: 0, success_count: 0, cache_hit: 0, cache_miss: 0 }
+      }
+      if (p.status === 'fulfilled' && p.value) {
+        this.printStats = { today: p.value.today || 0, yesterday: p.value.yesterday || 0 }
       }
       this.refreshingAt = new Date()
     },

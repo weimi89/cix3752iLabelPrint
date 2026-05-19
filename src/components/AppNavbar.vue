@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { getVersion } from '@tauri-apps/api/app'
+import { useRouter } from 'vue-router'
+import { useStatusStore } from '@/stores/status'
 
 defineProps({
   toggleVerticalOverlayNavActive: {
@@ -10,15 +10,10 @@ defineProps({
   },
 })
 
-const appVersion = ref('')
+const router = useRouter()
+const status = useStatusStore()
 
-onMounted(async () => {
-  try {
-    appVersion.value = await getVersion()
-  } catch {
-    // 非 Tauri 環境(如純瀏覽器預覽)取不到版本,留空即可
-  }
-})
+const goPrintStats = () => router.push({ name: 'print-stats' })
 </script>
 
 <template>
@@ -32,10 +27,20 @@ onMounted(async () => {
     >
       <VIcon size="26" icon="tabler-menu-2" />
     </VBtn>
-    <span
-      v-if="appVersion"
-      class="text-black font-weight-medium"
-    >v{{ appVersion }}</span>
+    <VChip
+      class="cursor-pointer"
+      color="primary"
+      variant="tonal"
+      size="small"
+      @click="goPrintStats"
+    >
+      <VIcon icon="tabler-chart-bar" size="16" start />
+      <span class="font-weight-medium">{{ $t('page.printStats.today') }} {{ status.printStats.today }}</span>
+      <span class="text-medium-emphasis ms-2">{{ $t('page.printStats.yesterday') }} {{ status.printStats.yesterday }}</span>
+      <VTooltip activator="parent" location="bottom">
+        {{ $t('page.dashboard.printStatsTitle') }}
+      </VTooltip>
+    </VChip>
     <VSpacer />
     <NetworkStatusIndicator />
     <LocaleSwitcher />

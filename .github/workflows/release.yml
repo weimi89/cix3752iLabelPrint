@@ -85,9 +85,9 @@ jobs:
             | macOS Apple Silicon (M1/M2/M3+) | `*_aarch64.dmg` |
             | macOS Intel | 沒專屬版,請裝 Rosetta 2 後跑 `*_aarch64.dmg` |
             | Windows x64 | `*_x64-setup.exe` (NSIS) 或 `*_x64_en-US.msi` |
-            | Linux Ubuntu 20.04 工控機(離線) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
-            | Linux Ubuntu 22.04 | `*-ubuntu-22.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
-            | Linux Ubuntu 24.04 | `*-ubuntu-24.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
+            | Ubuntu Desktop 20.04 工控機(離線) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
+            | Ubuntu Desktop 22.04 | `*-ubuntu-22.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
+            | Ubuntu Desktop 24.04 | `*-ubuntu-24.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
 
             ## 首次啟動注意
 

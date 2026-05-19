@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::cache::derive_label_key;
 use crate::cloud::LabelFetchMode;
+use crate::commands::print_stats_commands::emit_print_stats_updated;
 use crate::models::{CloudPrintResult, CloudSession, ExaminePackageResult, PrintViewResult};
 use crate::watermark::derive_repeat_key;
 use crate::{AppResult, SharedState};
@@ -125,6 +126,7 @@ pub async fn cloud_session(state: State<'_, SharedState>) -> AppResult<CloudSess
 #[tauri::command]
 pub async fn cloud_fetch_label(
     state: State<'_, SharedState>,
+    app: AppHandle,
     req: FetchLabelRequest,
 ) -> AppResult<PrintViewResult> {
     let mode = match req.mode.as_str() {
@@ -159,7 +161,7 @@ pub async fn cloud_fetch_label(
     // 印單事件:source='scan'(掃描列印).只在拿到 shipping_no 時記錄(印不出來的失敗狀態 shipping_no 為空)
     if let Some(no) = result.print_shipping_no.as_deref() {
         if !no.is_empty() {
-            let _ = sqlx::query(
+            let insert_res = sqlx::query(
                 "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
                  VALUES ('scan', ?, ?, ?, ?)",
             )
@@ -169,6 +171,9 @@ pub async fn cloud_fetch_label(
             .bind(req.scanner_user.as_deref())
             .execute(&state.db)
             .await;
+            if insert_res.is_ok() {
+                emit_print_stats_updated(&app, "scan", no);
+            }
         }
     }
 
@@ -193,6 +198,7 @@ pub async fn cloud_examine_package(
 #[tauri::command]
 pub async fn cloud_fetch_cloud_print(
     state: State<'_, SharedState>,
+    app: AppHandle,
     req: FetchCloudPrintRequest,
 ) -> AppResult<CloudPrintResult> {
     let mut result = state
@@ -219,7 +225,7 @@ pub async fn cloud_fetch_cloud_print(
     if result.respond_code == "PRINT-SUCCESS" {
         if let Some(no) = result.shipment_no.as_deref() {
             if !no.is_empty() {
-                let _ = sqlx::query(
+                let insert_res = sqlx::query(
                     "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
                      VALUES ('auto', ?, ?, ?, ?)",
                 )
@@ -229,6 +235,9 @@ pub async fn cloud_fetch_cloud_print(
                 .bind(req.scanner_user.as_deref())
                 .execute(&state.db)
                 .await;
+                if insert_res.is_ok() {
+                    emit_print_stats_updated(&app, "auto", no);
+                }
             }
         }
     }

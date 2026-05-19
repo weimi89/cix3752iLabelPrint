@@ -8,9 +8,29 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::{AppResult, SharedState};
+
+/// 印單事件寫入後 emit 給前端,讓統計即時刷新(取代輪詢)
+pub const PRINT_STATS_UPDATED_EVENT: &str = "print-stats-updated";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrintStatsUpdated {
+    pub source: &'static str,
+    pub shipping_no: String,
+}
+
+/// 發送統計更新事件(emit 失敗不影響業務,只記 warn)
+pub fn emit_print_stats_updated(app: &AppHandle, source: &'static str, shipping_no: &str) {
+    let payload = PrintStatsUpdated {
+        source,
+        shipping_no: shipping_no.to_string(),
+    };
+    if let Err(e) = app.emit(PRINT_STATS_UPDATED_EVENT, payload) {
+        tracing::warn!(?e, "emit print-stats-updated 失敗");
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct RangeReq {

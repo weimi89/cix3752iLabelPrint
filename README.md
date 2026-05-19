@@ -41,10 +41,12 @@
 | **指派物流** | 物流商主檔 + 對應的印表機 `print_profile` |
 | **印表機設定** | 列舉系統印表機、紙張尺寸、預覽列印 |
 | **三層網路偵測** | OS 網卡 → 公網 anchor → 雲端 API HEAD(帶 Bearer),頂部顯示綜合狀態 |
+| **印單統計** | 三來源(scan / auto / ipc)的 `shipping_no` 去重計數;每日 / 每小時 / 物流商 / 貼標人員四種拆分 |
 | **佇列歷史** | `report_queue` 推送狀態(pending / sending / success / failed)與重試 |
 | **請求記錄** | `/api/parcel` 查詢 log(物流商、通道、追蹤號) |
 | **事件記錄** | 系統各層級事件 log(category × level 篩選) |
-| **儀表板** | 當日 request / success / cache hit/miss、各佇列數量 |
+| **儀表板** | Middleware / 雲端 / 印單統計 三卡 + 當日 request / success / cache hit/miss + 網路狀態 |
+| **全頁印單統計**| Navbar 右上常駐 chip(今日 / 昨日),任何頁面都看得到件數,點擊跳統計頁 |
 | **雙語切換** | 繁體中文 + Tiếng Việt(vue-i18n,介面熱切換) |
 
 ---
@@ -160,6 +162,12 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 支援抖動緩衝(連續失敗達 threshold 才標 down),正常 15s / 降級 60s 兩段間隔。
 
+### 即時印單統計推播
+
+印單統計**不靠輪詢**,改走 Tauri 內建 IPC event(`emit` / `listen`)。三個寫入點(掃描 / 自動 / 工控機 IPC)寫入 `print_event` 表後立即 `emit('print-stats-updated')`,前端 `DefaultLayout` 的 listener 觸發 `status.refreshPrintStats()`,Navbar chip 與儀表板印單統計卡同步更新,**端到端 < 100ms**,工控機請求進來就會看到件數 +1,不必等下一輪刷新。
+
+系統狀態(server / queue / cache / today / cloud)仍走 5s 輪詢(不需毫秒級即時)。
+
 ---
 
 ## 資料夾結構
@@ -213,8 +221,8 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 ```bash
 # 1. 確認版本同步(Cargo.toml + tauri.conf.json + package.json)
 # 2. 打 tag 推上去
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 
 # 3. 至 https://github.com/weimi89/cix3752iLabelPrint/actions 看進度
 # 4. 完成後到 Releases 頁面,編輯 release notes 後按 Publish
@@ -222,8 +230,7 @@ git push origin v0.1.0
 
 | Runner | 產物 |
 |---|---|
-| `macos-latest` (arm64) | `cix3752iLabelPrint_{version}_aarch64.dmg`、`*_aarch64.app.tar.gz` |
-| `macos-13` (Intel) | `cix3752iLabelPrint_{version}_x64.dmg`、`*_x64.app.tar.gz` |
+| `macos-latest` (arm64) | `cix3752iLabelPrint_{version}_aarch64.dmg`、`*_aarch64.app.tar.gz`(Intel Mac 透過 Rosetta 2 執行) |
 | `windows-latest` | `cix3752iLabelPrint_{version}_x64-setup.exe` (NSIS only,跳過 MSI 避中文路徑 bug) |
 | `ubuntu:20.04` container | `cix3752iLabelPrint-{version}-ubuntu-20.04.tar.gz`(離線:含自編 webkit2gtk-4.1 + glib 2.78 + libsoup3 + runtime .so + 主程式.deb + install.sh) |
 | `ubuntu:22.04` container | `cix3752iLabelPrint-{version}-ubuntu-22.04.tar.gz`(走系統 `libwebkit2gtk-4.1-0`,install.sh 跑 apt) |
@@ -233,22 +240,21 @@ git push origin v0.1.0
 
 ```bash
 # Ubuntu 20.04(離線可裝,內含完整 webkit2gtk-4.1 stack)
-tar xzf cix3752iLabelPrint-0.1.0-ubuntu-20.04.tar.gz
-cd cix3752iLabelPrint-0.1.0-ubuntu-20.04 && sudo bash install.sh
+tar xzf cix3752iLabelPrint-0.2.0-ubuntu-20.04.tar.gz
+cd cix3752iLabelPrint-0.2.0-ubuntu-20.04 && sudo bash install.sh
 
 # Ubuntu 22.04 / 24.04(需網路,apt 自動解 webkit2gtk-4.1 等系統依賴)
-tar xzf cix3752iLabelPrint-0.1.0-ubuntu-22.04.tar.gz   # 或 ubuntu-24.04
-cd cix3752iLabelPrint-0.1.0-ubuntu-22.04 && sudo bash install.sh
+tar xzf cix3752iLabelPrint-0.2.0-ubuntu-22.04.tar.gz   # 或 ubuntu-24.04
+cd cix3752iLabelPrint-0.2.0-ubuntu-22.04 && sudo bash install.sh
 ```
 
 後續主程式升級只換主 `.deb`(`sudo dpkg -i` 或 `sudo apt install ./*.deb`)。
 
-### Release 實測狀態(v0.1.0)
+### Release 實測狀態(v0.2.0)
 
 | 平台 | GHA build | 本地實測 | 備註 |
 |---|---|---|---|
-| macOS arm64 | ✅ | ✅ | M1/M2/M3 開發機驗過 |
-| macOS Intel (x64) | ⚠️ | — | `macos-13` runner 排隊嚴重,可能 cancel(已加 60min job timeout) |
+| macOS arm64 | ✅ | ✅ | M1/M2/M3 開發機驗過;Intel Mac 啟用 Rosetta 2 後可跑同一份 ARM64 dmg |
 | Windows x64 (NSIS) | ✅ | — | MSI 跳過(WiX `light.exe` 對中文路徑有 bug) |
 | Linux Ubuntu 20.04 | ✅ | ✅ | docker `ubuntu:20.04` 內 ldd 全 link,install.sh 三步完成 |
 | Linux Ubuntu 22.04 | ✅ | ✅ | docker `ubuntu:22.04` 內 ldd 全 link 系統 jammy 套件 |
@@ -259,7 +265,7 @@ cd cix3752iLabelPrint-0.1.0-ubuntu-22.04 && sudo bash install.sh
 ### Known limitations
 
 - **未簽章**:macOS 首次開啟需「系統設定 → 隱私與安全性 → 仍要開啟」;Windows 首次開啟需 SmartScreen「更多資訊 → 仍要執行」。改善要 Apple Dev ID($99/年)+ notarization 與 Windows EV cert($200~600/年)
-- **macOS Intel**:GHA `macos-13` runner queue 嚴重,Intel `.dmg` 可能拿不到。Workaround:本地 `npm run tauri:build -- --target x86_64-apple-darwin` 自編
+- **macOS Intel 不再內建 native binary**:`macos-13` runner queue 嚴重(排 3h+ 是常態),自 v0.2.0 起發佈流程移除 Intel 構建,Intel Mac 啟用 Rosetta 2 後執行同一份 ARM64 `.dmg`即可。需要原生 Intel binary 請本地 `npm run tauri:build -- --target x86_64-apple-darwin` 自編
 - **Linux 跨 distro**:不要把 20.04 tarball 拿去 22.04+ 安裝(自編 glib 2.78 / webkit 2.42 會跟系統 2.36 衝突),反之亦然 — 認對 distro
 - **Linux 離線部署**:目前只有 20.04 tarball 是完整 self-contained;22.04 / 24.04 仍需網路給 apt
 - **Windows MSI**:沒出,只出 NSIS(`light.exe` 對中文 path bug)

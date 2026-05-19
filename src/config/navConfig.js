@@ -12,13 +12,6 @@ export const navItems = [
   { heading: 'nav.section.print' },
   { title: 'nav.scanPrint', icon: { icon: 'tabler-scan' }, to: { name: 'scan-print' } },
   { title: 'nav.autoPrint', icon: { icon: 'tabler-bolt' }, to: { name: 'auto-print' } },
-
-  { heading: 'nav.section.settings' },
-  { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
-  { title: 'nav.cacheSettings', icon: { icon: 'tabler-photo' }, to: { name: 'cache-settings' } },
-  { title: 'nav.dispatchProviders', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'dispatch-providers' } },
-  { title: 'nav.serverSettings', icon: { icon: 'tabler-server-2' }, to: { name: 'server-settings' } },
-  { title: 'nav.cloudSettings', icon: { icon: 'tabler-cloud' }, to: { name: 'cloud-settings' } },
   { title: 'nav.printerSettings', icon: { icon: 'tabler-printer' }, to: { name: 'printer-settings' } },
 
   { heading: 'nav.section.logs' },
@@ -26,4 +19,11 @@ export const navItems = [
   { title: 'nav.parcelQueryLog', icon: { icon: 'tabler-history' }, to: { name: 'parcel-query-log' } },
   { title: 'nav.queueLog', icon: { icon: 'tabler-truck-loading' }, to: { name: 'queue-log' } },
   { title: 'nav.eventLog', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },
+
+  { heading: 'nav.section.settings' },
+  { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
+  { title: 'nav.cacheSettings', icon: { icon: 'tabler-photo' }, to: { name: 'cache-settings' } },
+  { title: 'nav.dispatchProviders', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'dispatch-providers' } },
+  { title: 'nav.serverSettings', icon: { icon: 'tabler-server-2' }, to: { name: 'server-settings' } },
+  { title: 'nav.cloudSettings', icon: { icon: 'tabler-cloud' }, to: { name: 'cloud-settings' } },
 ]

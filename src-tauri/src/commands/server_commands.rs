@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::server;
 use crate::{AppResult, SharedState};
@@ -21,7 +21,10 @@ pub async fn server_status(state: State<'_, SharedState>) -> AppResult<ServerSta
 
 /// 重啟 server（套用新設定後呼叫）
 #[tauri::command]
-pub async fn server_restart(state: State<'_, SharedState>) -> AppResult<ServerStatus> {
+pub async fn server_restart(
+    state: State<'_, SharedState>,
+    app: AppHandle,
+) -> AppResult<ServerStatus> {
     let config = state.config.read().await.clone();
 
     // 先取出舊 handle 並關閉
@@ -37,6 +40,7 @@ pub async fn server_restart(state: State<'_, SharedState>) -> AppResult<ServerSt
             state.queue.clone(),
             state.label_resolver.clone(),
             state.watermark.clone(),
+            app,
         )
         .await?;
         let old = std::mem::replace(&mut *guard, new);
