@@ -95,6 +95,11 @@ pub fn run() {
             commands::health_commands::network_health_get,
             commands::health_commands::network_health_check,
             commands::parcel_query_log_commands::parcel_query_log_list,
+            commands::print_stats_commands::print_stats_summary,
+            commands::print_stats_commands::print_stats_daily,
+            commands::print_stats_commands::print_stats_hourly,
+            commands::print_stats_commands::print_stats_by_provider,
+            commands::print_stats_commands::print_stats_by_sticker,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");

@@ -55,6 +55,14 @@ export default function (app) {
     locale: {
       adapter: createVueI18nAdapter({ i18n: getI18n(), useI18n }),
     },
+    // VDatePicker 月份/星期文字 → 對應到 Intl locale,使日曆顯示為中文/越南文
+    date: {
+      locale: {
+        'zh-Hant': 'zh-TW',
+        'vi-VN': 'vi-VN',
+        en: 'en-US',
+      },
+    },
   })
 
   app.use(vuetify)

@@ -52,7 +52,8 @@
     "printerSettings": "Cài đặt máy in",
     "eventLog": "Nhật ký sự kiện",
     "queueLog": "Lịch sử hàng đợi",
-    "parcelQueryLog": "Lịch sử yêu cầu"
+    "parcelQueryLog": "Lịch sử yêu cầu",
+    "printStats": "Thống kê in nhãn"
   },
   "pagination": {
     "pagePrefix": "Trang",
@@ -185,7 +186,9 @@
       "todaySuccessRate": "Tỉ lệ thành công hôm nay ({ok}/{total})",
       "cacheHitRate": "Tỉ lệ hit cache ({hit} hit / {miss} miss)",
       "cachedLabels": "Nhãn đã cache / {size}",
-      "cloudNotLoggedInAlert": "Chưa đăng nhập API đám mây — vui lòng vào trang \"API đám mây\" để đăng nhập, nếu không máy công nghiệp tra kiện hàng sẽ trả 401."
+      "cloudNotLoggedInAlert": "Chưa đăng nhập API đám mây — vui lòng vào trang \"API đám mây\" để đăng nhập, nếu không máy công nghiệp tra kiện hàng sẽ trả 401.",
+      "printStatsTitle": "Thống kê in nhãn",
+      "printStatsSubtitle": "Nhấn để xem chi tiết theo ngày / giờ / nhà vận chuyển / nhân viên dán nhãn"
     },
     "preGenerate": {
       "title": "Tạo trước nhãn",
@@ -452,6 +455,36 @@
         "wrapperError": "Nhãn kiện sai: {sn}",
         "storeClosed": "Cửa hàng đóng/chuyển — đã chặn: {sn}"
       }
+    },
+    "printStats": {
+      "title": "Thống kê in nhãn",
+      "subtitle": "3 nguồn: Quét in / In tự động / Máy công nghiệp tra ảnh",
+      "today": "Hôm nay",
+      "yesterday": "Hôm qua",
+      "last7Days": "7 ngày gần nhất",
+      "last30Days": "30 ngày gần nhất",
+      "rangeTotal": "Tổng trong khoảng",
+      "startDate": "Ngày bắt đầu",
+      "endDate": "Ngày kết thúc",
+      "todayBtn": "Hôm nay",
+      "last7DaysBtn": "7 ngày",
+      "last30DaysBtn": "30 ngày",
+      "dailyTrend": "Xu hướng theo ngày",
+      "dailyTrendHint": "Số nhãn (khử trùng lặp) theo từng ngày trong khoảng",
+      "hourly": "8 giờ gần nhất",
+      "hourlyHint": "Số nhãn từng giờ trong 8 mốc giờ trước thời điểm hiện tại",
+      "byProvider": "Theo nhà vận chuyển",
+      "byProviderHint": "Số nhãn (khử trùng lặp) của từng nhà vận chuyển trong khoảng",
+      "bySticker": "Theo nhân viên dán nhãn",
+      "byStickerHint": "Số nhãn của từng nhân viên dán (Quét/Tự động lấy từ form, Máy công nghiệp lấy từ kênh phân loại)",
+      "sourceScan": "Quét in",
+      "sourceAuto": "In tự động",
+      "sourceIpc": "Máy công nghiệp",
+      "sourceUnknown": "Khác",
+      "providerUnknown": "Chưa xác định",
+      "bySourceLabel": "Phân bố nguồn:",
+      "noProviderData": "Chưa có dữ liệu in trong khoảng",
+      "noStickerData": "Chưa có nhân viên dán nhãn trong khoảng"
     }
   }
 }

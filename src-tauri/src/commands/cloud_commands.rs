@@ -156,6 +156,22 @@ pub async fn cloud_fetch_label(
         }
     }
 
+    // 印單事件:source='scan'(掃描列印).只在拿到 shipping_no 時記錄(印不出來的失敗狀態 shipping_no 為空)
+    if let Some(no) = result.print_shipping_no.as_deref() {
+        if !no.is_empty() {
+            let _ = sqlx::query(
+                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
+                 VALUES ('scan', ?, ?, ?, ?)",
+            )
+            .bind(no)
+            .bind(result.print_shipping_provider.as_deref())
+            .bind(req.sticker_user.as_deref())
+            .bind(req.scanner_user.as_deref())
+            .execute(&state.db)
+            .await;
+        }
+    }
+
     Ok(result)
 }
 
@@ -197,6 +213,24 @@ pub async fn cloud_fetch_cloud_print(
         let local_url =
             process_label_for_ui(state.inner(), &url, result.print_num, provider).await;
         result.image_path = Some(local_url);
+    }
+
+    // 印單事件:source='auto'(自動印單).僅 PRINT-SUCCESS 計入(其他 respond_code 視為失敗 / 異常)
+    if result.respond_code == "PRINT-SUCCESS" {
+        if let Some(no) = result.shipment_no.as_deref() {
+            if !no.is_empty() {
+                let _ = sqlx::query(
+                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
+                     VALUES ('auto', ?, ?, ?, ?)",
+                )
+                .bind(no)
+                .bind(result.provider_code.as_deref())
+                .bind(req.sticker_user.as_deref())
+                .bind(req.scanner_user.as_deref())
+                .execute(&state.db)
+                .await;
+            }
+        }
     }
 
     Ok(result)

@@ -41,15 +41,12 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
-          - platform: macos-13
-            target: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: --bundles nsis
 
     runs-on: ${{ matrix.platform }}
-    # 60 分鐘上限:macOS arm64 / Windows ~20-30 min,macos-13 排不到 runner 或 hang 時不至於拖死整個 release
+    # 60 分鐘上限:macOS arm64 / Windows ~20-30 min;不跑 macOS Intel,Intel Mac 用戶請走 Rosetta 2 跑 arm64 build
     # (排隊本身不算 timeout;timeout 從 job 真正開始跑算起。配 fail-fast:false,單個 matrix item 卡也不影響其他)
     timeout-minutes: 60
     steps:
@@ -86,7 +83,7 @@ jobs:
             | 平台 | 檔案 |
             |---|---|
             | macOS Apple Silicon (M1/M2/M3+) | `*_aarch64.dmg` |
-            | macOS Intel | `*_x64.dmg` |
+            | macOS Intel | 沒專屬版,請裝 Rosetta 2 後跑 `*_aarch64.dmg` |
             | Windows x64 | `*_x64-setup.exe` (NSIS) 或 `*_x64_en-US.msi` |
             | Linux Ubuntu 20.04 工控機(離線) | `*-ubuntu-20.04.tar.gz`(含 webkit2gtk-4.1 + 主程式 + install.sh) |
             | Linux Ubuntu 22.04 | `*-ubuntu-22.04.tar.gz`(走系統 webkit2gtk-4.1,install.sh 跑 apt) |
@@ -376,11 +373,13 @@ jobs:
       - name: Rewrite .deb Package name + Depends to per-distro
         env:
           DEB_DEPENDS: ${{ matrix.deb_depends }}
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
+          VERSION="${TAG_NAME#v}"
           DEB_DIR=src-tauri/target/release/bundle/deb
           ORIG_DEB=$(ls "$DEB_DIR"/*.deb | head -1)
-          echo "原始 .deb: $ORIG_DEB"
+          echo "原始 .deb: $ORIG_DEB (version=$VERSION)"
           WORK=/tmp/deb-fix
           rm -rf "$WORK"
           dpkg-deb -R "$ORIG_DEB" "$WORK"
@@ -390,7 +389,7 @@ jobs:
           sed -i "s/^Depends:.*/Depends: ${DEB_DEPENDS}/" "$WORK/DEBIAN/control"
           echo "=== 新 control ==="
           cat "$WORK/DEBIAN/control"
-          NEW_DEB="$DEB_DIR/cix3752i-label-print_0.1.0_amd64.deb"
+          NEW_DEB="$DEB_DIR/cix3752i-label-print_${VERSION}_amd64.deb"
           rm -f "$ORIG_DEB"
           dpkg-deb -b "$WORK" "$NEW_DEB"
           ls -lh "$DEB_DIR"

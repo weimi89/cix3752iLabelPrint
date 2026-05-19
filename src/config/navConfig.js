@@ -22,6 +22,7 @@ export const navItems = [
   { title: 'nav.printerSettings', icon: { icon: 'tabler-printer' }, to: { name: 'printer-settings' } },
 
   { heading: 'nav.section.logs' },
+  { title: 'nav.printStats', icon: { icon: 'tabler-chart-bar' }, to: { name: 'print-stats' } },
   { title: 'nav.parcelQueryLog', icon: { icon: 'tabler-history' }, to: { name: 'parcel-query-log' } },
   { title: 'nav.queueLog', icon: { icon: 'tabler-truck-loading' }, to: { name: 'queue-log' } },
   { title: 'nav.eventLog', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },

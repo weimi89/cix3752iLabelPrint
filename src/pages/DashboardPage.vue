@@ -1,9 +1,14 @@
 <script setup>
+import { useRouter } from 'vue-router'
 import { useStatusStore } from '@/stores/status'
+import { printStatsSummary } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
 
+const router = useRouter()
 const status = useStatusStore()
+const printStats = ref({ today: 0, yesterday: 0 })
+const goPrintStats = () => router.push({ name: 'print-stats' })
 const {
   osOnline, anchor, cloudApi, checkedAtMs,
   anchorFailStreak, cloudFailStreak, failThreshold, effectiveIntervalSecs,
@@ -33,11 +38,21 @@ const lastCheckedText = computed(() => {
   return new Date(checkedAtMs.value).toLocaleString()
 })
 
+const refreshPrintStats = async () => {
+  try {
+    const s = await printStatsSummary()
+    if (s) printStats.value = { today: s.today || 0, yesterday: s.yesterday || 0 }
+  } catch (e) {
+    console.warn('印單統計載入失敗', e)
+  }
+}
+
 onMounted(async () => {
   if (isTauriRuntime) {
     await status.refreshAll()
     timer = setInterval(() => status.refreshAll(), 5000)
   }
+  await refreshPrintStats()
 })
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
@@ -92,8 +107,35 @@ const formatBytes = bytes => {
       </VCol>
     </VRow>
 
+    <!-- 印單統計快覽:今日 / 昨日,點卡片跳轉至完整統計頁 -->
+    <VCard class="card-shadow mt-3 print-stats-card" @click="goPrintStats">
+      <VCardItem>
+        <template #prepend>
+          <VAvatar color="primary" variant="tonal">
+            <VIcon icon="tabler-chart-bar" />
+          </VAvatar>
+        </template>
+        <VCardTitle>{{ $t('page.dashboard.printStatsTitle') }}</VCardTitle>
+        <VCardSubtitle>{{ $t('page.dashboard.printStatsSubtitle') }}</VCardSubtitle>
+        <template #append>
+          <div class="d-flex align-center gap-4 pe-2">
+            <div class="text-end">
+              <div class="text-h4 text-primary">{{ printStats.today }}</div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.today') }}</div>
+            </div>
+            <VDivider vertical />
+            <div class="text-end">
+              <div class="text-h5">{{ printStats.yesterday }}</div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.yesterday') }}</div>
+            </div>
+            <VIcon icon="tabler-chevron-right" class="text-medium-emphasis" />
+          </div>
+        </template>
+      </VCardItem>
+    </VCard>
+
     <!-- 下半:本日統計(請求/成功率/cache 命中率/快取容量) -->
-    <VRow dense>
+    <VRow dense class="mt-1">
       <VCol cols="12" md="6" lg="3">
         <VCard class="card-shadow">
           <VCardItem>
@@ -282,3 +324,15 @@ const formatBytes = bytes => {
     </VAlert>
   </div>
 </template>
+
+<style scoped lang="scss">
+.print-stats-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  }
+}
+</style>

@@ -52,7 +52,8 @@
     "printerSettings": "印表機設定",
     "eventLog": "事件記錄",
     "queueLog": "佇列歷史",
-    "parcelQueryLog": "請求記錄"
+    "parcelQueryLog": "請求記錄",
+    "printStats": "印單統計"
   },
   "pagination": {
     "pagePrefix": "第",
@@ -185,7 +186,9 @@
       "todaySuccessRate": "本日成功率 ({ok}/{total})",
       "cacheHitRate": "Cache 命中率 ({hit} hit / {miss} miss)",
       "cachedLabels": "快取面單 / {size}",
-      "cloudNotLoggedInAlert": "尚未登入雲端 API — 請至「雲端 API」頁完成登入,否則工控機查包裹會回 401。"
+      "cloudNotLoggedInAlert": "尚未登入雲端 API — 請至「雲端 API」頁完成登入,否則工控機查包裹會回 401。",
+      "printStatsTitle": "印單統計",
+      "printStatsSubtitle": "點擊查看完整每日/小時/物流商/貼標人員拆分"
     },
     "preGenerate": {
       "title": "面單預產",
@@ -452,6 +455,36 @@
         "wrapperError": "包裹錯誤貼標:{sn}",
         "storeClosed": "門市關轉異常攔截:{sn}"
       }
+    },
+    "printStats": {
+      "title": "印單統計",
+      "subtitle": "三來源:掃描列印 / 自動印單 / 工控機要圖",
+      "today": "今日",
+      "yesterday": "昨日",
+      "last7Days": "近 7 天",
+      "last30Days": "近 30 天",
+      "rangeTotal": "區間總數",
+      "startDate": "起始日期",
+      "endDate": "結束日期",
+      "todayBtn": "今日",
+      "last7DaysBtn": "近 7 天",
+      "last30DaysBtn": "近 30 天",
+      "dailyTrend": "每日趨勢",
+      "dailyTrendHint": "區間內每日去重後的印單數",
+      "hourly": "最新 8 小時",
+      "hourlyHint": "當下往前 8 個整點鐘的每小時印單數",
+      "byProvider": "依物流商",
+      "byProviderHint": "區間內各物流商去重後的印單數",
+      "bySticker": "依貼標人員",
+      "byStickerHint": "區間內各貼標人員的印單數(來源:掃描/自動由前端填、工控機由分揀通道帶入)",
+      "sourceScan": "掃描列印",
+      "sourceAuto": "自動印單",
+      "sourceIpc": "工控機",
+      "sourceUnknown": "其他",
+      "providerUnknown": "未指定",
+      "bySourceLabel": "來源分布:",
+      "noProviderData": "區間內尚無印單資料",
+      "noStickerData": "區間內尚無貼標人員紀錄"
     }
   }
 }

@@ -346,6 +346,29 @@ async fn get_parcel(
             .execute(&state.db)
             .await;
 
+            // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
+            // 失敗不影響 API 回應(統計次要,不能干擾正常出單)
+            let sticker_user: Option<String> = if let Some(code) = channel_code.as_deref() {
+                sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
+                    .bind(code)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten())
+            } else {
+                None
+            };
+            let _ = sqlx::query(
+                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user)
+                 VALUES ('ipc', ?, ?, ?)",
+            )
+            .bind(&info.shipping_no)
+            .bind(&info.shipping_provider)
+            .bind(&sticker_user)
+            .execute(&state.db)
+            .await;
+
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,

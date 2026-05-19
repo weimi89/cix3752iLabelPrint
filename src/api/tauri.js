@@ -215,3 +215,68 @@ export const networkHealthCheck = async () => {
   if (!isTauri) return MOCK_NET_HEALTH
   return await invoke('network_health_check')
 }
+
+// 印單統計 — 三來源(scan/auto/ipc)的 shipping_no 去重計數
+const MOCK_STATS_SUMMARY = {
+  today: 124,
+  yesterday: 198,
+  last_7_days: 1023,
+  last_30_days: 3782,
+  range_total: 124,
+  by_source: [
+    { source: 'scan', count: 36 },
+    { source: 'auto', count: 78 },
+    { source: 'ipc', count: 10 },
+  ],
+}
+const todayStr = () => new Date().toISOString().slice(0, 10)
+const dateOffset = (d) => {
+  const t = new Date()
+  t.setDate(t.getDate() + d)
+  return t.toISOString().slice(0, 10)
+}
+const MOCK_STATS_DAILY = Array.from({ length: 7 }, (_, i) => ({
+  date: dateOffset(-6 + i),
+  count: [42, 88, 120, 96, 150, 198, 124][i],
+}))
+const MOCK_STATS_HOURLY = (() => {
+  const h = new Date().getHours()
+  return Array.from({ length: 4 }, (_, i) => ({
+    hour: `${String((h - 3 + i + 24) % 24).padStart(2, '0')}:00`,
+    count: [12, 28, 41, 35][i],
+  }))
+})()
+const MOCK_STATS_PROVIDERS = [
+  { provider_code: 'H', count: 58 },
+  { provider_code: 'C', count: 34 },
+  { provider_code: '7', count: 18 },
+  { provider_code: 'F', count: 9 },
+  { provider_code: 'E', count: 5 },
+]
+const MOCK_STATS_STICKERS = [
+  { sticker_user: '小美', count: 64 },
+  { sticker_user: '阿明', count: 41 },
+  { sticker_user: '志強', count: 19 },
+]
+
+export const printStatsSummary = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_SUMMARY
+  return await invoke('print_stats_summary', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsDaily = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_DAILY
+  return await invoke('print_stats_daily', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsHourly = async () => {
+  if (!isTauri) return MOCK_STATS_HOURLY
+  return await invoke('print_stats_hourly')
+}
+export const printStatsByProvider = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_PROVIDERS
+  return await invoke('print_stats_by_provider', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsBySticker = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_STICKERS
+  return await invoke('print_stats_by_sticker', { req: { start_date: startDate, end_date: endDate } })
+}
+
