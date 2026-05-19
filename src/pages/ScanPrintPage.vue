@@ -1,5 +1,6 @@
 <script setup>
 import { toast } from 'vue3-toastify'
+import { useRouter } from 'vue-router'
 import { cloudFetchLabel, printImage } from '@/api/tauri'
 import { isPrintable, statusLabel, statusIcon, statusGroupColor, errorMessageFromException } from '@/composables/useLabelStatus'
 import AppBulkInput from '@/components/AppBulkInput.vue'
@@ -7,6 +8,24 @@ import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const router = useRouter()
+
+// shipping_provider 代碼 → i18n key,對齊 PRINT_TYPE_OPTIONS
+const PROVIDER_LABEL_KEY = {
+  '7': 'provider.7eleven',
+  F: 'provider.family',
+  O: 'provider.hilife',
+  C: 'provider.tcat',
+  H: 'provider.hct',
+  P: 'provider.pelican',
+  E: 'provider.sf',
+  S: 'provider.shopeeOffline',
+  A: 'provider.shopeeAuth',
+}
+const providerDisplay = (code) => {
+  const key = PROVIDER_LABEL_KEY[code]
+  return key ? `${t(key)} (${code})` : code
+}
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 
@@ -145,7 +164,36 @@ const printSummary = ref(null)
 const printErrors = ref([])
 let printSummaryTimer = null
 
+// 列印前提示用:groups = { providerCode: [sn1, sn2, ...] }
+const missingPrinterGroups = ref({})
+const showMissingPrinterDialog = ref(false)
+const missingPrinterTotal = computed(() =>
+  Object.values(missingPrinterGroups.value).reduce((acc, sns) => acc + sns.length, 0),
+)
+
+const scanMissingPrinters = () => {
+  const groups = {}
+  for (const item of printList) {
+    if (!isPrintable(item.code) || !item.image) continue
+    const provider = item.shipping_provider || ''
+    if (printerMap.value[provider]) continue
+    if (!groups[provider]) groups[provider] = []
+    groups[provider].push(item.sn)
+  }
+  return groups
+}
+
 const handlePrintAll = async () => {
+  const missing = scanMissingPrinters()
+  if (Object.keys(missing).length > 0) {
+    missingPrinterGroups.value = missing
+    showMissingPrinterDialog.value = true
+    return
+  }
+  await runPrintAll()
+}
+
+const runPrintAll = async () => {
   const printable = printList.filter(p => isPrintable(p.code) && p.image)
   printProgress.done = 0
   printProgress.total = printable.length
@@ -187,6 +235,16 @@ const handlePrintAll = async () => {
     }
     printSummaryTimer = setTimeout(() => { printSummary.value = null }, 12000)
   }
+}
+
+const confirmPrintAnyway = async () => {
+  showMissingPrinterDialog.value = false
+  await runPrintAll()
+}
+
+const goSetupPrinter = () => {
+  showMissingPrinterDialog.value = false
+  router.push({ name: 'printer-settings' })
 }
 
 const printProgressPct = computed(() =>
@@ -428,6 +486,56 @@ const groupedStatus = computed(() => {
         </VCard>
       </VCol>
     </VRow>
+
+    <!-- 列印前提示:有訂單的物流商沒設定印表機 -->
+    <VDialog v-model="showMissingPrinterDialog" max-width="560">
+      <VCard>
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="warning" variant="tonal">
+              <VIcon icon="tabler-alert-triangle" />
+            </VAvatar>
+          </template>
+          <VCardTitle>{{ $t('page.scan.missingPrinterTitle') }}</VCardTitle>
+          <VCardSubtitle>{{ $t('page.scan.missingPrinterDesc', { n: missingPrinterTotal }) }}</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText>
+          <VList density="compact" class="py-0">
+            <VListItem
+              v-for="(sns, code) in missingPrinterGroups"
+              :key="code"
+              class="px-0"
+            >
+              <template #prepend>
+                <VIcon icon="tabler-printer-off" color="warning" size="18" class="me-2" />
+              </template>
+              <VListItemTitle class="text-body-2 font-weight-medium">
+                {{ providerDisplay(code) }}
+                <VChip size="x-small" color="warning" variant="tonal" class="ms-2">{{ sns.length }}</VChip>
+              </VListItemTitle>
+              <VListItemSubtitle class="text-caption">
+                {{ sns.slice(0, 5).join(', ') }}<span v-if="sns.length > 5">…</span>
+              </VListItemSubtitle>
+            </VListItem>
+          </VList>
+        </VCardText>
+        <VDivider />
+        <VCardActions>
+          <VBtn variant="text" @click="showMissingPrinterDialog = false">
+            {{ $t('common.cancel') }}
+          </VBtn>
+          <VSpacer />
+          <VBtn variant="text" color="warning" @click="confirmPrintAnyway">
+            {{ $t('page.scan.btnContinueAnyway') }}
+          </VBtn>
+          <VBtn variant="elevated" color="primary" @click="goSetupPrinter">
+            <VIcon icon="tabler-settings" size="16" class="me-1" />
+            {{ $t('page.scan.btnGoSetupPrinter') }}
+          </VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 

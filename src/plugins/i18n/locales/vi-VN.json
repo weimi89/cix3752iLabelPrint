@@ -122,6 +122,7 @@
     "overall": {
       "ok": "Tất cả bình thường",
       "degraded": "Giảm cấp (API đám mây không thông)",
+      "unconfigured": "Chưa kết nối đám mây",
       "down": "Mất kết nối"
     },
     "layer": {
@@ -132,7 +133,7 @@
     "statusKind": {
       "ok": "Bình thường",
       "unknown": "Chưa kiểm tra",
-      "notConfigured": "Chưa cấu hình api_base",
+      "notConfigured": "Chưa kết nối đám mây",
       "unauthorized": "Chưa đăng nhập",
       "businessError": "Lỗi nghiệp vụ"
     },
@@ -413,7 +414,11 @@
       "step4": "Sau khi xác nhận, nhấn \"In nhãn\" để gửi in",
       "repeatTitle": "In trùng lặp {n} lần",
       "repeatMore": "… còn {n} lần",
-      "removeFromPrint": "Xoá khỏi vùng in"
+      "removeFromPrint": "Xoá khỏi vùng in",
+      "missingPrinterTitle": "Các hãng vận chuyển sau chưa được gán máy in",
+      "missingPrinterDesc": "Tổng {n} đơn sẽ bị bỏ qua (không in). Vui lòng vào trang \"Cài đặt máy in\" để gán máy in, hoặc vẫn tiếp tục in (sẽ bỏ qua các đơn này).",
+      "btnContinueAnyway": "Vẫn in (bỏ qua)",
+      "btnGoSetupPrinter": "Đến \"Cài đặt máy in\""
     },
     "auto": {
       "title": "Tự động in",

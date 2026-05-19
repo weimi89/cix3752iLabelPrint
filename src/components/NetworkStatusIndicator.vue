@@ -14,12 +14,14 @@ const { t } = useI18n()
 const overallColor = computed(() => ({
   ok: 'success',
   degraded: 'warning',
+  unconfigured: 'warning',
   down: 'error',
 }[overall.value]))
 
 const overallIcon = computed(() => ({
   ok: 'tabler-wifi',
   degraded: 'tabler-wifi-1',
+  unconfigured: 'tabler-cloud-off',
   down: 'tabler-wifi-off',
 }[overall.value]))
 

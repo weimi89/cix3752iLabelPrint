@@ -56,10 +56,11 @@ export function useNetworkStatus() {
     cloudApi.value?.kind === 'reachable' || cloudApi.value?.kind === 'not_configured',
   )
 
-  // 整體燈號:OS 斷一定紅;經緩衝後的公網斷一定紅;雲端斷算降級;雲端未設定不算紅
+  // 整體燈號:OS 斷一定紅;經緩衝後的公網斷一定紅;雲端確定斷算降級;雲端未設定獨立狀態(不混進 ok)
   const overall = computed(() => {
     if (!osOnline.value) return 'down'
     if (!anchorEffectiveOk.value) return 'down'
+    if (cloudApi.value?.kind === 'not_configured') return 'unconfigured'
     if (cloudEffectiveOk.value === false) return 'degraded'
     return 'ok'
   })

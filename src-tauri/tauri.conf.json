@@ -42,6 +42,11 @@
     ],
     "category": "Productivity",
     "shortDescription": "本地分揀中介與面單列印工具",
-    "longDescription": "整合本地分揀中介 HTTP 服務、雲端 API 包裹查詢、本機面單列印的智配通 面單列印工具。"
+    "longDescription": "整合本地分揀中介 HTTP 服務、雲端 API 包裹查詢、本機面單列印的智配通 面單列印工具。",
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
   }
 }

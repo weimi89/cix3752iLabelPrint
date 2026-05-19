@@ -59,7 +59,7 @@
 ## 低優先 🔵 — DX 改善
 
 11. ~~**GHA workflow 加 timeout** 給 macos-13 job~~ ✅ 2026-05-19 完成(release-desktop job timeout-minutes: 60)
-12. **Dashboard** 顯示 release 版本資訊
+12. ~~**Dashboard** 顯示 release 版本資訊~~ ❌ 2026-05-19 評估後取消 — Navbar 已顯示 App 版本,Middleware bind addr 上方 card 已有,System info card 顯多餘重複
 13. **離線部署** 完整 self-contained 策略(目前 docker 容器內 minimal Ubuntu 仍缺 libgtk-3-0 等)
 
 ---

@@ -122,6 +122,7 @@
     "overall": {
       "ok": "全部正常",
       "degraded": "降級(雲端 API 不通)",
+      "unconfigured": "尚未連接雲端",
       "down": "中斷"
     },
     "layer": {
@@ -132,7 +133,7 @@
     "statusKind": {
       "ok": "正常",
       "unknown": "尚未檢查",
-      "notConfigured": "未設定 api_base",
+      "notConfigured": "尚未連接雲端",
       "unauthorized": "未登入",
       "businessError": "業務錯誤"
     },
@@ -413,7 +414,11 @@
       "step4": "確認後點「貼標列印」送印",
       "repeatTitle": "重覆列印 {n} 次",
       "repeatMore": "…還有 {n} 次",
-      "removeFromPrint": "從列印區移除"
+      "removeFromPrint": "從列印區移除",
+      "missingPrinterTitle": "以下物流商尚未設定印表機",
+      "missingPrinterDesc": "共 {n} 筆訂單會被跳過(不會出單)。請先到「印表機設定」頁指派印表機,或仍要列印(跳過這些筆)。",
+      "btnContinueAnyway": "仍要列印(跳過)",
+      "btnGoSetupPrinter": "去「印表機設定」"
     },
     "auto": {
       "title": "自動印單",

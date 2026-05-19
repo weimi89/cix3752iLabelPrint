@@ -17,12 +17,14 @@ const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNA
 const netOverallColor = computed(() => ({
   ok: 'success',
   degraded: 'warning',
+  unconfigured: 'warning',
   down: 'error',
 }[overall.value]))
 
 const netOverallIcon = computed(() => ({
   ok: 'tabler-wifi',
   degraded: 'tabler-wifi-1',
+  unconfigured: 'tabler-cloud-off',
   down: 'tabler-wifi-off',
 }[overall.value]))
 
