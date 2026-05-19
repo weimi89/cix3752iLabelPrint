@@ -9,6 +9,10 @@
 - dev codesign cargo runner + .app bundle wrapper(Dock 顯示中文)
 - 列印次數浮水印 + label_path 三模式(local / share / http)
 - 請求記錄頁 + 雙語 i18n(zh-Hant / vi-VN)
+- **Ubuntu 22.04 / 24.04 兼容**(2026-05-19):release-linux matrix 三 distro,
+  22.04+ 走系統 webkit2gtk-4.1,本地 docker 驗證 ldd 全 link(待 GHA workflow_dispatch 觸發驗證)
+- **README 補 release 實測 table + Known limitations**(2026-05-19)
+- **release-desktop 加 60min job timeout**(macos-13 hang 不拖死整個 release)
 
 ---
 
@@ -43,19 +47,17 @@
    - macOS:Apple Dev cert + notarization(避 Gatekeeper)
    - Windows:EV cert(避 SmartScreen,商業憑證 $200~600/年)
 
-7. **Ubuntu 22.04 / 24.04 兼容**
-   - 補 ship libffi.so.7 + 其他 SONAME 差異 .so
-   - 或開另一條 jammy build pipeline
+7. ~~**Ubuntu 22.04 / 24.04 兼容**~~ ✅ 2026-05-19 完成 — 改開三條 matrix pipeline(20.04 + 22.04 + 24.04),22.04+ 走系統 webkit2gtk-4.1
 
 ## 中優先 🟢 — 文件與後續
 
-8. **README** 加 release 流程實測結果 + Known limitations
+8. ~~**README** 加 release 流程實測結果 + Known limitations~~ ✅ 2026-05-19 完成
 9. **docs/local-http-api.md** 與現有 code 對齊
-10. **.deb Depends** 補完整 runtime deps(libgtk-3-0、libayatana-appindicator3-1 等),online client `apt -f` 自動裝
+10. ~~**.deb Depends** 補完整 runtime deps~~ ✅ 2026-05-19 完成(per-distro 設定:20.04 `libgtk-3-0` + `appindicator3-1`;22.04+ 加 `libwebkit2gtk-4.1-0`)
 
 ## 低優先 🔵 — DX 改善
 
-11. **GHA workflow 加 timeout** 給 macos-13 job(現在會無限排隊)
+11. ~~**GHA workflow 加 timeout** 給 macos-13 job~~ ✅ 2026-05-19 完成(release-desktop job timeout-minutes: 60)
 12. **Dashboard** 顯示 release 版本資訊
 13. **離線部署** 完整 self-contained 策略(目前 docker 容器內 minimal Ubuntu 仍缺 libgtk-3-0 等)
 
@@ -89,3 +91,24 @@
 | Windows MSI `light.exe` fail on 中文 path | `--bundles nsis` 只出 NSIS,跳過 MSI |
 | `beforeBuildCommand: yarn build` 在 container 內無 yarn | 改 `npm run build`,並 tauri.conf.json `beforeDevCommand` 一起改 |
 | `concurrency cancel-in-progress` 把跑中的舊 run mac arm64 + Linux 全 cancel | 接受 trade-off,或 trigger 前先確認舊 run 狀態 |
+
+---
+
+## 22.04 / 24.04 兼容 iterate 經驗摘錄(2026-05-19)
+
+### Release workflow 經驗
+
+| 痛點 | 解法 |
+|---|---|
+| Tauri 2 22.04 / 24.04 build linker `unable to find library -lcups` | 22.04+ Bootstrap apt 也要裝 `libcups2-dev`(原以為只 20.04 需要;webkit 間接 link `-lcups`) |
+| 重 trigger `workflow_dispatch` 跑 v0.1.0 會 desktop assets `already_exists` 衝突 | `workflow_dispatch.inputs.only`(all / linux / desktop)+ `if: github.event.inputs.only != 'linux'` 在 release-desktop job 上,推 tag 觸發時 input 空字串,只跑該跑的 |
+| `release-linux` 三 distro `.deb` Depends 寫死同一行 sed 會錯 | matrix 加 `deb_depends:` 屬性 per-distro:20.04 列 `libgtk-3-0, libayatana-appindicator3-1`(focal 無 libwebkit2gtk-4.1-0);22.04+ 加 `libwebkit2gtk-4.1-0` |
+| Ubuntu 跨 distro tarball 不能互相借用 | 20.04 自編 glib 2.78 + webkit 2.42 跟系統 2.36 ABI 不兼容,反之亦然 — 三條獨立 tarball,客戶端認對 distro |
+
+### 本地 docker 驗證(OrbStack)經驗
+
+| 痛點 | 解法 |
+|---|---|
+| host(macOS arm64)mount 進 linux container 後 `npm run tauri:build` 報 `Cannot find native binding @tauri-apps/cli-linux-x64-gnu` | host 跑過 `npm install` 後 `package-lock.json` 內 optionalDependencies 鎖死 `darwin-arm64` 平台,其他 platform 的 binding entry 被 npm 從 lock 移掉;container 內 `rm -rf node_modules package-lock.json` 後 `npm install` 才會解所有 platform optional deps(GHA 因為 `package-lock.json` 沒入 git 不會撞此問題) |
+| host 專案直接 `-v $PWD:/workspace:rw` 會把 host build 產物(`node_modules` / `src-tauri/target`)污染 container build | `-v $PWD:/source:ro` + container 內 `cp -a /source/. /workspace/` 後 `rm -rf node_modules src-tauri/target package-lock.json` 隔離 |
+| 22.04 / 24.04 install 測試:用 `ldd $(which cix3752i-label-print) \| grep 'not found'` 直接判定缺什麼 .so | `apt install ./*.deb` 讓 apt 自動解 Depends 拉系統 `libwebkit2gtk-4.1-0` 等,不需 install.sh 多步 |
