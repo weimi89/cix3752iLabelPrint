@@ -320,6 +320,27 @@ jobs:
       - name: Tauri build .deb
         run: npm run tauri:build -- --bundles deb
 
+      # Tauri 用 productName(中文)當 .deb Package 名,違反 Debian 規範(只允許小寫
+      # 字母 / 數字 / + - .)導致 dpkg -i 拒絕安裝。手動改 control 內 Package 為 ASCII
+      - name: Rewrite .deb Package name to ASCII
+        run: |
+          set -e
+          DEB_DIR=src-tauri/target/release/bundle/deb
+          ORIG_DEB=$(ls "$DEB_DIR"/*.deb | head -1)
+          echo "原始 .deb: $ORIG_DEB"
+          WORK=/tmp/deb-fix
+          rm -rf "$WORK"
+          dpkg-deb -R "$ORIG_DEB" "$WORK"
+          echo "=== 原 control ==="
+          grep -E "^(Package|Version|Architecture):" "$WORK/DEBIAN/control"
+          sed -i 's/^Package:.*/Package: cix3752i-label-print/' "$WORK/DEBIAN/control"
+          echo "=== 新 control ==="
+          grep -E "^(Package|Version|Architecture):" "$WORK/DEBIAN/control"
+          NEW_DEB="$DEB_DIR/cix3752i-label-print_0.1.0_amd64.deb"
+          rm -f "$ORIG_DEB"
+          dpkg-deb -b "$WORK" "$NEW_DEB"
+          ls -lh "$DEB_DIR"
+
       - name: Package tarball (stack libs + 主程式 .deb + install.sh)
         env:
           TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
