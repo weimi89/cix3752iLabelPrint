@@ -352,14 +352,18 @@ jobs:
           VERSION="${TAG_NAME#v}"
           STAGE_NAME="cix3752iLabelPrint-${VERSION}-ubuntu-20.04"
           STAGE="/tmp/${STAGE_NAME}"
-          mkdir -p "$STAGE/stack"
+          mkdir -p "$STAGE/stack/usr/local"
 
           # 合併 /opt/cix-stack/{glib,libsoup3,webkit}/usr/local → STAGE/stack/usr/local
           # (DESTDIR=/opt/cix-stack/X 安裝時各自把 /usr/local 寫進)
           for src in /opt/cix-stack/glib /opt/cix-stack/libsoup3 /opt/cix-stack/webkit; do
-            [ -d "$src/usr/local" ] && cp -a "$src/usr/local/." "$STAGE/stack/usr/local/" || true
+            if [ -d "$src/usr/local" ]; then
+              cp -a "$src/usr/local/." "$STAGE/stack/usr/local/"
+            fi
           done
           du -sh "$STAGE/stack" || true
+          # sanity:預期看到 libwebkit2gtk-4.1.so*
+          find "$STAGE/stack" -name "libwebkit2gtk-4.1.so*" | head -3
 
           # 主程式 .deb(Tauri build 出來)
           cp src-tauri/target/release/bundle/deb/*.deb "$STAGE/"
