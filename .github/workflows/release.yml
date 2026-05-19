@@ -332,10 +332,13 @@ jobs:
           rm -rf "$WORK"
           dpkg-deb -R "$ORIG_DEB" "$WORK"
           echo "=== 原 control ==="
-          grep -E "^(Package|Version|Architecture):" "$WORK/DEBIAN/control"
+          cat "$WORK/DEBIAN/control"
           sed -i 's/^Package:.*/Package: cix3752i-label-print/' "$WORK/DEBIAN/control"
+          # 移除 libwebkit2gtk-4.1-0 dep(我們 tarball 自帶 webkit2gtk-4.1,
+          # focal 系統沒此套件,apt-get install -f 會把主程式移除)
+          sed -i 's/^Depends:.*libwebkit2gtk-4\.1-0[^,]*,\s*//; s/,\s*libwebkit2gtk-4\.1-0[^,]*//; s/^Depends:\s*libwebkit2gtk-4\.1-0[^,]*$/Depends: libgtk-3-0/' "$WORK/DEBIAN/control"
           echo "=== 新 control ==="
-          grep -E "^(Package|Version|Architecture):" "$WORK/DEBIAN/control"
+          cat "$WORK/DEBIAN/control"
           NEW_DEB="$DEB_DIR/cix3752i-label-print_0.1.0_amd64.deb"
           rm -f "$ORIG_DEB"
           dpkg-deb -b "$WORK" "$NEW_DEB"
