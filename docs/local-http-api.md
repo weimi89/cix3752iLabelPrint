@@ -2,7 +2,7 @@
 title: "cix3752iLabelPrint 本地 HTTP API 規範"
 subtitle: "給分揀機工控機調用"
 author: "cix3752iLabelPrint"
-date: "2026-05-17（2026-05-18 修訂：浮水印字型內嵌化）"
+date: "2026-05-17（2026-05-18 修訂：浮水印字型內嵌化;2026-05-19 修訂：補 print_num 與 parcel_query_log.shipping_provider 欄位）"
 lang: zh-Hant
 documentclass: report
 ---
@@ -121,7 +121,7 @@ Host: <middleware-ip>:18080
 
 1. 接收 `queryNo`
 2. 呼叫雲端 `GET /api/v2/order-forward-print/{queryNo}`
-3. 從雲端回應取得 5 個欄位：`order_sn`、`shipping_no`、`shipping_provider`、`shipping_image`、`response_id`（debug 模式時為 `null`）
+3. 從雲端回應取得 6 個欄位：`order_sn`、`shipping_no`、`shipping_provider`、`shipping_image`、`print_num`（累計列印次數,觸發浮水印用）、`response_id`（debug 模式時為 `null`）
 4. 用 `shipping_image` 推 `label_key`（例：`labels/SF123.png`），判斷本地是否有快取：
    - 命中 → `record_hit`
    - 未命中 → `record_miss` + 同步下載至完成（`fetch_now`）
@@ -391,6 +391,7 @@ HTTP 200 { "message": "OK" }
 | `response_id` | PK，雲端產生的對應 ID |
 | `query_no` | 工控機傳入的查詢條碼 |
 | `tracking_no` | 雲端回的真實追蹤號 |
+| `shipping_provider` | 雲端回的物流商代碼（7/F/O/C/H/P/S/A/J/E),供後續查 dispatch_provider / sort_channels 用 |
 | `sort_channel` | 本次分配的分揀通道（round-robin 結果） |
 | `print_profile` | 列印 profile |
 | `should_print` | 固定 `1` |
@@ -433,7 +434,7 @@ HTTP 200 { "message": "OK" }
 
 # 附錄 A：版本與來源
 
-- **本文件版本**:2026-05-17 初版;2026-05-18 修訂(浮水印字型改為內嵌,移除字型放置教學;API 對外契約未變動)
+- **本文件版本**:2026-05-17 初版;2026-05-18 修訂(浮水印字型改為內嵌,移除字型放置教學;API 對外契約未變動);2026-05-19 修訂(處理流程補 `print_num` 為雲端回應的第 6 個欄位;`parcel_query_log` 表格補 `shipping_provider` 欄位;API 對外契約未變動)
 - **規格書來源**：`~/Desktop/local_sorting_middleware_plan.md`（2026-05-15 修訂版）
 - **實作來源**：
   - `src-tauri/src/server/mod.rs`
