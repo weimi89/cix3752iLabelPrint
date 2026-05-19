@@ -108,6 +108,9 @@ jobs:
       # 否則 Rust build 用系統 focal glib 2.64,缺 g_uri_error_quark 等新 symbol
       PKG_CONFIG_PATH: /usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig
       LD_LIBRARY_PATH: /usr/local/lib/x86_64-linux-gnu:/usr/local/lib
+      # RUNPATH 寫死 binary:client runtime 跳過 ld.so.cache 直接找 /usr/local 的 .so
+      # (Ubuntu 22.04 有 system libwebkit2gtk-4.1 2.36 但 ABI 不兼容我們的 2.42)
+      RUSTFLAGS: "-C link-arg=-Wl,-rpath,/usr/local/lib/x86_64-linux-gnu -C link-arg=-Wl,-rpath,/usr/local/lib"
     steps:
       - name: Bootstrap apt + 升級 toolchain (GCC 11 / CMake / meson)
         run: |
@@ -352,10 +355,13 @@ jobs:
           fi
 
           echo "2/3 更新 dynamic linker cache"
-          # 確保 /usr/local/lib 在 ld.so 搜尋路徑(focal 預設已有,但保險)
-          if ! grep -q '/usr/local/lib' /etc/ld.so.conf.d/*.conf 2>/dev/null; then
-            echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/usr-local.conf
-          fi
+          # 00- 前綴讓字母順序排在 /etc/ld.so.conf.d 內系統 conf 之前,
+          # 確保 ldconfig 優先索引 /usr/local 的 .so(而非 Ubuntu 22.04 的 system libwebkit2gtk-4.1)
+          # 含 multiarch 子目錄(x86_64-linux-gnu),否則 .so 不會被 cache
+          sudo tee /etc/ld.so.conf.d/00-cix3752iLabelPrint.conf > /dev/null <<'LDCONF'
+          /usr/local/lib/x86_64-linux-gnu
+          /usr/local/lib
+          LDCONF
           sudo ldconfig
 
           echo "3/3 安裝主程式 .deb"
