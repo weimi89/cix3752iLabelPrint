@@ -14,6 +14,11 @@ on:
 permissions:
   contents: write
 
+# 同 tag 只允許一個 run 同時跑;新 trigger 自動取消舊的,避免 release asset 上傳衝突
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   # macOS arm64 / macOS x64 / Windows — tauri-action 標準流程
   release-desktop:
@@ -81,6 +86,9 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           includeUpdaterJson: false
+          # productName 含中文(智配通 面單列印)被 tauri-action upload sanitize 吃掉
+          # 寫死 ASCII pattern,release asset 名乾淨;Finder / Dock 的 .app 仍中文(來自 bundle 內)
+          releaseAssetNamePattern: 'cix3752iLabelPrint_[version]_[arch][_setup][ext]'
 
   # Ubuntu 20.04 工控機交付 — 獨立 job 用 ubuntu:20.04 container build
   # Tauri 2 hard-requires glib >= 2.70 + libsoup-3.0 + webkit2gtk-4.1
