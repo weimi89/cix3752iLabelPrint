@@ -156,16 +156,28 @@ mod windows_gdi {
     pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<()> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| AppError::Printer(format!("圖片解碼失敗: {e}")))?;
-        let rgba = img.to_rgba8();
-        let (iw, ih) = (rgba.width() as i32, rgba.height() as i32);
+        // 24-bit BGR DIB:熱感 / 老 printer driver 最相容的格式
+        //(32-bit RGBA 不少 driver 不認,曾卡 spooler — 2026-05-20 XP-460B 實機驗證)
+        // 用 to_rgb8 丟棄 alpha;透明區域取原 RGB(面單實務上沒透明背景)
+        let rgb = img.to_rgb8();
+        let (iw, ih) = (rgb.width() as i32, rgb.height() as i32);
         if iw <= 0 || ih <= 0 {
             return Err(AppError::Printer("圖片尺寸無效".into()));
         }
 
-        // GDI DIB 用 BGRA 順序;header.biHeight 設負值表示 top-down,免再翻轉列。
-        let mut bgra: Vec<u8> = rgba.into_raw();
-        for px in bgra.chunks_exact_mut(4) {
-            px.swap(0, 2);
+        // 24-bit DIB 每 scanline 必須 4-byte align;row_bytes 不足要 zero-pad
+        let row_bytes = (iw as usize) * 3;
+        let stride = (row_bytes + 3) & !3;
+        let padding = stride - row_bytes;
+        let rgb_raw = rgb.into_raw();
+        let mut bgr_padded: Vec<u8> = Vec::with_capacity(stride * ih as usize);
+        for row in rgb_raw.chunks_exact(row_bytes) {
+            for px in row.chunks_exact(3) {
+                bgr_padded.push(px[2]); // B
+                bgr_padded.push(px[1]); // G
+                bgr_padded.push(px[0]); // R
+            }
+            bgr_padded.resize(bgr_padded.len() + padding, 0);
         }
 
         let printer_w: Vec<u16> = printer_name
@@ -221,11 +233,11 @@ mod windows_gdi {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                     biWidth: iw,
-                    biHeight: -ih,
+                    biHeight: -ih, // top-down
                     biPlanes: 1,
-                    biBitCount: 32,
+                    biBitCount: 24,
                     biCompression: BI_RGB,
-                    biSizeImage: (iw * ih * 4) as u32,
+                    biSizeImage: (stride * ih as usize) as u32,
                     ..Default::default()
                 },
                 bmiColors: [RGBQUAD::default()],
@@ -241,7 +253,7 @@ mod windows_gdi {
                 0,
                 iw,
                 ih,
-                bgra.as_ptr() as *const c_void,
+                bgr_padded.as_ptr() as *const c_void,
                 &bmi,
                 DIB_RGB_COLORS,
                 SRCCOPY,
