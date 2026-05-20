@@ -109,10 +109,11 @@ mod windows_gdi {
         rgbReserved: u8,
     }
 
+    // 1-bit DIB 需要 2-entry palette(bit=0 → palette[0],bit=1 → palette[1])
     #[repr(C)]
     struct BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER,
-        bmiColors: [RGBQUAD; 1],
+        bmiColors: [RGBQUAD; 2],
     }
 
     const BI_RGB: u32 = 0;
@@ -153,31 +154,23 @@ mod windows_gdi {
         ) -> c_int;
     }
 
+    /// 列印 image bytes
+    ///
+    /// 策略:**pre-scale + 1-bit B&W bottom-up DIB**(2026-05-20 XP-460B / EPSON L6190 實機驗證)。
+    /// - 24-bit BGR DIB 對 Print to PDF 等虛擬印表機 OK,但對所有實體 driver 卡 spooler
+    ///   (driver 在 raster expansion + colorspace 轉換階段 hang,可能源自 top-down DIB 與 driver
+    ///   內 raster scaling 的特定 incompatibility)
+    /// - 改 1-bit:raster size 從 24-bit 24× 縮減(800×1200 從 2.88MB → 120KB),driver 不用
+    ///   做色彩空間轉換 + 只剩極小資料量送 USB
+    /// - 改 bottom-up(`biHeight = +ih`):避開老 driver 對 top-down 的雷
+    /// - pre-scale 到印表機物理 DPI:`StretchDIBits` dest=src 不縮放,driver 不必再 scale
     pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<()> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| AppError::Printer(format!("圖片解碼失敗: {e}")))?;
-        // 24-bit BGR DIB:熱感 / 老 printer driver 最相容的格式
-        //(32-bit RGBA 不少 driver 不認,曾卡 spooler — 2026-05-20 XP-460B 實機驗證)
-        // 用 to_rgb8 丟棄 alpha;透明區域取原 RGB(面單實務上沒透明背景)
-        let rgb = img.to_rgb8();
-        let (iw, ih) = (rgb.width() as i32, rgb.height() as i32);
+        let luma = img.to_luma8();
+        let (iw, ih) = (luma.width() as i32, luma.height() as i32);
         if iw <= 0 || ih <= 0 {
             return Err(AppError::Printer("圖片尺寸無效".into()));
-        }
-
-        // 24-bit DIB 每 scanline 必須 4-byte align;row_bytes 不足要 zero-pad
-        let row_bytes = (iw as usize) * 3;
-        let stride = (row_bytes + 3) & !3;
-        let padding = stride - row_bytes;
-        let rgb_raw = rgb.into_raw();
-        let mut bgr_padded: Vec<u8> = Vec::with_capacity(stride * ih as usize);
-        for row in rgb_raw.chunks_exact(row_bytes) {
-            for px in row.chunks_exact(3) {
-                bgr_padded.push(px[2]); // B
-                bgr_padded.push(px[1]); // G
-                bgr_padded.push(px[0]); // R
-            }
-            bgr_padded.resize(bgr_padded.len() + padding, 0);
         }
 
         let printer_w: Vec<u16> = printer_name
@@ -210,7 +203,51 @@ mod windows_gdi {
                     "讀不到印表機可印區域 (GetDeviceCaps)".into(),
                 ));
             }
-            let (dx, dy, dw, dh) = fit(iw, ih, page_w, page_h);
+
+            // 等比例縮到 printer 可印 pixel 區
+            let ratio = (page_w as f64 / iw as f64).min(page_h as f64 / ih as f64);
+            let tw = ((iw as f64) * ratio).round().max(1.0) as u32;
+            let th = ((ih as f64) * ratio).round().max(1.0) as u32;
+            let resized = image::imageops::resize(
+                &luma,
+                tw,
+                th,
+                image::imageops::FilterType::Triangle,
+            );
+
+            // pack 成 1-bit packed DIB(bit=1 黑,bit=0 白;MSB 為左邊像素;bottom-up)
+            let tw_i = tw as i32;
+            let th_i = th as i32;
+            let row_bytes = ((tw as usize) + 7) / 8;
+            let stride = (row_bytes + 3) & !3;
+            let mut bits: Vec<u8> = Vec::with_capacity(stride * th as usize);
+            for y in (0..th as usize).rev() {
+                let row_start = y * tw as usize;
+                let row = &resized.as_raw()[row_start..row_start + tw as usize];
+                let mut byte: u8 = 0;
+                let mut bit_count: u32 = 0;
+                let mut wrote: usize = 0;
+                for &px in row {
+                    let bit: u8 = if px < 128 { 1 } else { 0 };
+                    byte = (byte << 1) | bit;
+                    bit_count += 1;
+                    if bit_count == 8 {
+                        bits.push(byte);
+                        byte = 0;
+                        bit_count = 0;
+                        wrote += 1;
+                    }
+                }
+                if bit_count > 0 {
+                    byte <<= 8 - bit_count;
+                    bits.push(byte);
+                    wrote += 1;
+                }
+                bits.resize(bits.len() + (stride - wrote), 0);
+            }
+
+            let dx = (page_w - tw_i) / 2;
+            let dy = (page_h - th_i) / 2;
 
             let docinfo = DOCINFOW {
                 cbSize: std::mem::size_of::<DOCINFOW>() as c_int,
@@ -232,52 +269,48 @@ mod windows_gdi {
             let bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: iw,
-                    biHeight: -ih, // top-down
+                    biWidth: tw_i,
+                    biHeight: th_i, // bottom-up(正值)
                     biPlanes: 1,
-                    biBitCount: 24,
+                    biBitCount: 1,
                     biCompression: BI_RGB,
-                    biSizeImage: (stride * ih as usize) as u32,
+                    biSizeImage: (stride * th as usize) as u32,
+                    biClrUsed: 2,
                     ..Default::default()
                 },
-                bmiColors: [RGBQUAD::default()],
+                bmiColors: [
+                    RGBQUAD { rgbBlue: 0xFF, rgbGreen: 0xFF, rgbRed: 0xFF, rgbReserved: 0 }, // 白
+                    RGBQUAD { rgbBlue: 0x00, rgbGreen: 0x00, rgbRed: 0x00, rgbReserved: 0 }, // 黑
+                ],
             };
 
+            // dest 與 src 同尺寸:driver 不必再做 raster scaling
             let scanlines = StretchDIBits(
                 hdc,
-                dx,
-                dy,
-                dw,
-                dh,
-                0,
-                0,
-                iw,
-                ih,
-                bgr_padded.as_ptr() as *const c_void,
+                dx, dy, tw_i, th_i,
+                0, 0, tw_i, th_i,
+                bits.as_ptr() as *const c_void,
                 &bmi,
                 DIB_RGB_COLORS,
                 SRCCOPY,
             );
+            let stretch_failed = scanlines == 0 || (scanlines as u32) == GDI_ERROR;
 
-            EndPage(hdc);
-            EndDoc(hdc);
+            let end_page_ok = EndPage(hdc) > 0;
+            let end_doc_ok = EndDoc(hdc) > 0;
             DeleteDC(hdc);
 
-            if scanlines == 0 || (scanlines as u32) == GDI_ERROR {
+            if stretch_failed {
                 return Err(AppError::Printer("StretchDIBits 失敗".into()));
+            }
+            if !end_page_ok {
+                return Err(AppError::Printer("EndPage 失敗".into()));
+            }
+            if !end_doc_ok {
+                return Err(AppError::Printer("EndDoc 失敗".into()));
             }
         }
 
         Ok(())
-    }
-
-    /// 把 img 等比例縮放至 page 內並置中,回傳 (dx, dy, dw, dh)。
-    fn fit(iw: i32, ih: i32, pw: i32, ph: i32) -> (i32, i32, i32, i32) {
-        let r = (pw as f64 / iw as f64).min(ph as f64 / ih as f64);
-        let dw = ((iw as f64) * r).round() as i32;
-        let dh = ((ih as f64) * r).round() as i32;
-        let dx = (pw - dw) / 2;
-        let dy = (ph - dh) / 2;
-        (dx, dy, dw, dh)
     }
 }
