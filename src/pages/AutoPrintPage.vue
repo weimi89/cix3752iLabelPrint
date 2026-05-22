@@ -177,8 +177,11 @@ const handlePrintSubmit = async () => {
           toast(t('page.auto.toast.printFailed', { reason: String(e) }), { type: 'error' })
           return
         }
+        const pad = n => String(n).padStart(2, '0')
+        const d = new Date()
+        const nowStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
         packageOrders.value = packageOrders.value.map(o =>
-          o.shipping_no === data.shipment_no ? { ...o, _printed: true } : o,
+          o.shipping_no === data.shipment_no ? { ...o, _printed: true, last_print_time: nowStr } : o,
         )
         break
       }
@@ -328,7 +331,11 @@ onMounted(() => shipmentNoRef.value?.focus())
                   <tr
                     v-for="(item, idx) in packageOrders"
                     :key="item.order_sn"
-                    :class="{ 'opacity-50': item._printed, 'bg-error-tint': item.is_abnormal }"
+                    :class="{
+                      'row-printed-now': item._printed,
+                      'row-printed-before': !item._printed && item.last_print_time,
+                      'bg-error-tint': item.is_abnormal,
+                    }"
                   >
                     <td class="text-center">{{ idx + 1 }}</td>
                     <td class="text-center">
@@ -343,7 +350,13 @@ onMounted(() => shipmentNoRef.value?.focus())
                         </div>
                       </div>
                     </td>
-                    <td class="text-center d-none d-sm-table-cell">{{ item.last_print_time || '-' }}</td>
+                    <td class="text-center d-none d-sm-table-cell">
+                      <div class="d-flex align-center justify-center gap-1">
+                        <VIcon v-if="item._printed" icon="tabler-circle-check" color="info" size="18" />
+                        <VIcon v-else-if="item.last_print_time" icon="tabler-history" color="warning" size="18" />
+                        <span>{{ item.last_print_time || '-' }}</span>
+                      </div>
+                    </td>
                     <td class="text-center d-none d-sm-table-cell">{{ item.provider_name }}</td>
                   </tr>
                 </template>
@@ -370,6 +383,15 @@ onMounted(() => shipmentNoRef.value?.focus())
 <style scoped>
 .border-b {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* 本次 session 剛列印成功:淡藍背景 + ✓ icon,清爽表達「剛完成」 */
+.row-printed-now {
+  background-color: rgba(var(--v-theme-info), 0.1);
+}
+/* 載入時 already 有 last_print_time:淡黃背景 + 歷史 icon,提醒「之前列印過,可能要 enforce 重印」 */
+.row-printed-before {
+  background-color: rgba(var(--v-theme-warning), 0.08);
 }
 
 /* card-title 內的「列印範圍複選」switch:整體 scale 不破壞 Vuetify 內部結構 */
