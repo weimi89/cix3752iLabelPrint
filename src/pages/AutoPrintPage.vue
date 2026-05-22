@@ -17,7 +17,7 @@ const printerMap = computed(() => {
   }
 })
 
-// 物流商下拉只列出有設印表機的(避免選了卻無法出單;此頁強制單選,沒設就要先去設)
+// 物流商下拉只列出有設印表機的(避免選了卻無法出單;沒設就要先去設)
 const ALL_PROVIDER_ITEMS = computed(() => [
   { value: '7', title: t('provider.7eleven') },
   { value: 'F', title: t('provider.family') },
@@ -37,27 +37,74 @@ const PRINT_TYPE_OPTIONS = computed(() =>
 const SCANNER_USER_KEY = 'cix3752iLabelPrint.scannerUser'
 const STICKER_USER_KEY = 'cix3752iLabelPrint.stickerUser'
 const PRINT_TYPE_KEY = 'cix3752iLabelPrint.autoPrintType'
+const PRINT_TYPE_MULTIPLE_KEY = 'cix3752iLabelPrint.autoPrintTypeMultiple'
+
+// 讀取舊版單值字串 / 新版 JSON array,兩種格式都吃,讓既有使用者升級不掉資料
+const loadStoredPrintTypes = () => {
+  const raw = localStorage.getItem(PRINT_TYPE_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter(v => typeof v === 'string' && v)
+    if (typeof parsed === 'string' && parsed) return [parsed]
+  } catch {
+    // 舊版直接存單字串(非 JSON),raw 本身就是值
+    return [raw]
+  }
+  return []
+}
+
+// 列印範圍是否複選(預設單選,跟 ScanPrintPage / cix3752iWeb 對齊)
+const printTypeMultiple = ref(localStorage.getItem(PRINT_TYPE_MULTIPLE_KEY) === '1')
+const initialPrintTypes = loadStoredPrintTypes()
+if (!printTypeMultiple.value && initialPrintTypes.length > 1) {
+  initialPrintTypes.splice(1)
+}
 
 const form = reactive({
   shipment_no: '',
   order_sn: '',
   package_sn: '',
-  // 由下方 immediate watch 校正:讀回的值若不在當前 options 內(該物流商 printer 後來被刪),
-  // 會被自動 reset 為第一個可用 option;若 printerMap 全空則保持空字串
-  print_type: localStorage.getItem(PRINT_TYPE_KEY) || '',
+  // 由下方 immediate watch 校正:讀回的值會過濾掉不在當前 options 內(該物流商 printer 後來被刪)的項目
+  print_types: initialPrintTypes,
   scanner_user: localStorage.getItem(SCANNER_USER_KEY) || '',
   sticker_user: localStorage.getItem(STICKER_USER_KEY) || '',
   enforce: false,
 })
 watch(() => form.scanner_user, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
 watch(() => form.sticker_user, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
-watch(() => form.print_type, v => localStorage.setItem(PRINT_TYPE_KEY, v || ''))
+watch(() => form.print_types, v => localStorage.setItem(PRINT_TYPE_KEY, JSON.stringify(v || [])), { deep: true })
+watch(printTypeMultiple, v => {
+  localStorage.setItem(PRINT_TYPE_MULTIPLE_KEY, v ? '1' : '0')
+  // 切回單選時,若已勾多筆只保留第一筆
+  if (!v && form.print_types.length > 1) {
+    form.print_types = [form.print_types[0]]
+  }
+})
 
-// 初始 + 每次 PRINT_TYPE_OPTIONS 變動時:若當前 print_type 不在可用選項內,自動同步
-// immediate: true 解決初始 form.print_type 對不上 options 時 VSelect 顯示 raw code 的 bug
+// checkbox 點擊:單選 = 替換、複選 = toggle 加入/移除
+const togglePrintType = (value, checked) => {
+  if (printTypeMultiple.value) {
+    if (checked) {
+      if (!form.print_types.includes(value)) {
+        form.print_types = [...form.print_types, value]
+      }
+    } else {
+      form.print_types = form.print_types.filter(v => v !== value)
+    }
+  } else {
+    form.print_types = checked ? [value] : []
+  }
+}
+
+// 過濾掉印表機被刪掉而失效的選項;首次載入全空 + 有可用選項時:複選預設全勾、單選預設第一個
 watch(PRINT_TYPE_OPTIONS, opts => {
-  if (!opts.some(o => o.value === form.print_type)) {
-    form.print_type = opts[0]?.value || ''
+  const valid = new Set(opts.map(o => o.value))
+  const filtered = form.print_types.filter(v => valid.has(v))
+  if (filtered.length === 0 && form.print_types.length === 0 && opts.length > 0) {
+    form.print_types = printTypeMultiple.value ? opts.map(o => o.value) : [opts[0].value]
+  } else if (filtered.length !== form.print_types.length) {
+    form.print_types = filtered
   }
 }, { immediate: true })
 
@@ -99,10 +146,11 @@ const handlePrintSubmit = async () => {
   if (!orderSn) return
   if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return }
   if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return }
+  if (!form.print_types.length) { playSound('effect_2'); toast(t('page.auto.toast.errPrintTypeRequired'), { type: 'error' }); return }
 
   try {
     const data = await cloudFetchCloudPrint(orderSn, {
-      printType: form.print_type,
+      printTypes: form.print_types,
       enforce: form.enforce,
       packageSn: form.package_sn || '',
       scannerUser: form.scanner_user || '',
@@ -177,8 +225,23 @@ onMounted(() => shipmentNoRef.value?.focus())
     <VRow>
       <VCol cols="12" lg="5">
         <VCard>
+          <VCardTitle class="d-flex align-center px-4 py-2 bg-grey-300 multi-switch-row" style="min-height: 58px;">
+            <VIcon size="22" icon="tabler-printer" class="me-2" />
+            <span>{{ $t('page.scan.printLabelTitle') }}</span>
+            <VSpacer />
+            <VSwitch
+              v-model="printTypeMultiple"
+              color="primary"
+              density="compact"
+              hide-details
+              inset
+            />
+            <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+              {{ $t('page.scan.printScopeMultiple') }}
+            </span>
+          </VCardTitle>
           <VCardText>
-            <div class="d-flex gap-3 mb-3">
+            <div class="d-flex gap-3 my-3">
               <div class="flex-grow-1">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
@@ -193,16 +256,6 @@ onMounted(() => shipmentNoRef.value?.focus())
               </div>
             </div>
             <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.printType') }}</VLabel>
-              <VSelect
-                v-model="form.print_type"
-                :items="PRINT_TYPE_OPTIONS"
-                item-title="title"
-                item-value="value"
-                :no-data-text="$t('common.noPrintersConfigured')"
-              />
-            </div>
-            <div class="mb-3">
               <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.packageBarcode') }}</VLabel>
               <VTextField
                 ref="shipmentNoRef"
@@ -212,7 +265,7 @@ onMounted(() => shipmentNoRef.value?.focus())
                 @keyup.enter="handleExaminePackage"
               />
             </div>
-            <div>
+            <div class="mb-3">
               <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
               <VTextField
                 ref="orderSnRef"
@@ -220,6 +273,32 @@ onMounted(() => shipmentNoRef.value?.focus())
                 clearable
                 @keyup.enter="handlePrintSubmit"
               />
+            </div>
+            <div>
+              <VLabel
+                class="mb-1 text-body-2"
+                style="line-height: 15px;"
+                :class="{ 'text-error font-weight-bold': printTypeMultiple }"
+              >
+                {{ $t('page.auto.printType') }}
+              </VLabel>
+              <div
+                v-if="PRINT_TYPE_OPTIONS.length > 0"
+                class="print-type-checkboxes d-flex flex-wrap px-1"
+                :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
+              >
+                <VCheckbox
+                  v-for="opt in PRINT_TYPE_OPTIONS"
+                  :key="opt.value"
+                  :model-value="form.print_types.includes(opt.value)"
+                  :label="opt.title"
+                  hide-details
+                  @update:model-value="checked => togglePrintType(opt.value, checked)"
+                />
+              </div>
+              <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                {{ $t('common.noPrintersConfigured') }}
+              </div>
             </div>
           </VCardText>
         </VCard>
@@ -291,5 +370,43 @@ onMounted(() => shipmentNoRef.value?.focus())
 <style scoped>
 .border-b {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* card-title 內的「列印範圍複選」switch:整體 scale 不破壞 Vuetify 內部結構 */
+.multi-switch-row :deep(.v-switch) {
+  flex: 0 0 auto;
+  transform: scale(0.7);
+  transform-origin: right center;
+}
+
+/* 列印類型 checkbox 加大 + 拉開間距: Vuetify 沒有 column-gap utility,直接寫死 */
+.print-type-checkboxes {
+  gap: 6px 12px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.print-type-checkboxes--multiple {
+  border-color: rgba(var(--v-theme-error), 0.5);
+  background-color: rgba(var(--v-theme-error), 0.04);
+}
+.print-type-checkboxes :deep(.v-selection-control) {
+  min-height: 40px;
+}
+.print-type-checkboxes :deep(.v-selection-control__wrapper) {
+  width: 36px;
+  height: 36px;
+}
+.print-type-checkboxes :deep(.v-selection-control__input) {
+  width: 36px;
+  height: 36px;
+}
+.print-type-checkboxes :deep(.v-selection-control__input .v-icon) {
+  font-size: 28px;
+}
+.print-type-checkboxes :deep(.v-label) {
+  font-size: 16px;
+  opacity: 1;
 }
 </style>

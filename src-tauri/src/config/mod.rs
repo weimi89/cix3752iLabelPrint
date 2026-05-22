@@ -119,6 +119,10 @@ pub struct NetworkConfig {
     /// 雲端 API HEAD timeout(秒)
     #[serde(default = "default_net_cloud_timeout")]
     pub cloud_timeout_secs: u64,
+    /// 雲端 API 巡檢節流(秒);anchor 仍每 interval_secs 跑,
+    /// 雲端只有距上次檢查 >= cloud_interval_secs 才會真打,期間沿用上次結果
+    #[serde(default = "default_net_cloud_interval")]
+    pub cloud_interval_secs: u64,
     /// 抖動緩衝:連續失敗達此次數才標 down,否則保持 effective_ok=true
     #[serde(default = "default_net_fail_threshold")]
     pub fail_threshold: u32,
@@ -132,6 +136,7 @@ impl Default for NetworkConfig {
             anchor_addr: default_net_anchor(),
             anchor_timeout_ms: default_net_anchor_timeout_ms(),
             cloud_timeout_secs: default_net_cloud_timeout(),
+            cloud_interval_secs: default_net_cloud_interval(),
             fail_threshold: default_net_fail_threshold(),
         }
     }
@@ -240,6 +245,7 @@ fn default_net_degrade_interval() -> u64 { 60 }
 fn default_net_anchor() -> String { "1.1.1.1:443".to_string() }
 fn default_net_anchor_timeout_ms() -> u64 { 1500 }
 fn default_net_cloud_timeout() -> u64 { 3 }
+fn default_net_cloud_interval() -> u64 { 180 }
 fn default_net_fail_threshold() -> u32 { 2 }
 
 impl AppConfig {

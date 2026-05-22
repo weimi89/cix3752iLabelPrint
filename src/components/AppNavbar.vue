@@ -1,6 +1,7 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useStatusStore } from '@/stores/status'
+import { useZoom } from '@/composables/useZoom'
 
 defineProps({
   toggleVerticalOverlayNavActive: {
@@ -12,6 +13,7 @@ defineProps({
 
 const router = useRouter()
 const status = useStatusStore()
+const { zoom, zoomIn, zoomOut, zoomReset } = useZoom()
 
 const goPrintStats = () => router.push({ name: 'print-stats' })
 </script>
@@ -42,6 +44,29 @@ const goPrintStats = () => router.push({ name: 'print-stats' })
       </VTooltip>
     </VChip>
     <VSpacer />
+    <VMenu :close-on-content-click="false" offset="8" location="bottom end">
+      <template #activator="{ props: menuProps }">
+        <VBtn icon size="small" variant="text" color="default" v-bind="menuProps">
+          <VIcon icon="tabler-zoom-in-area" size="22" />
+        </VBtn>
+      </template>
+      <VSheet rounded elevation="3" class="d-flex align-center pa-1">
+        <VBtn icon size="x-small" variant="text" :disabled="zoom <= 0.5" @click="zoomOut">
+          <VIcon icon="tabler-minus" size="18" />
+          <VTooltip activator="parent" location="bottom">{{ $t('common.zoomOut') }}</VTooltip>
+        </VBtn>
+        <span class="text-body-2 font-weight-medium text-center" style="min-width: 44px;">{{ Math.round(zoom * 100) }}%</span>
+        <VBtn icon size="x-small" variant="text" :disabled="zoom >= 2.0" @click="zoomIn">
+          <VIcon icon="tabler-plus" size="18" />
+          <VTooltip activator="parent" location="bottom">{{ $t('common.zoomIn') }}</VTooltip>
+        </VBtn>
+        <VDivider vertical class="mx-1" />
+        <VBtn icon size="x-small" variant="text" :disabled="zoom === 1" @click="zoomReset">
+          <VIcon icon="tabler-restore" size="18" />
+          <VTooltip activator="parent" location="bottom">{{ $t('common.zoomReset') }}</VTooltip>
+        </VBtn>
+      </VSheet>
+    </VMenu>
     <NetworkStatusIndicator />
     <LocaleSwitcher />
   </div>

@@ -37,7 +37,7 @@ function osLine() {
   return {
     label: t('network.layer.os'),
     ok: osOnline.value,
-    detail: osOnline.value ? '' : t('network.osOffline'),
+    detail: osOnline.value ? t('network.statusKind.ok') : t('network.osOffline'),
   }
 }
 

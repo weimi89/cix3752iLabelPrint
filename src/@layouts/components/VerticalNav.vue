@@ -135,7 +135,6 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
         class="nav-items"
         :options="scrollbarOptions"
         :events="{ scroll: handleNavScroll }"
-        defer
       >
         <Component
           :is="resolveNavItemComponent(item)"
@@ -205,9 +204,17 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
   }
 
   .nav-items {
-    block-size: 100%;
+    // flex 子元素必須 min-block-size: 0 才能比內容更短 → OverlayScrollbars 才會啟動 scroll
+    flex: 1 1 0;
+    min-block-size: 0;
 
     // OverlayScrollbars 會自動處理 overflow
+  }
+
+  .vertical-nav-items-shadow,
+  .nav-header {
+    // 避免被 .nav-items 的 flex-grow 擠到變形 / 變 0 高
+    flex-shrink: 0;
   }
 
   .nav-item-title {

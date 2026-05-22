@@ -32,16 +32,58 @@ const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 const SCANNER_USER_KEY = 'cix3752iLabelPrint.scannerUser'
 const STICKER_USER_KEY = 'cix3752iLabelPrint.stickerUser'
 const PRINT_TYPE_KEY = 'cix3752iLabelPrint.scanPrintType'
+const PRINT_TYPE_MULTIPLE_KEY = 'cix3752iLabelPrint.scanPrintTypeMultiple'
 
 const orderSnList = ref([])
-const printType = ref(localStorage.getItem(PRINT_TYPE_KEY) || 'ALL')
+// 讀回舊版單值字串 / 'ALL' / 新版 JSON array,都吃,讓升級不掉資料
+const loadStoredPrintTypes = () => {
+  const raw = localStorage.getItem(PRINT_TYPE_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter(v => typeof v === 'string' && v && v !== 'ALL')
+    if (typeof parsed === 'string' && parsed && parsed !== 'ALL') return [parsed]
+  } catch {
+    if (raw !== 'ALL') return [raw]
+  }
+  return []
+}
+// 列印範圍是否複選(預設單選,對齊 cix3752iWeb)
+const printTypeMultiple = ref(localStorage.getItem(PRINT_TYPE_MULTIPLE_KEY) === '1')
+const initialPrintTypes = loadStoredPrintTypes()
+if (!printTypeMultiple.value && initialPrintTypes.length > 1) {
+  initialPrintTypes.splice(1)
+}
+const printTypes = ref(initialPrintTypes)
 const enforce = ref(false)
 // 操作人員 / 貼單人員記在本機 — 跟 AutoPrintPage 共用同一個 localStorage key
 const scannerUser = ref(localStorage.getItem(SCANNER_USER_KEY) || '')
 const stickerUser = ref(localStorage.getItem(STICKER_USER_KEY) || '')
 watch(scannerUser, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
 watch(stickerUser, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
-watch(printType, v => localStorage.setItem(PRINT_TYPE_KEY, v || 'ALL'))
+watch(printTypes, v => localStorage.setItem(PRINT_TYPE_KEY, JSON.stringify(v || [])), { deep: true })
+watch(printTypeMultiple, v => {
+  localStorage.setItem(PRINT_TYPE_MULTIPLE_KEY, v ? '1' : '0')
+  // 切回單選時,若已勾多筆只保留第一筆
+  if (!v && printTypes.value.length > 1) {
+    printTypes.value = [printTypes.value[0]]
+  }
+})
+
+// checkbox 點擊:單選 = 替換、複選 = toggle 加入/移除
+const togglePrintType = (value, checked) => {
+  if (printTypeMultiple.value) {
+    if (checked) {
+      if (!printTypes.value.includes(value)) {
+        printTypes.value = [...printTypes.value, value]
+      }
+    } else {
+      printTypes.value = printTypes.value.filter(v => v !== value)
+    }
+  } else {
+    printTypes.value = checked ? [value] : []
+  }
+}
 
 const printList = reactive([])
 const printStatus = reactive([])
@@ -64,8 +106,7 @@ const printerMap = computed(() => {
   }
 })
 
-// 「列印範圍」下拉只列出有設印表機的物流商(避免選了卻無法出單)
-// 完全沒設印表機時,至少保留「全部」讓 user 仍能查詢看清單;dialog 會在送印時擋
+// 「列印範圍」checkbox 只列出有設印表機的物流商(避免選了卻無法出單)
 const ALL_PROVIDER_ITEMS = computed(() => [
   { value: '7', title: t('provider.7eleven') },
   { value: 'F', title: t('provider.family') },
@@ -77,14 +118,19 @@ const ALL_PROVIDER_ITEMS = computed(() => [
   { value: 'S', title: t('provider.shopeeOffline') },
   { value: 'A', title: t('provider.shopeeAuth') },
 ])
-const PRINT_TYPE_OPTIONS = computed(() => [
-  { value: 'ALL', title: t('common.all') },
-  ...ALL_PROVIDER_ITEMS.value.filter(p => printerMap.value[p.value]),
-])
-// 若使用者前次選了 'C',之後把 C 的印表機刪掉導致 'C' 從選單消失 → reset 回 'ALL'
+const PRINT_TYPE_OPTIONS = computed(() =>
+  ALL_PROVIDER_ITEMS.value.filter(p => printerMap.value[p.value]),
+)
+// 過濾掉印表機被刪掉而失效的選項;首次載入全空 + 有可用選項時:複選預設全勾、單選預設第一個
 watch(PRINT_TYPE_OPTIONS, opts => {
-  if (!opts.some(o => o.value === printType.value)) printType.value = 'ALL'
-})
+  const valid = new Set(opts.map(o => o.value))
+  const filtered = printTypes.value.filter(v => valid.has(v))
+  if (filtered.length === 0 && printTypes.value.length === 0 && opts.length > 0) {
+    printTypes.value = printTypeMultiple.value ? opts.map(o => o.value) : [opts[0].value]
+  } else if (filtered.length !== printTypes.value.length) {
+    printTypes.value = filtered
+  }
+}, { immediate: true })
 
 const initPrintList = snList => {
   printList.splice(0)
@@ -113,7 +159,7 @@ const processOne = async index => {
   const item = printList[index]
   try {
     const data = await cloudFetchLabel(item.sn, {
-      printType: printType.value,
+      printTypes: printTypes.value,
       enforce: enforce.value,
       mode: 'web_print',
       scannerUser: scannerUser.value,
@@ -169,6 +215,7 @@ const stopProcessing = () => {
 const handleQuery = async () => {
   if (!scannerUser.value.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return }
   if (!stickerUser.value.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return }
+  if (!printTypes.value.length) { toast(t('page.scan.errPrintTypeRequired'), { type: 'error' }); return }
   if (orderSnList.value.length === 0) return
   initPrintList(orderSnList.value)
   orderSnList.value = []
@@ -311,8 +358,23 @@ const groupedStatus = computed(() => {
       <VCol cols="12" lg="5">
         <div class="left-sticky">
         <VCard>
+          <VCardTitle class="d-flex align-center px-4 py-2 bg-grey-300 multi-switch-row" style="min-height: 58px;">
+            <VIcon size="22" icon="tabler-printer" class="me-2" />
+            <span>{{ $t('page.scan.printLabelTitle') }}</span>
+            <VSpacer />
+            <VSwitch
+              v-model="printTypeMultiple"
+              color="primary"
+              density="compact"
+              hide-details
+              inset
+            />
+            <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+              {{ $t('page.scan.printScopeMultiple') }}
+            </span>
+          </VCardTitle>
           <VCardText>
-            <div class="d-flex gap-3 mb-3">
+            <div class="d-flex gap-3 my-3">
               <div class="flex-grow-1">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
@@ -326,15 +388,6 @@ const groupedStatus = computed(() => {
                 <VTextField v-model="stickerUser" />
               </div>
             </div>
-            <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.scan.printScope') }}</VLabel>
-              <VSelect
-                v-model="printType"
-                :items="PRINT_TYPE_OPTIONS"
-                item-title="title"
-                item-value="value"
-              />
-            </div>
             <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
             <div v-if="totalItems > 0" class="mt-3">
               <div class="d-flex justify-space-between mb-1">
@@ -342,6 +395,32 @@ const groupedStatus = computed(() => {
                 <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
               </div>
               <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
+            </div>
+            <div class="mt-3">
+              <VLabel
+                class="mb-1 text-body-2"
+                style="line-height: 15px;"
+                :class="{ 'text-error font-weight-bold': printTypeMultiple }"
+              >
+                {{ $t('page.scan.printScope') }}
+              </VLabel>
+              <div
+                v-if="PRINT_TYPE_OPTIONS.length > 0"
+                class="print-type-checkboxes d-flex flex-wrap px-1"
+                :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
+              >
+                <VCheckbox
+                  v-for="opt in PRINT_TYPE_OPTIONS"
+                  :key="opt.value"
+                  :model-value="printTypes.includes(opt.value)"
+                  :label="opt.title"
+                  hide-details
+                  @update:model-value="checked => togglePrintType(opt.value, checked)"
+                />
+              </div>
+              <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                {{ $t('common.noPrintersConfigured') }}
+              </div>
             </div>
 
             <div v-if="isPrinting || printProgress.total > 0 && printProgress.done < printProgress.total" class="mt-3">
@@ -561,6 +640,47 @@ const groupedStatus = computed(() => {
   position: sticky;
   inset-block-start: 5rem;
   z-index: 1;
+}
+
+/* card-title 內的「列印範圍複選」switch:整體 scale,內部 Vuetify 結構不動 */
+.multi-switch-row :deep(.v-switch) {
+  flex: 0 0 auto;
+  transform: scale(0.7);
+  transform-origin: right center;
+}
+.multi-switch-row :deep(.v-switch .v-label) {
+  font-size: 0.875rem;
+}
+
+/* 列印範圍 checkbox 加大 + 拉開間距,跟 AutoPrintPage 對齊 */
+.print-type-checkboxes {
+  gap: 6px 12px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.print-type-checkboxes--multiple {
+  border-color: rgba(var(--v-theme-error), 0.5);
+  background-color: rgba(var(--v-theme-error), 0.04);
+}
+.print-type-checkboxes :deep(.v-selection-control) {
+  min-height: 40px;
+}
+.print-type-checkboxes :deep(.v-selection-control__wrapper) {
+  width: 36px;
+  height: 36px;
+}
+.print-type-checkboxes :deep(.v-selection-control__input) {
+  width: 36px;
+  height: 36px;
+}
+.print-type-checkboxes :deep(.v-selection-control__input .v-icon) {
+  font-size: 28px;
+}
+.print-type-checkboxes :deep(.v-label) {
+  font-size: 16px;
+  opacity: 1;
 }
 
 .label-grid {

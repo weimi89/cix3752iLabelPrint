@@ -59,6 +59,7 @@ declare global {
   const ignorableWatch: typeof import('@vueuse/core')['ignorableWatch']
   const inject: typeof import('vue')['inject']
   const injectLocal: typeof import('@vueuse/core')['injectLocal']
+  const installZoomShortcuts: typeof import('./composables/useZoom.js')['installZoomShortcuts']
   const integerValidator: typeof import('./@core/utils/validators.js')['integerValidator']
   const isDefined: typeof import('@vueuse/core')['isDefined']
   const isDownloadable: typeof import('./composables/useLabelStatus.js')['isDownloadable']
@@ -133,6 +134,7 @@ declare global {
   const rgbaToHex: typeof import('./@core/utils/colorConverter.js')['rgbaToHex']
   const setActivePinia: typeof import('pinia')['setActivePinia']
   const setMapStoreSuffix: typeof import('pinia')['setMapStoreSuffix']
+  const setZoom: typeof import('./composables/useZoom.js')['setZoom']
   const shallowReactive: typeof import('vue')['shallowReactive']
   const shallowReadonly: typeof import('vue')['shallowReadonly']
   const shallowRef: typeof import('vue')['shallowRef']
@@ -334,6 +336,7 @@ declare global {
   const useWindowFocus: typeof import('@vueuse/core')['useWindowFocus']
   const useWindowScroll: typeof import('@vueuse/core')['useWindowScroll']
   const useWindowSize: typeof import('@vueuse/core')['useWindowSize']
+  const useZoom: typeof import('./composables/useZoom.js')['useZoom']
   const watch: typeof import('vue')['watch']
   const watchArray: typeof import('@vueuse/core')['watchArray']
   const watchAtMost: typeof import('@vueuse/core')['watchAtMost']
@@ -350,6 +353,9 @@ declare global {
   const watchTriggerable: typeof import('@vueuse/core')['watchTriggerable']
   const watchWithFilter: typeof import('@vueuse/core')['watchWithFilter']
   const whenever: typeof import('@vueuse/core')['whenever']
+  const zoomIn: typeof import('./composables/useZoom.js')['zoomIn']
+  const zoomOut: typeof import('./composables/useZoom.js')['zoomOut']
+  const zoomReset: typeof import('./composables/useZoom.js')['zoomReset']
 }
 // for type re-export
 declare global {
@@ -416,6 +422,7 @@ declare module 'vue' {
     readonly ignorableWatch: UnwrapRef<typeof import('@vueuse/core')['ignorableWatch']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
     readonly injectLocal: UnwrapRef<typeof import('@vueuse/core')['injectLocal']>
+    readonly installZoomShortcuts: UnwrapRef<typeof import('./composables/useZoom.js')['installZoomShortcuts']>
     readonly integerValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['integerValidator']>
     readonly isDefined: UnwrapRef<typeof import('@vueuse/core')['isDefined']>
     readonly isDownloadable: UnwrapRef<typeof import('./composables/useLabelStatus.js')['isDownloadable']>
@@ -490,6 +497,7 @@ declare module 'vue' {
     readonly rgbaToHex: UnwrapRef<typeof import('./@core/utils/colorConverter.js')['rgbaToHex']>
     readonly setActivePinia: UnwrapRef<typeof import('pinia')['setActivePinia']>
     readonly setMapStoreSuffix: UnwrapRef<typeof import('pinia')['setMapStoreSuffix']>
+    readonly setZoom: UnwrapRef<typeof import('./composables/useZoom.js')['setZoom']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
@@ -691,6 +699,7 @@ declare module 'vue' {
     readonly useWindowFocus: UnwrapRef<typeof import('@vueuse/core')['useWindowFocus']>
     readonly useWindowScroll: UnwrapRef<typeof import('@vueuse/core')['useWindowScroll']>
     readonly useWindowSize: UnwrapRef<typeof import('@vueuse/core')['useWindowSize']>
+    readonly useZoom: UnwrapRef<typeof import('./composables/useZoom.js')['useZoom']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchArray: UnwrapRef<typeof import('@vueuse/core')['watchArray']>
     readonly watchAtMost: UnwrapRef<typeof import('@vueuse/core')['watchAtMost']>
@@ -707,5 +716,8 @@ declare module 'vue' {
     readonly watchTriggerable: UnwrapRef<typeof import('@vueuse/core')['watchTriggerable']>
     readonly watchWithFilter: UnwrapRef<typeof import('@vueuse/core')['watchWithFilter']>
     readonly whenever: UnwrapRef<typeof import('@vueuse/core')['whenever']>
+    readonly zoomIn: UnwrapRef<typeof import('./composables/useZoom.js')['zoomIn']>
+    readonly zoomOut: UnwrapRef<typeof import('./composables/useZoom.js')['zoomOut']>
+    readonly zoomReset: UnwrapRef<typeof import('./composables/useZoom.js')['zoomReset']>
   }
 }

@@ -90,6 +90,8 @@ struct Inner {
     /// 連續失敗計數(獨立於 snapshot 用於下一輪計算)
     anchor_fail_streak: RwLock<u32>,
     cloud_fail_streak: RwLock<u32>,
+    /// 上次實際打過雲端 HEAD 的時間;用來節流(cloud_interval_secs)
+    last_cloud_checked_at: RwLock<Option<Instant>>,
     /// 觸發立即檢查(中斷目前 sleep)
     trigger: Notify,
 }
@@ -105,6 +107,7 @@ impl HealthChecker {
                 snapshot: RwLock::new(snapshot),
                 anchor_fail_streak: RwLock::new(0),
                 cloud_fail_streak: RwLock::new(0),
+                last_cloud_checked_at: RwLock::new(None),
                 trigger: Notify::new(),
             }),
         }
@@ -114,15 +117,16 @@ impl HealthChecker {
     pub fn start_worker(&self) {
         let this = self.clone();
         tokio::spawn(async move {
-            // 啟動先跑一輪,讓前端立即拿到合理快照
-            this.check_now().await;
+            // 啟動先跑一輪,讓前端立即拿到合理快照(force cloud,確保初始快照有真實雲端狀態)
+            this.check_now_inner(true).await;
             loop {
                 let interval = this.next_interval();
                 tokio::select! {
                     _ = tokio::time::sleep(interval) => {}
                     _ = this.inner.trigger.notified() => {}
                 }
-                this.check_now().await;
+                // tick / config apply 走節流;只有手動 check_now() 才強制打雲端
+                this.check_now_inner(false).await;
             }
         });
     }
@@ -133,23 +137,44 @@ impl HealthChecker {
         self.inner.trigger.notify_one();
     }
 
-    /// 立即跑一輪檢查;結果寫入 snapshot 並 emit Tauri event
+    /// 立即跑一輪檢查(force cloud);Tauri command「立即檢查」按鈕用
     pub async fn check_now(&self) -> NetHealthSnapshot {
-        let (anchor_addr, anchor_timeout_ms, cloud_timeout_secs, threshold) = {
+        self.check_now_inner(true).await
+    }
+
+    /// 跑一輪檢查;`force_cloud=false` 時雲端走節流(cloud_interval_secs 內沿用上次結果)
+    async fn check_now_inner(&self, force_cloud: bool) -> NetHealthSnapshot {
+        let (anchor_addr, anchor_timeout_ms, cloud_timeout_secs, cloud_interval_secs, threshold) = {
             let c = self.inner.cfg.read();
             (
                 c.anchor_addr.clone(),
                 c.anchor_timeout_ms,
                 c.cloud_timeout_secs,
+                c.cloud_interval_secs,
                 c.fail_threshold,
             )
         };
 
-        let anchor_fut = check_anchor(&anchor_addr, anchor_timeout_ms);
-        let cloud_fut = self.inner.cloud.head_session(cloud_timeout_secs);
-        let (anchor, cloud_api) = tokio::join!(anchor_fut, cloud_fut);
+        // 雲端節流:距上次實際打過 < cloud_interval_secs 且非 force 就跳過,沿用上輪結果
+        let should_check_cloud = force_cloud
+            || match *self.inner.last_cloud_checked_at.read() {
+                None => true,
+                Some(t) => t.elapsed() >= Duration::from_secs(cloud_interval_secs),
+            };
 
-        // 更新連續失敗計數
+        let anchor_fut = check_anchor(&anchor_addr, anchor_timeout_ms);
+        let (anchor, cloud_api) = if should_check_cloud {
+            let cloud_fut = self.inner.cloud.head_session(cloud_timeout_secs);
+            let (a, c) = tokio::join!(anchor_fut, cloud_fut);
+            *self.inner.last_cloud_checked_at.write() = Some(Instant::now());
+            (a, c)
+        } else {
+            // 沿用上輪 cloud_api 結果(streak 也保持不變)
+            let prev = self.inner.snapshot.read().cloud_api.clone();
+            (anchor_fut.await, prev)
+        };
+
+        // 更新連續失敗計數(cloud 跳過就不動)
         let anchor_fail_streak = {
             let mut s = self.inner.anchor_fail_streak.write();
             match &anchor {
@@ -158,13 +183,15 @@ impl HealthChecker {
             }
             *s
         };
-        let cloud_fail_streak = {
+        let cloud_fail_streak = if should_check_cloud {
             let mut s = self.inner.cloud_fail_streak.write();
             match &cloud_api {
                 CloudReachResult::Reachable { .. } | CloudReachResult::NotConfigured => *s = 0,
                 CloudReachResult::Unreachable { .. } => *s = s.saturating_add(1),
             }
             *s
+        } else {
+            *self.inner.cloud_fail_streak.read()
         };
 
         // 抖動緩衝:streak < threshold 時即使這次失敗仍視為有效 ok

@@ -210,7 +210,7 @@ impl CloudClient {
     pub async fn fetch_label_for_print(
         &self,
         order_sn: &str,
-        print_type: &str,
+        print_type: &[String],
         enforce: bool,
         mode: LabelFetchMode,
         scanner_user: Option<&str>,
@@ -288,7 +288,7 @@ impl CloudClient {
     pub async fn fetch_cloud_print_label(
         &self,
         order_sn: &str,
-        print_type: &str,
+        print_type: &[String],
         enforce: bool,
         package_sn: Option<&str>,
         scanner_user: Option<&str>,
@@ -302,7 +302,7 @@ impl CloudClient {
         // 對齐雲端 controller：print_type 是 array,enforce 用 0/1 numeric
         let body = json!({
             "order_sn": order_sn,
-            "print_type": [print_type],
+            "print_type": print_type,
             "enforce": if enforce { 1 } else { 0 },
             "package_sn": package_sn.unwrap_or(""),
             "scanner_user": scanner_user.unwrap_or(""),

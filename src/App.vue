@@ -3,8 +3,10 @@ import { useTheme } from 'vuetify'
 import { hexToRgb } from '@layouts/utils'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import { useThemeApply } from '@/composables/useThemeApply'
+import { installZoomShortcuts } from '@/composables/useZoom'
 
 useThemeApply()
+installZoomShortcuts()
 
 const { global } = useTheme()
 </script>

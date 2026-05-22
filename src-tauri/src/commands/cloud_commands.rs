@@ -61,8 +61,8 @@ pub struct LoginRequest {
 #[derive(Debug, Deserialize)]
 pub struct FetchLabelRequest {
     pub order_sn: String,
-    #[serde(default = "default_print_type")]
-    pub print_type: String,
+    #[serde(default = "default_print_type_vec")]
+    pub print_type: Vec<String>,
     #[serde(default)]
     pub enforce: bool,
     /// "web_print" / "download" / "cloud_print"
@@ -77,8 +77,8 @@ pub struct FetchLabelRequest {
 #[derive(Debug, Deserialize)]
 pub struct FetchCloudPrintRequest {
     pub order_sn: String,
-    #[serde(default = "default_print_type")]
-    pub print_type: String,
+    #[serde(default = "default_print_type_vec")]
+    pub print_type: Vec<String>,
     #[serde(default)]
     pub enforce: bool,
     #[serde(default)]
@@ -89,7 +89,7 @@ pub struct FetchCloudPrintRequest {
     pub sticker_user: Option<String>,
 }
 
-fn default_print_type() -> String { "ALL".to_string() }
+fn default_print_type_vec() -> Vec<String> { vec!["ALL".to_string()] }
 fn default_mode() -> String { "web_print".to_string() }
 
 #[derive(Debug, Serialize)]

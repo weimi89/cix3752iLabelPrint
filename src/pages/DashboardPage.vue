@@ -168,7 +168,7 @@ const formatBytes = bytes => {
       </VCol>
     </VRow>
 
-    <VCard class="card-shadow mt-4">
+    <VCard class="card-shadow mt-4 network-status-card">
       <VCardItem>
         <template #prepend>
           <VAvatar :color="netOverallColor" variant="tonal">
@@ -312,5 +312,11 @@ const formatBytes = bytes => {
     transform: translateY(-1px);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   }
+}
+
+// Vuetify VListItem 在 #prepend slot 下會塞一個 .v-list-item__spacer (預設 16px) 把圖示推離 content
+// 這裡縮小 spacer,讓圖示貼近文字
+.network-status-card :deep(.v-list-item__spacer) {
+  inline-size: 8px;
 }
 </style>
