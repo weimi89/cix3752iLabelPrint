@@ -1,6 +1,6 @@
 [package]
 name = "cix3752i-label-print"
-version = "0.3.3"
+version = "0.4.0"
 description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"
@@ -21,6 +21,8 @@ tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # Async / web server
 tokio = { version = "1", features = ["full"] }

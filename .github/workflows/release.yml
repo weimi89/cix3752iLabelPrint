@@ -74,6 +74,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing — Tauri 內建,只要 env 有設就會 sign 並產 latest.json
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: '智配通 面單列印 ${{ github.event.inputs.tag || github.ref_name }}'
@@ -99,7 +102,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
-          includeUpdaterJson: false
+          includeUpdaterJson: true
           # productName 含中文(智配通 面單列印)被 tauri-action upload sanitize 吃掉
           # 寫死 ASCII pattern,release asset 名乾淨;Finder / Dock 的 .app 仍中文(來自 bundle 內)
           assetNamePattern: 'cix3752iLabelPrint_[version]_[arch][_setup][ext]'

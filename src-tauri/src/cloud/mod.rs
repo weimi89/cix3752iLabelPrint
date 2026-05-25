@@ -12,7 +12,7 @@ use crate::models::{
 };
 use crate::{AppError, AppResult};
 
-const KEYRING_SERVICE: &str = "com.weimi.cix3752i.labelprint";
+const KEYRING_SERVICE: &str = "com.weiminet.cix3752i.labelprint";
 const KEYRING_USER: &str = "cloud_api_token";
 
 /// 雲端 API client — 封裝 Bearer Token 認證、retry、timeout

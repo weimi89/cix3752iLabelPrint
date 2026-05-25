@@ -121,6 +121,15 @@
     "cloudApi": "雲端 API 錯誤",
     "timeout": "請求逾時"
   },
+  "updater": {
+    "title": "發現新版本",
+    "available": "有新版 v{version},點擊安裝",
+    "current": "目前版本",
+    "next": "新版本",
+    "downloading": "下載中",
+    "install": "立即更新",
+    "later": "稍後再說"
+  },
   "network": {
     "card": {
       "title": "網路連線狀態"
@@ -438,8 +447,11 @@
       "printType": "列印類型",
       "packageBarcode": "包裹訂單條碼",
       "orderSn": "系統訂單編號",
+      "examineByOrderSn": "以訂單編號反查",
       "packageSn": "袋號",
       "totalCount": "總筆數",
+      "unprintedCount": "未刷",
+      "allPrinted": "全部完成",
       "noScannedPackage": "尚未掃描包裹",
       "noCode": "無 code",
       "col": {
@@ -472,6 +484,7 @@
       "last7Days": "近 7 天",
       "last30Days": "近 30 天",
       "rangeTotal": "區間總數",
+      "packagesUnit": "袋",
       "startDate": "起始日期",
       "endDate": "結束日期",
       "todayBtn": "今日",
@@ -492,7 +505,45 @@
       "providerUnknown": "未指定",
       "bySourceLabel": "來源分布:",
       "noProviderData": "區間內尚無印單資料",
-      "noStickerData": "區間內尚無貼標人員紀錄"
+      "noStickerData": "區間內尚無貼標人員紀錄",
+      "sinceReset": "本場累計",
+      "sinceLabel": "自",
+      "past24h": "過去 24 小時",
+      "byScanner": "依操作人員",
+      "byScannerHint": "區間內各操作人員(掃描槍 / 自動印單)的印單數",
+      "noScannerData": "區間內尚無操作人員紀錄",
+      "compareTitle": "歷史比對",
+      "compareHint": "近 7 天 vs 前 7 天、近 30 天 vs 前 30 天",
+      "compareWeek": "近 7 天",
+      "compareMonth": "近 30 天",
+      "failureRate": "失敗率",
+      "avgPerPackage": "平均每袋訂單",
+      "avgPerPackageHint": "區間面單張數 ÷ 分袋數",
+      "reprintTitle": "重印次數分布",
+      "reprintBucket1": "印 1 次",
+      "reprintBucket2": "印 2 次",
+      "reprintBucket3": "印 3+ 次",
+      "failureBreakdown": "失敗 / 異常代碼",
+      "failureBreakdownHint": "區間內失敗事件的 respond_code 分類",
+      "noFailure": "本區間無失敗紀錄,棒!",
+      "providerSourceTitle": "物流商 × 來源",
+      "providerSourceHint": "區間內每家物流商在不同來源的印單分布",
+      "colProvider": "物流商",
+      "colTotal": "合計",
+      "heatmapTitle": "時段熱力圖",
+      "heatmapHint": "7 天 × 24 小時 的印單熱力分布,找尖峰時段",
+      "wdSun": "日",
+      "wdMon": "一",
+      "wdTue": "二",
+      "wdWed": "三",
+      "wdThu": "四",
+      "wdFri": "五",
+      "wdSat": "六",
+      "noData": "無資料",
+      "resetBtn": "重置本場",
+      "resetDialogTitle": "重置本場累計?",
+      "resetDialogBody": "重置後「本場累計」會從零開始,適合每場作業 / 每位臨時工結算前後做。歷史印單紀錄不會被刪除,只是 KPI 起算時間改為現在。",
+      "resetConfirm": "確認重置"
     }
   }
 }

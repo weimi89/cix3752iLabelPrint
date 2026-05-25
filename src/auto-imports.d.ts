@@ -16,6 +16,7 @@ declare global {
   const avatarText: typeof import('./@core/utils/formatters.js')['avatarText']
   const betweenValidator: typeof import('./@core/utils/validators.js')['betweenValidator']
   const carNoValidator: typeof import('./@core/utils/validators.js')['carNoValidator']
+  const checkForUpdates: typeof import('./composables/useUpdater.js')['checkForUpdates']
   const computed: typeof import('vue')['computed']
   const computedAsync: typeof import('@vueuse/core')['computedAsync']
   const computedEager: typeof import('@vueuse/core')['computedEager']
@@ -41,7 +42,9 @@ declare global {
   const defineAsyncComponent: typeof import('vue')['defineAsyncComponent']
   const defineComponent: typeof import('vue')['defineComponent']
   const defineStore: typeof import('pinia')['defineStore']
+  const dismissUpdate: typeof import('./composables/useUpdater.js')['dismissUpdate']
   const disposeNetworkStatus: typeof import('./composables/useNetworkStatus.js')['disposeNetworkStatus']
+  const downloadAndInstall: typeof import('./composables/useUpdater.js')['downloadAndInstall']
   const eagerComputed: typeof import('@vueuse/core')['eagerComputed']
   const effectScope: typeof import('vue')['effectScope']
   const emailValidator: typeof import('./@core/utils/validators.js')['emailValidator']
@@ -322,6 +325,7 @@ declare global {
   const useToString: typeof import('@vueuse/core')['useToString']
   const useToggle: typeof import('@vueuse/core')['useToggle']
   const useTransition: typeof import('@vueuse/core')['useTransition']
+  const useUpdater: typeof import('./composables/useUpdater.js')['useUpdater']
   const useUrlSearchParams: typeof import('@vueuse/core')['useUrlSearchParams']
   const useUserMedia: typeof import('@vueuse/core')['useUserMedia']
   const useVModel: typeof import('@vueuse/core')['useVModel']
@@ -379,6 +383,7 @@ declare module 'vue' {
     readonly avatarText: UnwrapRef<typeof import('./@core/utils/formatters.js')['avatarText']>
     readonly betweenValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['betweenValidator']>
     readonly carNoValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['carNoValidator']>
+    readonly checkForUpdates: UnwrapRef<typeof import('./composables/useUpdater.js')['checkForUpdates']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly computedAsync: UnwrapRef<typeof import('@vueuse/core')['computedAsync']>
     readonly computedEager: UnwrapRef<typeof import('@vueuse/core')['computedEager']>
@@ -404,7 +409,9 @@ declare module 'vue' {
     readonly defineAsyncComponent: UnwrapRef<typeof import('vue')['defineAsyncComponent']>
     readonly defineComponent: UnwrapRef<typeof import('vue')['defineComponent']>
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
+    readonly dismissUpdate: UnwrapRef<typeof import('./composables/useUpdater.js')['dismissUpdate']>
     readonly disposeNetworkStatus: UnwrapRef<typeof import('./composables/useNetworkStatus.js')['disposeNetworkStatus']>
+    readonly downloadAndInstall: UnwrapRef<typeof import('./composables/useUpdater.js')['downloadAndInstall']>
     readonly eagerComputed: UnwrapRef<typeof import('@vueuse/core')['eagerComputed']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
     readonly emailValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['emailValidator']>
@@ -685,6 +692,7 @@ declare module 'vue' {
     readonly useToString: UnwrapRef<typeof import('@vueuse/core')['useToString']>
     readonly useToggle: UnwrapRef<typeof import('@vueuse/core')['useToggle']>
     readonly useTransition: UnwrapRef<typeof import('@vueuse/core')['useTransition']>
+    readonly useUpdater: UnwrapRef<typeof import('./composables/useUpdater.js')['useUpdater']>
     readonly useUrlSearchParams: UnwrapRef<typeof import('@vueuse/core')['useUrlSearchParams']>
     readonly useUserMedia: UnwrapRef<typeof import('@vueuse/core')['useUserMedia']>
     readonly useVModel: UnwrapRef<typeof import('@vueuse/core')['useVModel']>

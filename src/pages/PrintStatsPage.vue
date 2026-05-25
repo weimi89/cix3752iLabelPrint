@@ -5,8 +5,8 @@ import { useTheme, useLocale } from 'vuetify'
 import { VuetifyDateAdapter } from 'vuetify/date/adapters/vuetify'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { LineChart, HeatmapChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import {
   printStatsSummary,
@@ -14,11 +14,18 @@ import {
   printStatsHourly,
   printStatsByProvider,
   printStatsBySticker,
+  printStatsByScanner,
+  printStatsHeatmap,
+  printStatsReprint,
+  printStatsProviderSource,
+  printStatsFailure,
+  printStatsCompare,
+  workSessionReset,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 
-// echarts 按需引入 — 只用到 line + grid + tooltip,bundle 比全量小很多
-use([CanvasRenderer, LineChart, GridComponent, TooltipComponent])
+// echarts 按需引入 — 用到 line + heatmap + grid + tooltip + visualMap
+use([CanvasRenderer, LineChart, HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent])
 
 const theme = useTheme()
 const primaryColor = computed(() => theme.current.value.colors.primary)
@@ -132,8 +139,95 @@ const daily = ref([])
 const hourly = ref([])
 const providers = ref([])
 const stickers = ref([])
+const scanners = ref([])
+const heatmap = ref([])
+const reprint = ref([])
+const providerSource = ref([])
+const failure = ref(null)
+const compare = ref([])
 const loading = ref(false)
 const errorMsg = ref('')
+const resetDialog = ref(false)
+
+// 平均每袋訂單數 = 區間內面單張數 / 分袋數;區間沒分袋時為 N/A
+const avgOrdersPerPackage = computed(() => {
+  if (!summary.value || !summary.value.packages_range_total) return null
+  return (summary.value.range_total / summary.value.packages_range_total).toFixed(1)
+})
+
+const scannersTotal = computed(() => scanners.value.reduce((a, b) => a + b.count, 0))
+const scannersMax = computed(() => scanners.value.reduce((a, b) => Math.max(a, b.count), 0) || 1)
+
+// 物流商 × 來源:轉成「provider → { scan, auto, ipc, total }」便於 table 呈現
+const providerSourceTable = computed(() => {
+  const m = new Map()
+  for (const cell of providerSource.value) {
+    if (!m.has(cell.provider_code)) m.set(cell.provider_code, { scan: 0, auto: 0, ipc: 0, total: 0 })
+    const row = m.get(cell.provider_code)
+    row[cell.source] = (row[cell.source] || 0) + cell.count
+    row.total += cell.count
+  }
+  return Array.from(m.entries())
+    .map(([code, v]) => ({ provider_code: code, ...v }))
+    .sort((a, b) => b.total - a.total)
+})
+
+// 重印分布:bucket 標籤(1=只印 1 次 / 2=2 次 / ≥3 合併)
+const reprintBuckets = computed(() => {
+  const single = reprint.value.find(b => b.print_times === 1)?.shipment_count || 0
+  const twice = reprint.value.find(b => b.print_times === 2)?.shipment_count || 0
+  const more = reprint.value.filter(b => b.print_times >= 3).reduce((a, b) => a + b.shipment_count, 0)
+  return [
+    { key: '1', label: t('page.printStats.reprintBucket1'), count: single },
+    { key: '2', label: t('page.printStats.reprintBucket2'), count: twice },
+    { key: '3+', label: t('page.printStats.reprintBucket3'), count: more },
+  ]
+})
+const reprintTotal = computed(() => reprintBuckets.value.reduce((a, b) => a + b.count, 0))
+
+// 熱力圖:轉成 echarts heatmap 格式 [hour, weekday, count] 並算 max
+const heatmapData = computed(() => heatmap.value.map(c => [c.hour, c.weekday, c.count]))
+const heatmapMax = computed(() => heatmap.value.reduce((a, b) => Math.max(a, b.count), 0) || 1)
+
+const heatmapOption = computed(() => ({
+  tooltip: {
+    position: 'top',
+    formatter: (params) => {
+      const [hour, weekday, count] = params.value
+      const wd = [t('page.printStats.wdSun'), t('page.printStats.wdMon'), t('page.printStats.wdTue'), t('page.printStats.wdWed'), t('page.printStats.wdThu'), t('page.printStats.wdFri'), t('page.printStats.wdSat')][weekday]
+      return `${wd} ${String(hour).padStart(2, '0')}:00<br>${count}`
+    },
+  },
+  grid: { left: 50, right: 16, top: 8, bottom: 24 },
+  xAxis: {
+    type: 'category',
+    data: Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')),
+    splitArea: { show: true },
+    axisLabel: { color: hexToRgba(onSurfaceColor.value, 0.6), fontSize: 10 },
+  },
+  yAxis: {
+    type: 'category',
+    data: [t('page.printStats.wdSun'), t('page.printStats.wdMon'), t('page.printStats.wdTue'), t('page.printStats.wdWed'), t('page.printStats.wdThu'), t('page.printStats.wdFri'), t('page.printStats.wdSat')],
+    splitArea: { show: true },
+    axisLabel: { color: hexToRgba(onSurfaceColor.value, 0.6), fontSize: 11 },
+  },
+  visualMap: {
+    min: 0,
+    max: heatmapMax.value,
+    calculable: false,
+    orient: 'horizontal',
+    left: 'center',
+    bottom: 0,
+    show: false,
+    inRange: { color: [hexToRgba(primaryColor.value, 0.08), primaryColor.value] },
+  },
+  series: [{
+    type: 'heatmap',
+    data: heatmapData.value,
+    label: { show: false },
+    emphasis: { itemStyle: { shadowBlur: 8, shadowColor: hexToRgba(primaryColor.value, 0.4) } },
+  }],
+}))
 
 // 計算每日趨勢中的最大值(畫橫條圖用)
 const dailyMax = computed(() => daily.value.reduce((a, b) => Math.max(a, b.count), 0) || 1)
@@ -207,23 +301,52 @@ const reload = async () => {
   errorMsg.value = ''
   try {
     const args = { startDate: startDate.value, endDate: endDate.value }
-    const [s, d, h, p, st] = await Promise.all([
+    const [s, d, h, p, st, sc, hm, rp, ps, fl, cmp] = await Promise.all([
       printStatsSummary(args),
       printStatsDaily(args),
       printStatsHourly(),
       printStatsByProvider(args),
       printStatsBySticker(args),
+      printStatsByScanner(args),
+      printStatsHeatmap(args),
+      printStatsReprint(args),
+      printStatsProviderSource(args),
+      printStatsFailure(args),
+      printStatsCompare(),
     ])
     summary.value = s
     daily.value = d
     hourly.value = h
     providers.value = p
     stickers.value = st
+    scanners.value = sc
+    heatmap.value = hm
+    reprint.value = rp
+    providerSource.value = ps
+    failure.value = fl
+    compare.value = cmp
   } catch (e) {
     errorMsg.value = String(e?.message || e)
   } finally {
     loading.value = false
   }
+}
+
+const confirmReset = async () => {
+  try {
+    await workSessionReset()
+    resetDialog.value = false
+    await reload()
+  } catch (e) {
+    errorMsg.value = String(e?.message || e)
+  }
+}
+
+// 物流商代碼 → 顯示(複用 providerDisplay,但去掉括弧)
+const providerShort = code => {
+  if (!code) return t('page.printStats.providerUnknown')
+  const key = PROVIDER_LABEL_KEY[code]
+  return key ? t(key) : code
 }
 
 // 快選 toggle group:依當前 startDate/endDate 推算是否吻合某個快選
@@ -267,6 +390,14 @@ onMounted(reload)
     >
       <template #actions>
         <div class="d-none d-md-flex ga-2">
+          <VBtn
+            color="warning"
+            variant="tonal"
+            prepend-icon="tabler-refresh-dot"
+            @click="resetDialog = true"
+          >
+            {{ $t('page.printStats.resetBtn') }}
+          </VBtn>
           <VBtn color="primary" :loading="loading" @click="reload">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
@@ -275,6 +406,10 @@ onMounted(reload)
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
+              <VListItem @click="resetDialog = true">
+                <template #prepend><VIcon icon="tabler-refresh-dot" size="20" color="warning" /></template>
+                <VListItemTitle>{{ $t('page.printStats.resetBtn') }}</VListItemTitle>
+              </VListItem>
               <VListItem @click="reload">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
@@ -289,17 +424,23 @@ onMounted(reload)
       {{ errorMsg }}
     </VAlert>
 
-    <!-- 概況卡片:4 張等寬,「今日」用 text-h3 + 主色描邊突出 -->
+    <!-- 概況卡片:4 張等寬,「本場累計」主色描邊突出 + 重置按鈕 -->
     <VRow dense>
       <VCol cols="6" md="3">
         <VCard class="card-shadow kpi-card kpi-card--primary h-100">
           <VCardText class="d-flex align-center gap-3">
             <VAvatar color="primary" variant="flat" size="44">
-              <VIcon icon="tabler-calendar-event" />
+              <VIcon icon="tabler-restore" />
             </VAvatar>
-            <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.today') }}</div>
-              <div class="text-h3 font-weight-bold text-primary">{{ summary?.today ?? 0 }}</div>
+            <div class="flex-grow-1">
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
+              <div class="text-h3 font-weight-bold text-primary">{{ summary?.since_reset ?? 0 }}</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_since_reset ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
+              </div>
+              <div class="text-caption text-medium-emphasis" style="font-size: 10px;">
+                {{ $t('page.printStats.sinceLabel') }} {{ summary?.since_reset_at || '—' }}
+              </div>
             </div>
           </VCardText>
         </VCard>
@@ -308,11 +449,14 @@ onMounted(reload)
         <VCard class="card-shadow kpi-card h-100">
           <VCardText class="d-flex align-center gap-3">
             <VAvatar color="info" variant="tonal" size="40">
-              <VIcon icon="tabler-calendar-minus" size="20" />
+              <VIcon icon="tabler-clock-hour-4" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.yesterday') }}</div>
-              <div class="text-h5 font-weight-medium">{{ summary?.yesterday ?? 0 }}</div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
+              <div class="text-h5 font-weight-medium">{{ summary?.past_24h ?? 0 }}</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_past_24h ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
+              </div>
             </div>
           </VCardText>
         </VCard>
@@ -326,6 +470,9 @@ onMounted(reload)
             <div>
               <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.last7Days') }}</div>
               <div class="text-h5 font-weight-medium">{{ summary?.last_7_days ?? 0 }}</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_last_7_days ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
+              </div>
             </div>
           </VCardText>
         </VCard>
@@ -339,6 +486,9 @@ onMounted(reload)
             <div>
               <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.last30Days') }}</div>
               <div class="text-h5 font-weight-medium">{{ summary?.last_30_days ?? 0 }}</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_last_30_days ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
+              </div>
             </div>
           </VCardText>
         </VCard>
@@ -423,7 +573,12 @@ onMounted(reload)
           </div>
           <VSpacer />
           <div class="d-flex align-center gap-3 flex-nowrap">
-            <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.rangeTotal') }}</div>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.rangeTotal') }}</div>
+              <div class="text-caption text-medium-emphasis">
+                <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_range_total ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
+              </div>
+            </div>
             <div class="text-h4 font-weight-bold text-primary">{{ summary?.range_total ?? 0 }}</div>
           </div>
         </div>
@@ -445,7 +600,7 @@ onMounted(reload)
                 size="14"
                 class="me-1"
               />
-              {{ sourceDisplay(s.source) }} · {{ s.count }}
+              {{ sourceDisplay(s.source) }} · {{ s.count }}<template v-if="s.package_count > 0"> · {{ s.package_count }} {{ $t('page.printStats.packagesUnit') }}</template>
             </VChip>
           </div>
         </template>
@@ -576,6 +731,259 @@ onMounted(reload)
         </VCard>
       </VCol>
     </VRow>
+
+    <!-- 階段 2 - 操作人員排行 + 歷史比對 -->
+    <VRow dense class="mt-3">
+      <VCol cols="12" md="6">
+        <VCard class="card-shadow h-100">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="primary" variant="tonal">
+                <VIcon icon="tabler-user-scan" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.byScanner') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.byScannerHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText>
+            <div v-if="scanners.length === 0" class="empty-state">
+              <VIcon icon="tabler-user-off" size="40" class="empty-state__icon" />
+              <div class="empty-state__text">{{ $t('page.printStats.noScannerData') }}</div>
+            </div>
+            <div v-else class="stat-rows">
+              <div v-for="p in scanners" :key="p.scanner_user" class="stat-row">
+                <div class="stat-row__label stat-row__label--wide">{{ p.scanner_user }}</div>
+                <div class="stat-row__bar">
+                  <div class="stat-row__fill" :style="{ inlineSize: pct(p.count, scannersMax) + '%' }" />
+                </div>
+                <div class="stat-row__value">
+                  {{ p.count }}
+                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(p.count, scannersTotal) }}%)</span>
+                </div>
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+
+      <VCol cols="12" md="6">
+        <VCard class="card-shadow h-100">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="info" variant="tonal">
+                <VIcon icon="tabler-trending-up" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.compareTitle') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.compareHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText>
+            <div v-for="c in compare" :key="c.label" class="compare-row">
+              <div class="compare-row__label">
+                {{ c.label === 'week' ? $t('page.printStats.compareWeek') : $t('page.printStats.compareMonth') }}
+              </div>
+              <div class="compare-row__nums">
+                <span class="text-h5 font-weight-bold">{{ c.current }}</span>
+                <span class="text-caption text-medium-emphasis ms-1">vs {{ c.previous }}</span>
+              </div>
+              <div class="compare-row__delta">
+                <template v-if="c.delta_ratio === null">
+                  <span class="text-caption text-medium-emphasis">—</span>
+                </template>
+                <template v-else>
+                  <VIcon
+                    :icon="c.delta_ratio >= 0 ? 'tabler-arrow-up-right' : 'tabler-arrow-down-right'"
+                    :color="c.delta_ratio >= 0 ? 'success' : 'error'"
+                    size="18"
+                  />
+                  <span :class="c.delta_ratio >= 0 ? 'text-success' : 'text-error'" class="font-weight-bold ms-1">
+                    {{ (c.delta_ratio * 100).toFixed(1) }}%
+                  </span>
+                </template>
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <!-- 階段 3-4 - 失敗率 + 平均每袋 + 重印分布 KPI 列 -->
+    <VRow dense class="mt-3">
+      <VCol cols="6" md="4">
+        <VCard class="card-shadow kpi-card h-100">
+          <VCardText class="d-flex align-center gap-3">
+            <VAvatar :color="failure?.failure_rate > 0.05 ? 'error' : 'success'" variant="tonal" size="40">
+              <VIcon :icon="failure?.failure_rate > 0.05 ? 'tabler-alert-triangle' : 'tabler-check'" size="20" />
+            </VAvatar>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.failureRate') }}</div>
+              <div class="text-h5 font-weight-medium">
+                {{ failure ? ((failure.failure_rate || 0) * 100).toFixed(2) + '%' : '—' }}
+              </div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ failure?.failure_count ?? 0 }} / {{ (failure?.failure_count ?? 0) + (failure?.success_count ?? 0) }}
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+      <VCol cols="6" md="4">
+        <VCard class="card-shadow kpi-card h-100">
+          <VCardText class="d-flex align-center gap-3">
+            <VAvatar color="success" variant="tonal" size="40">
+              <VIcon icon="tabler-packages" size="20" />
+            </VAvatar>
+            <div>
+              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.avgPerPackage') }}</div>
+              <div class="text-h5 font-weight-medium">{{ avgOrdersPerPackage ?? '—' }}</div>
+              <div class="text-caption text-medium-emphasis mt-1">{{ $t('page.printStats.avgPerPackageHint') }}</div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+      <VCol cols="12" md="4">
+        <VCard class="card-shadow kpi-card h-100">
+          <VCardItem class="pb-1">
+            <template #prepend>
+              <VAvatar color="warning" variant="tonal" size="36">
+                <VIcon icon="tabler-repeat" size="18" />
+              </VAvatar>
+            </template>
+            <VCardTitle class="text-body-1">{{ $t('page.printStats.reprintTitle') }}</VCardTitle>
+          </VCardItem>
+          <VCardText class="pt-0">
+            <div v-for="b in reprintBuckets" :key="b.key" class="d-flex align-center justify-space-between mb-1">
+              <span class="text-body-2">{{ b.label }}</span>
+              <span class="text-body-2 font-weight-medium">{{ b.count }} <span class="text-caption text-medium-emphasis">({{ sharePct(b.count, reprintTotal) }}%)</span></span>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <!-- 階段 3 - 失敗代碼分類 + 物流×來源 cross-tab -->
+    <VRow dense class="mt-3">
+      <VCol cols="12" md="4">
+        <VCard class="card-shadow h-100">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="error" variant="tonal">
+                <VIcon icon="tabler-bug" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.failureBreakdown') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.failureBreakdownHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText>
+            <div v-if="!failure?.by_code?.length" class="empty-state">
+              <VIcon icon="tabler-mood-smile" size="40" class="empty-state__icon" />
+              <div class="empty-state__text">{{ $t('page.printStats.noFailure') }}</div>
+            </div>
+            <div v-else class="stat-rows">
+              <div v-for="b in failure.by_code" :key="b.respond_code" class="stat-row">
+                <div class="stat-row__label stat-row__label--wide">{{ b.respond_code }}</div>
+                <div class="stat-row__bar">
+                  <div
+                    class="stat-row__fill"
+                    style="background: rgb(var(--v-theme-error))"
+                    :style="{ inlineSize: pct(b.count, failure.failure_count || 1) + '%' }"
+                  />
+                </div>
+                <div class="stat-row__value">{{ b.count }}</div>
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+
+      <VCol cols="12" md="8">
+        <VCard class="card-shadow h-100">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="primary" variant="tonal">
+                <VIcon icon="tabler-grid-pattern" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.providerSourceTitle') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.providerSourceHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText class="pa-0">
+            <VTable density="comfortable">
+              <thead>
+                <tr>
+                  <th>{{ $t('page.printStats.colProvider') }}</th>
+                  <th class="text-end">{{ $t('page.printStats.sourceScan') }}</th>
+                  <th class="text-end">{{ $t('page.printStats.sourceAuto') }}</th>
+                  <th class="text-end">{{ $t('page.printStats.sourceIpc') }}</th>
+                  <th class="text-end">{{ $t('page.printStats.colTotal') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="providerSourceTable.length === 0">
+                  <td colspan="5" class="text-center text-medium-emphasis py-4">
+                    {{ $t('page.printStats.noProviderData') }}
+                  </td>
+                </tr>
+                <tr v-for="r in providerSourceTable" :key="r.provider_code">
+                  <td>{{ providerShort(r.provider_code) }}</td>
+                  <td class="text-end">{{ r.scan || '—' }}</td>
+                  <td class="text-end">{{ r.auto || '—' }}</td>
+                  <td class="text-end">{{ r.ipc || '—' }}</td>
+                  <td class="text-end font-weight-bold">{{ r.total }}</td>
+                </tr>
+              </tbody>
+            </VTable>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <!-- 階段 3 - 24h × 7d 熱力圖 -->
+    <VRow dense class="mt-3">
+      <VCol cols="12">
+        <VCard class="card-shadow">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="primary" variant="tonal">
+                <VIcon icon="tabler-temperature" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.heatmapTitle') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.heatmapHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText>
+            <div v-if="heatmap.length === 0" class="empty-state">
+              <VIcon icon="tabler-clock-off" size="40" class="empty-state__icon" />
+              <div class="empty-state__text">{{ $t('page.printStats.noData') }}</div>
+            </div>
+            <VChart v-else :option="heatmapOption" autoresize style="height: 280px;" />
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <!-- 重置確認對話框 -->
+    <VDialog v-model="resetDialog" max-width="420">
+      <VCard>
+        <VCardTitle>{{ $t('page.printStats.resetDialogTitle') }}</VCardTitle>
+        <VCardText>
+          {{ $t('page.printStats.resetDialogBody') }}
+          <div class="text-caption text-medium-emphasis mt-2">
+            {{ $t('page.printStats.sinceLabel') }} {{ summary?.since_reset_at || '—' }}
+          </div>
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" @click="resetDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="primary" variant="flat" @click="confirmReset">{{ $t('page.printStats.resetConfirm') }}</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 
@@ -653,6 +1061,33 @@ onMounted(reload)
 }
 .empty-state__icon {
   color: rgba(var(--v-theme-on-surface), 0.25);
+}
+
+// 歷史比對單列:label / 數字 / 箭頭三段式
+.compare-row {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
+
+  & + & {
+    border-block-start: 1px dashed rgba(var(--v-theme-on-surface), 0.08);
+  }
+}
+.compare-row__label {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.compare-row__nums {
+  display: flex;
+  align-items: baseline;
+}
+.compare-row__delta {
+  display: flex;
+  align-items: center;
+  min-inline-size: 80px;
+  justify-content: flex-end;
 }
 .empty-state__text {
   font-size: 13px;

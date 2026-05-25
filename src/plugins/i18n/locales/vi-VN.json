@@ -121,6 +121,15 @@
     "cloudApi": "Lỗi API đám mây",
     "timeout": "Yêu cầu quá thời gian"
   },
+  "updater": {
+    "title": "Có phiên bản mới",
+    "available": "Có bản v{version}, nhấn để cài đặt",
+    "current": "Phiên bản hiện tại",
+    "next": "Phiên bản mới",
+    "downloading": "Đang tải xuống",
+    "install": "Cài đặt ngay",
+    "later": "Để sau"
+  },
   "network": {
     "card": {
       "title": "Trạng thái kết nối mạng"
@@ -438,8 +447,11 @@
       "printType": "Loại in",
       "packageBarcode": "Mã vạch đơn hàng kiện",
       "orderSn": "Mã đơn hàng hệ thống",
+      "examineByOrderSn": "Tra cứu theo mã đơn",
       "packageSn": "Mã túi",
       "totalCount": "Tổng số",
+      "unprintedCount": "Chưa quét",
+      "allPrinted": "Hoàn tất",
       "noScannedPackage": "Chưa quét kiện hàng",
       "noCode": "không có code",
       "col": {
@@ -472,6 +484,7 @@
       "last7Days": "7 ngày gần nhất",
       "last30Days": "30 ngày gần nhất",
       "rangeTotal": "Tổng trong khoảng",
+      "packagesUnit": "túi",
       "startDate": "Ngày bắt đầu",
       "endDate": "Ngày kết thúc",
       "todayBtn": "Hôm nay",
@@ -492,7 +505,45 @@
       "providerUnknown": "Chưa xác định",
       "bySourceLabel": "Phân bố nguồn:",
       "noProviderData": "Chưa có dữ liệu in trong khoảng",
-      "noStickerData": "Chưa có nhân viên dán nhãn trong khoảng"
+      "noStickerData": "Chưa có nhân viên dán nhãn trong khoảng",
+      "sinceReset": "Ca này",
+      "sinceLabel": "Từ",
+      "past24h": "24 giờ qua",
+      "byScanner": "Theo người thao tác",
+      "byScannerHint": "Số nhãn của từng người thao tác (máy quét / in tự động) trong khoảng",
+      "noScannerData": "Chưa có người thao tác trong khoảng",
+      "compareTitle": "So sánh lịch sử",
+      "compareHint": "7 ngày gần nhất so 7 ngày trước, 30 ngày gần nhất so 30 ngày trước",
+      "compareWeek": "7 ngày",
+      "compareMonth": "30 ngày",
+      "failureRate": "Tỷ lệ lỗi",
+      "avgPerPackage": "TB đơn / túi",
+      "avgPerPackageHint": "Số nhãn ÷ số túi trong khoảng",
+      "reprintTitle": "Phân bố số lần in",
+      "reprintBucket1": "In 1 lần",
+      "reprintBucket2": "In 2 lần",
+      "reprintBucket3": "In ≥ 3 lần",
+      "failureBreakdown": "Lỗi / Bất thường",
+      "failureBreakdownHint": "Phân loại respond_code của các sự kiện lỗi trong khoảng",
+      "noFailure": "Không có lỗi trong khoảng này, tuyệt!",
+      "providerSourceTitle": "Đơn vị vận chuyển × Nguồn",
+      "providerSourceHint": "Phân bố nhãn của từng đơn vị vận chuyển theo nguồn",
+      "colProvider": "Đơn vị vận chuyển",
+      "colTotal": "Tổng",
+      "heatmapTitle": "Heatmap thời gian",
+      "heatmapHint": "Phân bố nhãn theo 7 ngày × 24 giờ, tìm giờ cao điểm",
+      "wdSun": "CN",
+      "wdMon": "T2",
+      "wdTue": "T3",
+      "wdWed": "T4",
+      "wdThu": "T5",
+      "wdFri": "T6",
+      "wdSat": "T7",
+      "noData": "Không có dữ liệu",
+      "resetBtn": "Đặt lại ca này",
+      "resetDialogTitle": "Đặt lại ca này?",
+      "resetDialogBody": "Sau khi reset, \"Ca này\" sẽ về 0, thích hợp cho mỗi ca làm việc / mỗi nhân viên thời vụ kết toán. Lịch sử in không bị xoá, chỉ là thời điểm bắt đầu KPI đổi sang hiện tại.",
+      "resetConfirm": "Xác nhận reset"
     }
   }
 }

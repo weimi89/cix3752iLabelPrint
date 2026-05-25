@@ -218,15 +218,21 @@ export const networkHealthCheck = async () => {
 
 // 印單統計 — 三來源(scan/auto/ipc)的 shipping_no 去重計數
 const MOCK_STATS_SUMMARY = {
-  today: 124,
-  yesterday: 198,
+  since_reset_at: new Date(Date.now() - 4 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+  since_reset: 87,
+  packages_since_reset: 6,
+  past_24h: 124,
+  packages_past_24h: 12,
   last_7_days: 1023,
+  packages_last_7_days: 84,
   last_30_days: 3782,
+  packages_last_30_days: 312,
   range_total: 124,
+  packages_range_total: 12,
   by_source: [
-    { source: 'scan', count: 36 },
-    { source: 'auto', count: 78 },
-    { source: 'ipc', count: 10 },
+    { source: 'scan', count: 36, package_count: 0 },
+    { source: 'auto', count: 78, package_count: 12 },
+    { source: 'ipc', count: 10, package_count: 0 },
   ],
 }
 const todayStr = () => new Date().toISOString().slice(0, 10)
@@ -278,5 +284,68 @@ export const printStatsByProvider = async ({ startDate = '', endDate = '' } = {}
 export const printStatsBySticker = async ({ startDate = '', endDate = '' } = {}) => {
   if (!isTauri) return MOCK_STATS_STICKERS
   return await invoke('print_stats_by_sticker', { req: { start_date: startDate, end_date: endDate } })
+}
+
+// 階段 2-5 擴充統計 + 重置 ===================================================
+const MOCK_STATS_SCANNERS = [
+  { scanner_user: '阿仁', count: 92 },
+  { scanner_user: '小婷', count: 48 },
+]
+const MOCK_STATS_HEATMAP = Array.from({ length: 7 }, (_, w) =>
+  Array.from({ length: 24 }, (_, h) => ({ weekday: w, hour: h, count: Math.floor(Math.random() * 30) })),
+).flat()
+const MOCK_STATS_REPRINT = [
+  { print_times: 1, shipment_count: 412 },
+  { print_times: 2, shipment_count: 38 },
+  { print_times: 3, shipment_count: 6 },
+]
+const MOCK_STATS_PROVIDER_SOURCE = [
+  { provider_code: 'H', source: 'auto', count: 40 },
+  { provider_code: 'H', source: 'scan', count: 18 },
+  { provider_code: 'C', source: 'auto', count: 30 },
+  { provider_code: 'C', source: 'ipc', count: 4 },
+]
+const MOCK_STATS_FAILURE = {
+  failure_count: 7,
+  success_count: 124,
+  failure_rate: 0.0534,
+  by_code: [
+    { respond_code: 'NO-DATA', count: 3 },
+    { respond_code: 'PRINT-ERROR', count: 2 },
+    { respond_code: 'ABNORMAL-SHIPMENT', count: 2 },
+  ],
+}
+const MOCK_STATS_COMPARE = [
+  { label: 'week', current: 1023, previous: 932, delta_ratio: 0.0976 },
+  { label: 'month', current: 3782, previous: 3520, delta_ratio: 0.0744 },
+]
+
+export const printStatsByScanner = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_SCANNERS
+  return await invoke('print_stats_by_scanner', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsHeatmap = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_HEATMAP
+  return await invoke('print_stats_heatmap', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsReprint = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_REPRINT
+  return await invoke('print_stats_reprint', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsProviderSource = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_PROVIDER_SOURCE
+  return await invoke('print_stats_provider_source', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsFailure = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_FAILURE
+  return await invoke('print_stats_failure', { req: { start_date: startDate, end_date: endDate } })
+}
+export const printStatsCompare = async () => {
+  if (!isTauri) return MOCK_STATS_COMPARE
+  return await invoke('print_stats_compare')
+}
+export const workSessionReset = async () => {
+  if (!isTauri) return new Date().toISOString().slice(0, 19).replace('T', ' ')
+  return await invoke('work_session_reset')
 }
 

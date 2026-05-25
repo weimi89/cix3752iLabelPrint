@@ -158,9 +158,11 @@ pub async fn cloud_fetch_label(
         }
     }
 
-    // 印單事件:source='scan'(掃描列印).只在拿到 shipping_no 時記錄(印不出來的失敗狀態 shipping_no 為空)
-    if let Some(no) = result.print_shipping_no.as_deref() {
-        if !no.is_empty() {
+    // 印單事件 — LABEL-PROCESS = 成功記 print_event;其他狀態(LABEL-UNUSUAL / STORE-CLOSED /
+    // SHIPPING-UNUSUAL / SHIPPING-REPEAT / ORDER-UNUSUAL)= 失敗,記 print_failure_event
+    let shipping_no_opt = result.print_shipping_no.as_deref().filter(|s| !s.is_empty());
+    if result.print_view_status == "LABEL-PROCESS" {
+        if let Some(no) = shipping_no_opt {
             let insert_res = sqlx::query(
                 "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
                  VALUES ('scan', ?, ?, ?, ?)",
@@ -175,6 +177,18 @@ pub async fn cloud_fetch_label(
                 emit_print_stats_updated(&app, "scan", no);
             }
         }
+    } else {
+        let _ = sqlx::query(
+            "INSERT INTO print_failure_event (source, respond_code, order_sn, shipping_no, scanner_user, sticker_user)
+             VALUES ('scan', ?, ?, ?, ?, ?)",
+        )
+        .bind(&result.print_view_status)
+        .bind(&req.order_sn)
+        .bind(shipping_no_opt)
+        .bind(req.scanner_user.as_deref())
+        .bind(req.sticker_user.as_deref())
+        .execute(&state.db)
+        .await;
     }
 
     Ok(result)
@@ -221,18 +235,28 @@ pub async fn cloud_fetch_cloud_print(
         result.image_path = Some(local_url);
     }
 
-    // 印單事件:source='auto'(自動印單).僅 PRINT-SUCCESS 計入(其他 respond_code 視為失敗 / 異常)
+    // 印單事件:source='auto'(自動印單).僅 PRINT-SUCCESS 計入 print_event;
+    // 其他 respond_code(NO-DATA / PRINT-ERROR / UNCONFIRMED-SHIPMENT / ERROR-SHIPMENT /
+    // ABNORMAL-* / WRAPPER-ERROR / STORE-CLOSED)記 print_failure_event
+    // package_sn 寫入:雲端回應為主、前端傳入為輔(雲端值 None / 空字串時取 req)
+    // scan / ipc 寫入點不帶此欄位,保持 NULL — 那兩個來源本來就沒有「袋」概念
     if result.respond_code == "PRINT-SUCCESS" {
         if let Some(no) = result.shipment_no.as_deref() {
             if !no.is_empty() {
+                let package_sn_for_db: Option<&str> = result
+                    .package_sn
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| req.package_sn.as_deref().filter(|s| !s.is_empty()));
                 let insert_res = sqlx::query(
-                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
-                     VALUES ('auto', ?, ?, ?, ?)",
+                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user, package_sn)
+                     VALUES ('auto', ?, ?, ?, ?, ?)",
                 )
                 .bind(no)
                 .bind(result.provider_code.as_deref())
                 .bind(req.sticker_user.as_deref())
                 .bind(req.scanner_user.as_deref())
+                .bind(package_sn_for_db)
                 .execute(&state.db)
                 .await;
                 if insert_res.is_ok() {
@@ -240,6 +264,19 @@ pub async fn cloud_fetch_cloud_print(
                 }
             }
         }
+    } else {
+        let _ = sqlx::query(
+            "INSERT INTO print_failure_event (source, respond_code, order_sn, shipping_no, respond_message, scanner_user, sticker_user)
+             VALUES ('auto', ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&result.respond_code)
+        .bind(&req.order_sn)
+        .bind(result.shipment_no.as_deref())
+        .bind(result.respond_message.as_deref())
+        .bind(req.scanner_user.as_deref())
+        .bind(req.sticker_user.as_deref())
+        .execute(&state.db)
+        .await;
     }
 
     Ok(result)

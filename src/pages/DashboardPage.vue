@@ -1,12 +1,31 @@
 <script setup>
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useStatusStore } from '@/stores/status'
 import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
+import { workSessionReset } from '@/api/tauri'
 
+const { t } = useI18n()
 const router = useRouter()
 const status = useStatusStore()
 const goPrintStats = () => router.push({ name: 'print-stats' })
+
+const resetDialog = ref(false)
+const resetError = ref('')
+const confirmReset = async () => {
+  try {
+    await workSessionReset()
+    resetDialog.value = false
+    resetError.value = ''
+    await status.refreshPrintStats()
+  } catch (e) {
+    resetError.value = String(e?.message || e)
+  }
+}
+
+// 起算時間 fallback「—」,避免首次載入空字串時版型塌掉
+const summarySinceLabel = computed(() => status.printStats.since_reset_at || '—')
 const {
   osOnline, anchor, cloudApi, checkedAtMs,
   anchorFailStreak, cloudFailStreak, failThreshold, effectiveIntervalSecs,
@@ -53,6 +72,31 @@ const formatBytes = bytes => {
       {{ $t('page.dashboard.previewModeAlert') }}
     </VAlert>
 
+    <!-- 本場累計 banner — 跨日 / 換班 / 計件結算的核心指標,永遠醒目 -->
+    <VCard class="mb-3 card-shadow session-banner">
+      <VCardText class="d-flex align-center gap-4">
+        <VAvatar color="primary" variant="flat" size="56">
+          <VIcon icon="tabler-restore" size="32" />
+        </VAvatar>
+        <div class="flex-grow-1 d-flex flex-column" style="min-width: 0;">
+          <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
+          <div class="text-h2 font-weight-bold text-primary" style="line-height: 1.1;">{{ status.printStats.since_reset }}</div>
+          <div class="text-caption text-medium-emphasis mt-1">
+            <VIcon icon="tabler-clock-play" size="14" class="me-1" />{{ $t('page.printStats.sinceLabel') }} {{ summarySinceLabel }}
+          </div>
+        </div>
+        <VBtn
+          color="warning"
+          variant="flat"
+          prepend-icon="tabler-refresh-dot"
+          size="large"
+          @click="resetDialog = true"
+        >
+          {{ $t('page.printStats.resetBtn') }}
+        </VBtn>
+      </VCardText>
+    </VCard>
+
     <!-- 上半:即時狀態(Middleware / 雲端 / 印單統計) -->
     <VRow dense>
       <VCol cols="12" md="4">
@@ -96,13 +140,8 @@ const formatBytes = bytes => {
             <template #append>
               <div class="d-flex align-center gap-3 pe-1">
                 <div class="text-end">
-                  <div class="text-h5 text-primary">{{ status.printStats.today }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.today') }}</div>
-                </div>
-                <VDivider vertical />
-                <div class="text-end">
-                  <div class="text-h6">{{ status.printStats.yesterday }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.yesterday') }}</div>
+                  <div class="text-h6">{{ status.printStats.past_24h }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
                 </div>
                 <VIcon icon="tabler-chevron-right" class="text-medium-emphasis" />
               </div>
@@ -300,6 +339,22 @@ const formatBytes = bytes => {
     <VAlert v-if="!status.cloud.logged_in && isTauriRuntime" type="warning" variant="tonal" class="mt-4" icon="tabler-alert-triangle">
       {{ $t('page.dashboard.cloudNotLoggedInAlert') }}
     </VAlert>
+
+    <!-- 重置本場累計 — 與 PrintStatsPage 同對話框語意 -->
+    <VDialog v-model="resetDialog" max-width="420">
+      <VCard>
+        <VCardTitle>{{ $t('page.printStats.resetDialogTitle') }}</VCardTitle>
+        <VCardText>
+          {{ $t('page.printStats.resetDialogBody') }}
+          <VAlert v-if="resetError" type="error" variant="tonal" class="mt-2">{{ resetError }}</VAlert>
+        </VCardText>
+        <VCardActions>
+          <VSpacer />
+          <VBtn variant="text" @click="resetDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="primary" variant="flat" @click="confirmReset">{{ $t('page.printStats.resetConfirm') }}</VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
   </div>
 </template>
 
@@ -312,6 +367,16 @@ const formatBytes = bytes => {
     transform: translateY(-1px);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   }
+}
+
+// 本場累計 banner — 主色描邊 + 些微背景強調,讓它「跳出」儀表板首屏
+.session-banner {
+  border-block-start: 3px solid rgb(var(--v-theme-primary));
+  background: linear-gradient(
+    to right,
+    rgba(var(--v-theme-primary), 0.04),
+    rgba(var(--v-theme-primary), 0)
+  );
 }
 
 // Vuetify VListItem 在 #prepend slot 下會塞一個 .v-list-item__spacer (預設 16px) 把圖示推離 content

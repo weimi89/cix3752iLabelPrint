@@ -47,6 +47,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -100,6 +102,13 @@ pub fn run() {
             commands::print_stats_commands::print_stats_hourly,
             commands::print_stats_commands::print_stats_by_provider,
             commands::print_stats_commands::print_stats_by_sticker,
+            commands::print_stats_commands::print_stats_by_scanner,
+            commands::print_stats_commands::print_stats_heatmap,
+            commands::print_stats_commands::print_stats_reprint,
+            commands::print_stats_commands::print_stats_provider_source,
+            commands::print_stats_commands::print_stats_failure,
+            commands::print_stats_commands::print_stats_compare,
+            commands::print_stats_commands::work_session_reset,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");

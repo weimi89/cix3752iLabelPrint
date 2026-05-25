@@ -113,9 +113,9 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 | 平台 | 路徑 |
 |---|---|
-| macOS | `~/Library/Application Support/com.weimi.cix3752i.labelprint/` |
-| Windows | `%APPDATA%\com.weimi.cix3752i.labelprint\` |
-| Linux | `~/.config/com.weimi.cix3752i.labelprint/` |
+| macOS | `~/Library/Application Support/com.weiminet.cix3752i.labelprint/` |
+| Windows | `%APPDATA%\com.weiminet.cix3752i.labelprint\` |
+| Linux | `~/.config/com.weiminet.cix3752i.labelprint/` |
 
 包含:`config.toml`、`labelprint.sqlite`、`logs/`。
 

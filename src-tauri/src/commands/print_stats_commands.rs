@@ -67,11 +67,19 @@ impl RangeReq {
 
 #[derive(Debug, Serialize)]
 pub struct SummaryResp {
-    pub today: i64,
-    pub yesterday: i64,
+    // 本場累計(self-reset session):從 app_setting.work_session_reset_at 開始計
+    pub since_reset_at: String,
+    pub since_reset: i64,
+    pub packages_since_reset: i64,
+    // 過去 24 小時滾動窗口(取代「今日」自然日,避免跨日切割)
+    pub past_24h: i64,
+    pub packages_past_24h: i64,
     pub last_7_days: i64,
+    pub packages_last_7_days: i64,
     pub last_30_days: i64,
+    pub packages_last_30_days: i64,
     pub range_total: i64,
+    pub packages_range_total: i64,
     pub by_source: Vec<SourceCount>,
 }
 
@@ -79,6 +87,8 @@ pub struct SummaryResp {
 pub struct SourceCount {
     pub source: String,
     pub count: i64,
+    /// 該來源的分袋數(僅 auto 來源有意義,scan / ipc 永遠 0)
+    pub package_count: i64,
 }
 
 /// 概況:今日 / 昨日 / 近 7 天 / 近 30 天 / 自訂區間 / 三來源拆分
@@ -89,58 +99,81 @@ pub async fn print_stats_summary(
 ) -> AppResult<SummaryResp> {
     let (range_start, range_end) = req.resolve();
 
-    let today: i64 = sqlx::query(
-        "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
-         WHERE created_at >= date('now','localtime') || ' 00:00:00'",
+    // 本場累計起算時間 — 從 KV 拿(由 migration 初始化、reset command 更新)
+    // value 欄位 schema 為 TEXT(nullable),sqlx 必須先取 Option<String> 再 flatten,
+    // 否則 try_get::<String,_> 對 nullable column 一律拋 Err,被吞成空字串
+    let since_reset_at: String = sqlx::query("SELECT COALESCE(value, '') AS v FROM app_setting WHERE key = 'work_session_reset_at'")
+        .fetch_optional(&state.db)
+        .await?
+        .and_then(|row| row.try_get::<String, _>("v").ok())
+        .unwrap_or_default();
+
+    let since_reset_row = sqlx::query(
+        "SELECT COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event WHERE created_at >= ?",
+    )
+    .bind(&since_reset_at)
+    .fetch_one(&state.db)
+    .await?;
+    let since_reset: i64 = since_reset_row.try_get("n").unwrap_or(0);
+    let packages_since_reset: i64 = since_reset_row.try_get("p").unwrap_or(0);
+
+    // 過去 24 小時滾動 — datetime 而非 date,跨自然日不會被切
+    let past_24h_row = sqlx::query(
+        "SELECT COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event
+         WHERE created_at >= datetime('now','localtime','-24 hours')",
     )
     .fetch_one(&state.db)
-    .await?
-    .try_get("n")
-    .unwrap_or(0);
+    .await?;
+    let past_24h: i64 = past_24h_row.try_get("n").unwrap_or(0);
+    let packages_past_24h: i64 = past_24h_row.try_get("p").unwrap_or(0);
 
-    let yesterday: i64 = sqlx::query(
-        "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
-         WHERE created_at >= date('now','localtime','-1 day') || ' 00:00:00'
-           AND created_at <  date('now','localtime')         || ' 00:00:00'",
-    )
-    .fetch_one(&state.db)
-    .await?
-    .try_get("n")
-    .unwrap_or(0);
-
-    let last_7: i64 = sqlx::query(
-        "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
+    let last_7_row = sqlx::query(
+        "SELECT COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event
          WHERE created_at >= date('now','localtime','-6 days') || ' 00:00:00'",
     )
     .fetch_one(&state.db)
-    .await?
-    .try_get("n")
-    .unwrap_or(0);
+    .await?;
+    let last_7: i64 = last_7_row.try_get("n").unwrap_or(0);
+    let packages_last_7: i64 = last_7_row.try_get("p").unwrap_or(0);
 
-    let last_30: i64 = sqlx::query(
-        "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
+    let last_30_row = sqlx::query(
+        "SELECT COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event
          WHERE created_at >= date('now','localtime','-29 days') || ' 00:00:00'",
     )
     .fetch_one(&state.db)
-    .await?
-    .try_get("n")
-    .unwrap_or(0);
+    .await?;
+    let last_30: i64 = last_30_row.try_get("n").unwrap_or(0);
+    let packages_last_30: i64 = last_30_row.try_get("p").unwrap_or(0);
 
-    let range_total: i64 = sqlx::query(
-        "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
+    let range_row = sqlx::query(
+        "SELECT COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event
          WHERE created_at >= ? AND created_at < ?",
     )
     .bind(&range_start)
     .bind(&range_end)
     .fetch_one(&state.db)
-    .await?
-    .try_get("n")
-    .unwrap_or(0);
+    .await?;
+    let range_total: i64 = range_row.try_get("n").unwrap_or(0);
+    let packages_range_total: i64 = range_row.try_get("p").unwrap_or(0);
 
     // 來源拆分:同一張單在 scan/auto/ipc 多次發生,
-    // 各 source 內各自 DISTINCT(可能加總 > range_total,屬正常)
+    // 各 source 內各自 DISTINCT(可能加總 > range_total,屬正常);
+    // package_count 只 auto 來源有值,scan/ipc 因 package_sn 為 NULL 自動為 0
     let rows = sqlx::query(
-        "SELECT source, COUNT(DISTINCT shipping_no) AS n FROM print_event
+        "SELECT source,
+                COUNT(DISTINCT shipping_no) AS n,
+                COUNT(DISTINCT package_sn)  AS p
+         FROM print_event
          WHERE created_at >= ? AND created_at < ?
          GROUP BY source",
     )
@@ -153,17 +186,39 @@ pub async fn print_stats_summary(
         .map(|r| SourceCount {
             source: r.try_get("source").unwrap_or_default(),
             count: r.try_get("n").unwrap_or(0),
+            package_count: r.try_get("p").unwrap_or(0),
         })
         .collect();
 
     Ok(SummaryResp {
-        today,
-        yesterday,
+        since_reset_at,
+        since_reset,
+        packages_since_reset,
+        past_24h,
+        packages_past_24h,
         last_7_days: last_7,
+        packages_last_7_days: packages_last_7,
         last_30_days: last_30,
+        packages_last_30_days: packages_last_30,
         range_total,
+        packages_range_total,
         by_source,
     })
+}
+
+/// 重置本場累計 — 把 work_session_reset_at 更新為當下,返回新起算時間
+#[tauri::command]
+pub async fn work_session_reset(state: State<'_, SharedState>) -> AppResult<String> {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    sqlx::query(
+        "INSERT INTO app_setting (key, value, updated_at)
+         VALUES ('work_session_reset_at', ?, datetime('now','localtime'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(&now)
+    .execute(&state.db)
+    .await?;
+    Ok(now)
 }
 
 #[derive(Debug, Serialize)]
@@ -358,4 +413,322 @@ pub async fn print_stats_by_sticker(
             count: r.try_get("n").unwrap_or(0),
         })
         .collect())
+}
+
+// =====================================================================
+// 階段 2:scanner_user(操作人員)分組
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ScannerCount {
+    pub scanner_user: String,
+    pub count: i64,
+}
+
+/// 依操作人員分組(scan / auto 來源由前端帶,ipc 沒此欄位)
+#[tauri::command]
+pub async fn print_stats_by_scanner(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<ScannerCount>> {
+    let (s, e) = req.resolve();
+    let rows = sqlx::query(
+        "SELECT scanner_user AS u, COUNT(DISTINCT shipping_no) AS n
+         FROM print_event
+         WHERE created_at >= ? AND created_at < ?
+           AND scanner_user IS NOT NULL AND scanner_user <> ''
+         GROUP BY u
+         ORDER BY n DESC, u",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ScannerCount {
+            scanner_user: r.try_get("u").unwrap_or_default(),
+            count: r.try_get("n").unwrap_or(0),
+        })
+        .collect())
+}
+
+// =====================================================================
+// 階段 3:熱力圖 / 重印分布 / 物流×來源 cross-tab
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct HeatmapCell {
+    /// 0 (Sun) ~ 6 (Sat)
+    pub weekday: i64,
+    /// 0 ~ 23
+    pub hour: i64,
+    pub count: i64,
+}
+
+/// 7 天 × 24 小時熱力圖:DISTINCT shipping_no
+/// 範圍取「最近 N 天」(預設 30),用整體分布看尖峰時段
+#[tauri::command]
+pub async fn print_stats_heatmap(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<HeatmapCell>> {
+    let (s, e) = req.resolve();
+    // strftime('%w') 回 '0'(Sun) ~ '6'(Sat),'%H' 回 '00' ~ '23'
+    let rows = sqlx::query(
+        "SELECT CAST(strftime('%w', created_at) AS INTEGER) AS w,
+                CAST(strftime('%H', created_at) AS INTEGER) AS h,
+                COUNT(DISTINCT shipping_no) AS n
+         FROM print_event
+         WHERE created_at >= ? AND created_at < ?
+         GROUP BY w, h",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| HeatmapCell {
+            weekday: r.try_get("w").unwrap_or(0),
+            hour: r.try_get("h").unwrap_or(0),
+            count: r.try_get("n").unwrap_or(0),
+        })
+        .collect())
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReprintBucket {
+    /// 該張單在區間內被列印的次數
+    pub print_times: i64,
+    /// 落在此 bucket 的張數
+    pub shipment_count: i64,
+}
+
+/// 重印分布:統計區間內每張單被印幾次(1=只印一次 / 2=印過 2 次 / ...)
+#[tauri::command]
+pub async fn print_stats_reprint(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<ReprintBucket>> {
+    let (s, e) = req.resolve();
+    let rows = sqlx::query(
+        "WITH per_ship AS (
+           SELECT shipping_no, COUNT(*) AS c
+           FROM print_event
+           WHERE created_at >= ? AND created_at < ?
+           GROUP BY shipping_no
+         )
+         SELECT c AS print_times, COUNT(*) AS shipment_count
+         FROM per_ship
+         GROUP BY c
+         ORDER BY c",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ReprintBucket {
+            print_times: r.try_get("print_times").unwrap_or(0),
+            shipment_count: r.try_get("shipment_count").unwrap_or(0),
+        })
+        .collect())
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderSourceCell {
+    pub provider_code: String,
+    pub source: String,
+    pub count: i64,
+}
+
+/// 物流商 × 來源 cross-tab:每組合的去重面單數
+#[tauri::command]
+pub async fn print_stats_provider_source(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<ProviderSourceCell>> {
+    let (s, e) = req.resolve();
+    let rows = sqlx::query(
+        "SELECT COALESCE(provider_code,'') AS p,
+                source AS s,
+                COUNT(DISTINCT shipping_no) AS n
+         FROM print_event
+         WHERE created_at >= ? AND created_at < ?
+         GROUP BY p, s
+         ORDER BY p, s",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ProviderSourceCell {
+            provider_code: r.try_get("p").unwrap_or_default(),
+            source: r.try_get("s").unwrap_or_default(),
+            count: r.try_get("n").unwrap_or(0),
+        })
+        .collect())
+}
+
+// =====================================================================
+// 階段 4:失敗 / 異常率
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct FailureBucket {
+    pub respond_code: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FailureResp {
+    /// 區間內失敗事件數
+    pub failure_count: i64,
+    /// 同區間內成功 events 數(來自 print_event)— 用於計算失敗率
+    pub success_count: i64,
+    /// failure_count / (failure_count + success_count),四捨五入到小數 4 位
+    pub failure_rate: f64,
+    pub by_code: Vec<FailureBucket>,
+}
+
+/// 失敗率與分類:從 print_failure_event 拉
+#[tauri::command]
+pub async fn print_stats_failure(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<FailureResp> {
+    let (s, e) = req.resolve();
+
+    let failure_count: i64 = sqlx::query(
+        "SELECT COUNT(*) AS n FROM print_failure_event WHERE created_at >= ? AND created_at < ?",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_one(&state.db)
+    .await?
+    .try_get("n")
+    .unwrap_or(0);
+
+    let success_count: i64 = sqlx::query(
+        "SELECT COUNT(*) AS n FROM print_event WHERE created_at >= ? AND created_at < ?",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_one(&state.db)
+    .await?
+    .try_get("n")
+    .unwrap_or(0);
+
+    let total = failure_count + success_count;
+    let failure_rate = if total > 0 {
+        (failure_count as f64 / total as f64 * 10000.0).round() / 10000.0
+    } else {
+        0.0
+    };
+
+    let rows = sqlx::query(
+        "SELECT respond_code, COUNT(*) AS n FROM print_failure_event
+         WHERE created_at >= ? AND created_at < ?
+         GROUP BY respond_code
+         ORDER BY n DESC",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    let by_code: Vec<FailureBucket> = rows
+        .into_iter()
+        .map(|r| FailureBucket {
+            respond_code: r.try_get("respond_code").unwrap_or_default(),
+            count: r.try_get("n").unwrap_or(0),
+        })
+        .collect();
+
+    Ok(FailureResp {
+        failure_count,
+        success_count,
+        failure_rate,
+        by_code,
+    })
+}
+
+// =====================================================================
+// 階段 5:歷史比對(本週 vs 上週 / 本月 vs 上月)
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ComparePeriod {
+    pub label: String,
+    pub current: i64,
+    pub previous: i64,
+    /// (current - previous) / previous;previous = 0 時為 None(無法計算)
+    pub delta_ratio: Option<f64>,
+}
+
+/// 本週 vs 上週、本月 vs 上月,皆用 DISTINCT shipping_no
+#[tauri::command]
+pub async fn print_stats_compare(state: State<'_, SharedState>) -> AppResult<Vec<ComparePeriod>> {
+    let now = chrono::Local::now().naive_local();
+    let today = now.date();
+
+    // 「本週」定義為「最近 7 天」(含今天往前 6 天),非 ISO week,簡單對齊使用者直覺
+    let week_now_start = today - chrono::Duration::days(6);
+    let week_prev_end = week_now_start; // open upper bound
+    let week_prev_start = week_now_start - chrono::Duration::days(7);
+
+    // 本月 = 今天往前 30 天,上月 = 前 30 天
+    let month_now_start = today - chrono::Duration::days(29);
+    let month_prev_end = month_now_start;
+    let month_prev_start = month_now_start - chrono::Duration::days(30);
+
+    async fn count_in(
+        db: &sqlx::SqlitePool,
+        start: chrono::NaiveDate,
+        end_exclusive: chrono::NaiveDate,
+    ) -> sqlx::Result<i64> {
+        let s = format!("{} 00:00:00", start.format("%Y-%m-%d"));
+        let e = format!("{} 00:00:00", end_exclusive.format("%Y-%m-%d"));
+        let row = sqlx::query(
+            "SELECT COUNT(DISTINCT shipping_no) AS n FROM print_event
+             WHERE created_at >= ? AND created_at < ?",
+        )
+        .bind(&s)
+        .bind(&e)
+        .fetch_one(db)
+        .await?;
+        Ok(row.try_get::<i64, _>("n").unwrap_or(0))
+    }
+
+    let tomorrow = today + chrono::Duration::days(1);
+    let week_current = count_in(&state.db, week_now_start, tomorrow).await?;
+    let week_previous = count_in(&state.db, week_prev_start, week_prev_end).await?;
+    let month_current = count_in(&state.db, month_now_start, tomorrow).await?;
+    let month_previous = count_in(&state.db, month_prev_start, month_prev_end).await?;
+
+    let ratio = |cur: i64, prev: i64| -> Option<f64> {
+        if prev == 0 {
+            None
+        } else {
+            Some(((cur - prev) as f64 / prev as f64 * 10000.0).round() / 10000.0)
+        }
+    };
+
+    Ok(vec![
+        ComparePeriod {
+            label: "week".into(),
+            current: week_current,
+            previous: week_previous,
+            delta_ratio: ratio(week_current, week_previous),
+        },
+        ComparePeriod {
+            label: "month".into(),
+            current: month_current,
+            previous: month_previous,
+            delta_ratio: ratio(month_current, month_previous),
+        },
+    ])
 }

@@ -52,7 +52,7 @@ cat > "$PLIST" <<PLIST_EOF
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleExecutable</key><string>$BIN_NAME</string>
-    <key>CFBundleIdentifier</key><string>com.weimi.cix3752i.labelprint.dev</string>
+    <key>CFBundleIdentifier</key><string>com.weiminet.cix3752i.labelprint.dev</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0-dev</string>
     <key>CFBundleVersion</key><string>0.1.0-dev</string>
