@@ -115,7 +115,8 @@ watch(PRINT_TYPE_OPTIONS, opts => {
 
 const packageOrders = ref([])
 // 本場未刷件數 — 一袋三十幾件時,作業員不必滾捲軸數就能看到還剩多少
-const unprintedCount = computed(() => packageOrders.value.filter(o => !o._printed).length)
+// 「未刷」= 本場沒刷(_printed)且歷史上也沒刷過(last_print_time);只要有列印時間就算已刷
+const unprintedCount = computed(() => packageOrders.value.filter(o => !o._printed && !o.last_print_time).length)
 // 整袋刷完(必須先有包裹,空袋不算「完成」)→ 標題列底色變綠提示;
 // 未刷數字本身就是橘色,不必另外算
 const allPrinted = computed(() => packageOrders.value.length > 0 && unprintedCount.value === 0)
@@ -196,6 +197,16 @@ const handleExaminePackage = async () => {
       toast(t('page.auto.toast.packageLoaded', { sn: data.package_sn, n: data.orders?.length || 0 }), { type: 'success' })
       // ON 模式下第二個欄位隱藏了,焦點留在 shipmentNoRef 讓使用者繼續刷下一筆
       nextTick(() => (examineByOrderSn.value ? shipmentNoRef.value?.focus() : orderSnRef.value?.focus()))
+      // ON 模式 + 已分袋 → 刷的就是訂單編號,載入清單後立即列印該筆,不必再刷一次
+      // (原本只在 NO-PACKAGE-DATA 走 fallback 直接印,FIND-PACKAGE-ORDER 卻只載清單不出單,違反「反查模式 = 直接出單」預期)
+      if (examineByOrderSn.value) {
+        const r = await performPrintOrder(value, { packageSn: data.package_sn || '' })
+        if (r.success && r.data) {
+          packageOrders.value = packageOrders.value.map(o =>
+            o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
+          )
+        }
+      }
     } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
       if (examineByOrderSn.value) {
         // mode ON + 沒袋號 → 直接列印單張,結果累積到右側清單

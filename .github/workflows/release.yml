@@ -367,6 +367,11 @@ jobs:
           ls -l /usr/lib/x86_64-linux-gnu/libglib-2.0.so* | head -5
 
       - name: Tauri build .deb
+        env:
+          # tauri.conf.json 有 updater pubkey,build 階段會檢查私鑰存在;
+          # 沒設這兩個變數會直接 abort(v0.4.0 三個 distro 都掛在這裡)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri:build -- --bundles deb
 
       # Tauri 用 productName(中文)當 .deb Package 名,違反 Debian 規範(只允許小寫
