@@ -209,14 +209,16 @@ const handleExaminePackage = async () => {
       }
     } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
       if (examineByOrderSn.value) {
-        // mode ON + 沒袋號 → 直接列印單張,結果累積到右側清單
+        // mode ON + 沒袋號 → 直接列印單張,清單只顯示當下這筆,不累加
+        // 若上一筆是有袋號清單(FIND-PACKAGE-ORDER 載入 N 筆),這一筆會清掉整個舊清單 + 舊袋號,
+        // 只剩當下單筆,避免畫面殘留誤導
         const r = await performPrintOrder(value, { packageSn: '' })
         form.shipment_no = ''
+        form.package_sn = ''
         nextTick(() => shipmentNoRef.value?.focus())
         if (r.success && r.data) {
           const provName = ALL_PROVIDER_ITEMS.value.find(p => p.value === r.data.provider_code)?.title || ''
           packageOrders.value = [
-            ...packageOrders.value,
             {
               order_sn: value,
               shipping_no: r.data.shipment_no || '',
@@ -226,6 +228,8 @@ const handleExaminePackage = async () => {
               _printed: true,
             },
           ]
+        } else {
+          packageOrders.value = []
         }
       } else {
         playSound('effect_2')
