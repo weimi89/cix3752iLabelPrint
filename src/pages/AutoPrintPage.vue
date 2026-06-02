@@ -2,7 +2,9 @@
 import { toast } from 'vue3-toastify'
 import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
 import { playSound } from '@/composables/useSoundEffects'
+import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppHeader from '@/components/AppHeader.vue'
+import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -78,6 +80,11 @@ const form = reactive({
 })
 watch(() => form.scanner_user, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
 watch(() => form.sticker_user, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
+
+// 人員歷史名單(操作/貼單/貼標共用同一份)
+const { history: stickerHistory, reload: reloadStickerHistory, add: addStickerHistory, remove: removeSticker } = useStickerHistory()
+const removeStickerFromHistory = name => removeSticker(name).catch(e => console.warn('刪除歷史人員失敗', e))
+const rememberUser = name => addStickerHistory(name).catch(e => console.warn('記住人員失敗', e))
 watch(() => form.print_types, v => localStorage.setItem(PRINT_TYPE_KEY, JSON.stringify(v || [])), { deep: true })
 watch(printTypeMultiple, v => {
   localStorage.setItem(PRINT_TYPE_MULTIPLE_KEY, v ? '1' : '0')
@@ -135,6 +142,9 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
   if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return { success: false } }
   if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return { success: false } }
   if (!form.print_types.length) { playSound('effect_2'); toast(t('page.auto.toast.errPrintTypeRequired'), { type: 'error' }); return { success: false } }
+
+  rememberUser(form.scanner_user)
+  rememberUser(form.sticker_user)
 
   try {
     const data = await cloudFetchCloudPrint(orderSn, {
@@ -263,7 +273,10 @@ const handlePrintSubmit = async () => {
 
 const isAnyPrinterReady = computed(() => Object.keys(printerMap.value).length > 0)
 
-onMounted(() => shipmentNoRef.value?.focus())
+onMounted(() => {
+  shipmentNoRef.value?.focus()
+  reloadStickerHistory()
+})
 </script>
 
 <template>
@@ -308,18 +321,30 @@ onMounted(() => shipmentNoRef.value?.focus())
             </span>
           </VCardTitle>
           <VCardText>
-            <div class="d-flex gap-3 my-3">
-              <div class="flex-grow-1">
+            <div class="d-flex ga-3 my-3">
+              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                 </VLabel>
-                <VTextField v-model="form.scanner_user" />
+                <PersonnelCombobox
+                  v-model="form.scanner_user"
+                  :items="stickerHistory"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
-              <div class="flex-grow-1">
+              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                 </VLabel>
-                <VTextField v-model="form.sticker_user" />
+                <PersonnelCombobox
+                  v-model="form.sticker_user"
+                  :items="stickerHistory"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
             </div>
             <div class="mb-3">

@@ -3,10 +3,10 @@ import {
   sortChannelList,
   sortChannelSave,
   dispatchProviderList,
-  stickerHistoryList,
-  stickerHistoryDelete,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
+import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -14,7 +14,8 @@ const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNA
 
 const channels = ref([]) // 後端回來的 8 筆,position L1..R4
 const dispatchOptions = ref([])
-const stickerHistory = ref([])
+// 人員歷史名單(與掃描/自動列印頁共用同一份)
+const { history: stickerHistory, reload: reloadStickerHistory, add: addStickerHistory, remove: removeSticker } = useStickerHistory()
 const dirty = ref(new Set()) // 紀錄哪些 position 被改過
 const loading = ref(false)
 const savingAll = ref(false)
@@ -38,14 +39,13 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch, sticker] = await Promise.all([
+    const [list, dispatch] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
-      stickerHistoryList(),
+      reloadStickerHistory(),
     ])
     channels.value = list
     dispatchOptions.value = dispatch
-    stickerHistory.value = sticker
     dirty.value = new Set()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
@@ -90,12 +90,13 @@ const saveAll = async () => {
 
 const removeStickerFromHistory = async name => {
   try {
-    await stickerHistoryDelete(name)
-    stickerHistory.value = stickerHistory.value.filter(n => n !== name)
+    await removeSticker(name)
   } catch (e) {
     errorMsg.value = String(e?.message || e)
   }
 }
+// 輸入貼標人員當下即記入共用歷史(不必等整列儲存)
+const rememberUser = name => addStickerHistory(name).catch(e => console.warn('記住人員失敗', e))
 </script>
 
 <style scoped lang="scss">
@@ -249,7 +250,7 @@ const removeStickerFromHistory = async name => {
               </div>
               <div class="search-field">
                 <label>{{ $t('page.sort.sticker') }}</label>
-                <VCombobox
+                <PersonnelCombobox
                   v-model="findChannel(pos).job_sticker"
                   :items="stickerHistory"
                   :placeholder="$t('page.sort.stickerPlaceholder')"
@@ -258,20 +259,9 @@ const removeStickerFromHistory = async name => {
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
-                >
-                  <template #item="{ item, props: itemProps }">
-                    <VListItem v-bind="itemProps" :title="item.raw">
-                      <template #append>
-                        <VBtn
-                          icon="tabler-x"
-                          size="x-small"
-                          variant="text"
-                          @click.stop="removeStickerFromHistory(item.raw)"
-                        />
-                      </template>
-                    </VListItem>
-                  </template>
-                </VCombobox>
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
             </template>
           </div>
@@ -326,7 +316,7 @@ const removeStickerFromHistory = async name => {
               </div>
               <div class="search-field">
                 <label>{{ $t('page.sort.sticker') }}</label>
-                <VCombobox
+                <PersonnelCombobox
                   v-model="findChannel(pos).job_sticker"
                   :items="stickerHistory"
                   :placeholder="$t('page.sort.stickerPlaceholder')"
@@ -335,20 +325,9 @@ const removeStickerFromHistory = async name => {
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
-                >
-                  <template #item="{ item, props: itemProps }">
-                    <VListItem v-bind="itemProps" :title="item.raw">
-                      <template #append>
-                        <VBtn
-                          icon="tabler-x"
-                          size="x-small"
-                          variant="text"
-                          @click.stop="removeStickerFromHistory(item.raw)"
-                        />
-                      </template>
-                    </VListItem>
-                  </template>
-                </VCombobox>
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
             </template>
           </div>

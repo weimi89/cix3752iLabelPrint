@@ -2,9 +2,26 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
-use crate::{AppError, AppResult, SharedState};
+use crate::{db::DbPool, AppError, AppResult, SharedState};
 
 pub const POSITIONS: [&str; 8] = ["L1", "L2", "L3", "L4", "R1", "R2", "R3", "R4"];
+
+/// 將人員姓名寫入共用歷史名單(操作 / 貼單 / 貼標人員三者共用同一份),
+/// 已存在則只更新 used_at。空字串不寫入。
+pub async fn upsert_sticker_history(db: &DbPool, name: &str) -> AppResult<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO sticker_history (name, used_at) VALUES (?, datetime('now'))
+         ON CONFLICT(name) DO UPDATE SET used_at = datetime('now')",
+    )
+    .bind(name)
+    .execute(db)
+    .await?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SortChannel {
@@ -97,16 +114,16 @@ pub async fn sort_channel_save(
 
     // 寫入 sticker 歷史（給 autocomplete）
     if let Some(name) = job_sticker.as_deref() {
-        sqlx::query(
-            "INSERT INTO sticker_history (name, used_at) VALUES (?, datetime('now'))
-             ON CONFLICT(name) DO UPDATE SET used_at = datetime('now')",
-        )
-        .bind(name)
-        .execute(&state.db)
-        .await?;
+        upsert_sticker_history(&state.db, name).await?;
     }
 
     Ok(())
+}
+
+/// 前端主動把人員姓名加入歷史名單(掃描/自動列印頁送出時呼叫)。
+#[tauri::command]
+pub async fn sticker_history_add(state: State<'_, SharedState>, name: String) -> AppResult<()> {
+    upsert_sticker_history(&state.db, &name).await
 }
 
 #[tauri::command]

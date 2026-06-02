@@ -13,6 +13,7 @@ declare module 'vue' {
     AppNavbar: typeof import('./components/AppNavbar.vue')['default']
     LocaleSwitcher: typeof import('./components/LocaleSwitcher.vue')['default']
     NetworkStatusIndicator: typeof import('./components/NetworkStatusIndicator.vue')['default']
+    PersonnelCombobox: typeof import('./components/PersonnelCombobox.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     TablePagination: typeof import('./components/TablePagination.vue')['default']

@@ -93,6 +93,7 @@ pub fn run() {
             commands::sort_channel_commands::sort_channel_list,
             commands::sort_channel_commands::sort_channel_save,
             commands::sort_channel_commands::sticker_history_list,
+            commands::sort_channel_commands::sticker_history_add,
             commands::sort_channel_commands::sticker_history_delete,
             commands::health_commands::network_health_get,
             commands::health_commands::network_health_check,

@@ -3,8 +3,10 @@ import { toast } from 'vue3-toastify'
 import { useRouter } from 'vue-router'
 import { cloudFetchLabel, printImage } from '@/api/tauri'
 import { isPrintable, statusLabel, statusIcon, statusGroupColor, errorMessageFromException } from '@/composables/useLabelStatus'
+import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -61,6 +63,12 @@ const scannerUser = ref(localStorage.getItem(SCANNER_USER_KEY) || '')
 const stickerUser = ref(localStorage.getItem(STICKER_USER_KEY) || '')
 watch(scannerUser, v => localStorage.setItem(SCANNER_USER_KEY, v || ''))
 watch(stickerUser, v => localStorage.setItem(STICKER_USER_KEY, v || ''))
+
+// 人員歷史名單(操作/貼單/貼標共用同一份)
+const { history: stickerHistory, reload: reloadStickerHistory, add: addStickerHistory, remove: removeSticker } = useStickerHistory()
+onMounted(() => reloadStickerHistory())
+const removeStickerFromHistory = name => removeSticker(name).catch(e => console.warn('刪除歷史人員失敗', e))
+const rememberUser = name => addStickerHistory(name).catch(e => console.warn('記住人員失敗', e))
 watch(printTypes, v => localStorage.setItem(PRINT_TYPE_KEY, JSON.stringify(v || [])), { deep: true })
 watch(printTypeMultiple, v => {
   localStorage.setItem(PRINT_TYPE_MULTIPLE_KEY, v ? '1' : '0')
@@ -217,6 +225,8 @@ const handleQuery = async () => {
   if (!stickerUser.value.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return }
   if (!printTypes.value.length) { toast(t('page.scan.errPrintTypeRequired'), { type: 'error' }); return }
   if (orderSnList.value.length === 0) return
+  rememberUser(scannerUser.value)
+  rememberUser(stickerUser.value)
   initPrintList(orderSnList.value)
   orderSnList.value = []
   await processShipments()
@@ -374,18 +384,30 @@ const groupedStatus = computed(() => {
             </span>
           </VCardTitle>
           <VCardText>
-            <div class="d-flex gap-3 my-3">
-              <div class="flex-grow-1">
+            <div class="d-flex ga-3 my-3">
+              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                 </VLabel>
-                <VTextField v-model="scannerUser" />
+                <PersonnelCombobox
+                  v-model="scannerUser"
+                  :items="stickerHistory"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
-              <div class="flex-grow-1">
+              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
                 <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
                   {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                 </VLabel>
-                <VTextField v-model="stickerUser" />
+                <PersonnelCombobox
+                  v-model="stickerUser"
+                  :items="stickerHistory"
+                  :placeholder="$t('page.sort.stickerPlaceholder')"
+                  @remember="rememberUser"
+                  @remove="removeStickerFromHistory"
+                />
               </div>
             </div>
             <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />

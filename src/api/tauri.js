@@ -162,6 +162,10 @@ export const stickerHistoryList = async () => {
   if (!isTauri) return ['王小明', '陳大華', '林美麗']
   return await invoke('sticker_history_list')
 }
+export const stickerHistoryAdd = name => {
+  if (!isTauri) return Promise.resolve()
+  return invoke('sticker_history_add', { name })
+}
 export const stickerHistoryDelete = name => {
   if (!isTauri) return Promise.resolve(0)
   return invoke('sticker_history_delete', { name })
