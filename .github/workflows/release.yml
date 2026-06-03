@@ -70,6 +70,26 @@ jobs:
       - name: Install npm deps
         run: npm install
 
+      # 依 tag 從 CHANGELOG.md 抽出對應段落 → 注入下方 releaseBody(同時進 latest.json notes,
+      # in-app 更新提示就會顯示本次變更)。shell: bash 讓 Windows runner 也能跑 awk(git-bash)
+      - name: Extract changelog notes
+        id: changelog
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          CHANGES=$(awk -v tag="$TAG" '
+            $0 ~ "^## " tag "([^0-9]|$)" { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          {
+            echo "notes<<CHANGELOG_EOF"
+            if [ -n "$(printf '%s' "$CHANGES" | tr -d '[:space:]')" ]; then
+              printf '## 本次更新\n\n%s\n' "$CHANGES"
+            fi
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build & Release with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
@@ -81,6 +101,8 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: '智配通 面單列印 ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: |
+            ${{ steps.changelog.outputs.notes }}
+
             ## 安裝包
 
             | 平台 | 檔案 |
