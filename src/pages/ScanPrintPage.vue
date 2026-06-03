@@ -367,134 +367,134 @@ const groupedStatus = computed(() => {
     <VRow>
       <VCol cols="12" lg="5">
         <div class="left-sticky">
-        <VCard>
-          <VCardTitle class="d-flex align-center px-4 py-2 bg-grey-300 multi-switch-row" style="min-height: 58px;">
-            <VIcon size="22" icon="tabler-printer" class="me-2" />
-            <span>{{ $t('page.scan.printLabelTitle') }}</span>
-            <VSpacer />
-            <VSwitch
-              v-model="printTypeMultiple"
-              color="primary"
-              density="compact"
-              hide-details
-              inset
-            />
-            <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
-              {{ $t('page.scan.printScopeMultiple') }}
-            </span>
-          </VCardTitle>
-          <VCardText>
-            <div class="d-flex ga-3 my-3">
-              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
-                  {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
+          <VCard>
+            <VCardTitle class="d-flex align-center px-4 py-2 bg-grey-300 multi-switch-row" style="min-height: 58px;">
+              <VIcon size="22" icon="tabler-printer" class="me-2" />
+              <span>{{ $t('page.scan.printLabelTitle') }}</span>
+              <VSpacer />
+              <VSwitch
+                v-model="printTypeMultiple"
+                color="primary"
+                density="compact"
+                hide-details
+                inset
+              />
+              <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+                {{ $t('page.scan.printScopeMultiple') }}
+              </span>
+            </VCardTitle>
+            <VCardText>
+              <div class="d-flex ga-3 my-3">
+                <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
+                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                    {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
+                  </VLabel>
+                  <PersonnelCombobox
+                    v-model="scannerUser"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
+                <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
+                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                    {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
+                  </VLabel>
+                  <PersonnelCombobox
+                    v-model="stickerUser"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
+              </div>
+              <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
+              <div v-if="totalItems > 0" class="mt-3">
+                <div class="d-flex justify-space-between mb-1">
+                  <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
+                  <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
+                </div>
+                <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
+              </div>
+              <div class="mt-3">
+                <VLabel
+                  class="mb-1 text-body-2"
+                  style="line-height: 15px;"
+                  :class="{ 'text-error font-weight-bold': printTypeMultiple }"
+                >
+                  {{ $t('page.scan.printScope') }}
                 </VLabel>
-                <PersonnelCombobox
-                  v-model="scannerUser"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
-                />
+                <div
+                  v-if="PRINT_TYPE_OPTIONS.length > 0"
+                  class="print-type-checkboxes d-flex flex-wrap px-1"
+                  :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
+                >
+                  <VCheckbox
+                    v-for="opt in PRINT_TYPE_OPTIONS"
+                    :key="opt.value"
+                    :model-value="printTypes.includes(opt.value)"
+                    :label="opt.title"
+                    hide-details
+                    @update:model-value="checked => togglePrintType(opt.value, checked)"
+                  />
+                </div>
+                <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                  {{ $t('common.noPrintersConfigured') }}
+                </div>
               </div>
-              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
-                  {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
-                </VLabel>
-                <PersonnelCombobox
-                  v-model="stickerUser"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
-                />
-              </div>
-            </div>
-            <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
-            <div v-if="totalItems > 0" class="mt-3">
-              <div class="d-flex justify-space-between mb-1">
-                <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
-                <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
-              </div>
-              <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
-            </div>
-            <div class="mt-3">
-              <VLabel
-                class="mb-1 text-body-2"
-                style="line-height: 15px;"
-                :class="{ 'text-error font-weight-bold': printTypeMultiple }"
-              >
-                {{ $t('page.scan.printScope') }}
-              </VLabel>
-              <div
-                v-if="PRINT_TYPE_OPTIONS.length > 0"
-                class="print-type-checkboxes d-flex flex-wrap px-1"
-                :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
-              >
-                <VCheckbox
-                  v-for="opt in PRINT_TYPE_OPTIONS"
-                  :key="opt.value"
-                  :model-value="printTypes.includes(opt.value)"
-                  :label="opt.title"
-                  hide-details
-                  @update:model-value="checked => togglePrintType(opt.value, checked)"
-                />
-              </div>
-              <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
-                {{ $t('common.noPrintersConfigured') }}
-              </div>
-            </div>
 
-            <div v-if="isPrinting || printProgress.total > 0 && printProgress.done < printProgress.total" class="mt-3">
-              <div class="d-flex justify-space-between mb-1">
-                <span class="text-xs text-medium-emphasis">{{ $t('page.scan.printProgress') }}</span>
-                <span class="text-xs text-medium-emphasis">{{ printProgress.done }} / {{ printProgress.total }}（{{ printProgressPct }}%）</span>
+              <div v-if="isPrinting || printProgress.total > 0 && printProgress.done < printProgress.total" class="mt-3">
+                <div class="d-flex justify-space-between mb-1">
+                  <span class="text-xs text-medium-emphasis">{{ $t('page.scan.printProgress') }}</span>
+                  <span class="text-xs text-medium-emphasis">{{ printProgress.done }} / {{ printProgress.total }}（{{ printProgressPct }}%）</span>
+                </div>
+                <VProgressLinear :model-value="printProgressPct" color="success" height="6" rounded :indeterminate="isPrinting && printProgress.total === 0" />
               </div>
-              <VProgressLinear :model-value="printProgressPct" color="success" height="6" rounded :indeterminate="isPrinting && printProgress.total === 0" />
-            </div>
-          </VCardText>
-        </VCard>
+            </VCardText>
+          </VCard>
 
-        <VAlert
-          v-if="printSummary"
-          :type="printSummaryColor"
-          variant="tonal"
-          density="compact"
-          class="mt-3"
-          closable
-          @click:close="printSummary = null"
-        >
-          <div>
-            <i18n-t keypath="page.scan.summaryLine" tag="span">
-              <template #ok>{{ printSummary.ok }}</template>
-              <template #failPart>
-                <span v-if="printSummary.fail > 0">{{ $t('page.scan.summaryFail', { n: printSummary.fail }) }}</span>
-              </template>
-              <template #skipPart>
-                <span v-if="printSummary.skip > 0">{{ $t('page.scan.summarySkip', { n: printSummary.skip }) }}</span>
-              </template>
-            </i18n-t>
+          <VAlert
+            v-if="printSummary"
+            :type="printSummaryColor"
+            variant="tonal"
+            density="compact"
+            class="mt-3"
+            closable
+            @click:close="printSummary = null"
+          >
+            <div>
+              <i18n-t keypath="page.scan.summaryLine" tag="span">
+                <template #ok>{{ printSummary.ok }}</template>
+                <template #failPart>
+                  <span v-if="printSummary.fail > 0">{{ $t('page.scan.summaryFail', { n: printSummary.fail }) }}</span>
+                </template>
+                <template #skipPart>
+                  <span v-if="printSummary.skip > 0">{{ $t('page.scan.summarySkip', { n: printSummary.skip }) }}</span>
+                </template>
+              </i18n-t>
+            </div>
+            <ul v-if="printErrors.length > 0" class="mt-1 ps-4 text-xs">
+              <li v-for="(err, idx) in printErrors.slice(0, 5)" :key="idx">{{ err.sn }}：{{ err.message }}</li>
+              <li v-if="printErrors.length > 5">{{ $t('page.scan.summaryMoreErrors', { n: printErrors.length - 5 }) }}</li>
+            </ul>
+          </VAlert>
+
+          <div class="d-flex justify-center gap-2 mt-3">
+            <VBtn v-if="!isProcessing" color="primary" :disabled="orderSnList.length === 0 || isPrinting" @click="handleQuery">
+              <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
+            </VBtn>
+            <VBtn v-else color="error" @click="stopProcessing">
+              <VIcon icon="tabler-player-stop" class="me-1" />{{ $t('common.stop') }}
+            </VBtn>
+            <VBtn v-if="!isProcessing && successItems > 0" color="success" :loading="isPrinting" :disabled="isPrinting || completedItems < totalItems" @click="handlePrintAll">
+              <VIcon icon="tabler-printer" class="me-1" />
+              <template v-if="isPrinting">{{ $t('page.scan.btnPrinting', { done: printProgress.done, total: printProgress.total }) }}</template>
+              <template v-else-if="completedItems < totalItems">{{ $t('page.scan.btnLoadingLabels', { done: completedItems, total: totalItems }) }}</template>
+              <template v-else>{{ $t('page.scan.btnPrintAll', { n: successItems }) }}</template>
+            </VBtn>
           </div>
-          <ul v-if="printErrors.length > 0" class="mt-1 ps-4 text-xs">
-            <li v-for="(err, idx) in printErrors.slice(0, 5)" :key="idx">{{ err.sn }}：{{ err.message }}</li>
-            <li v-if="printErrors.length > 5">{{ $t('page.scan.summaryMoreErrors', { n: printErrors.length - 5 }) }}</li>
-          </ul>
-        </VAlert>
-
-        <div class="d-flex justify-center gap-2 mt-3">
-          <VBtn v-if="!isProcessing" color="primary" :disabled="orderSnList.length === 0 || isPrinting" @click="handleQuery">
-            <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
-          </VBtn>
-          <VBtn v-else color="error" @click="stopProcessing">
-            <VIcon icon="tabler-player-stop" class="me-1" />{{ $t('common.stop') }}
-          </VBtn>
-          <VBtn v-if="!isProcessing && successItems > 0" color="success" :loading="isPrinting" :disabled="isPrinting || completedItems < totalItems" @click="handlePrintAll">
-            <VIcon icon="tabler-printer" class="me-1" />
-            <template v-if="isPrinting">{{ $t('page.scan.btnPrinting', { done: printProgress.done, total: printProgress.total }) }}</template>
-            <template v-else-if="completedItems < totalItems">{{ $t('page.scan.btnLoadingLabels', { done: completedItems, total: totalItems }) }}</template>
-            <template v-else>{{ $t('page.scan.btnPrintAll', { n: successItems }) }}</template>
-          </VBtn>
-        </div>
         </div>
 
         <VCard v-if="Object.keys(groupedStatus).length > 0" class="mt-3" variant="flat" border>

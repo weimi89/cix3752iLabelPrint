@@ -452,6 +452,7 @@
       "totalCount": "總筆數",
       "unprintedCount": "未刷",
       "allPrinted": "全部完成",
+      "printing": "列印中",
       "noScannedPackage": "尚未掃描包裹",
       "noCode": "無 code",
       "col": {

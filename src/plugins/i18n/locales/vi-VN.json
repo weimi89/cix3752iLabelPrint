@@ -452,6 +452,7 @@
       "totalCount": "Tổng số",
       "unprintedCount": "Chưa quét",
       "allPrinted": "Hoàn tất",
+      "printing": "Đang in",
       "noScannedPackage": "Chưa quét kiện hàng",
       "noCode": "không có code",
       "col": {

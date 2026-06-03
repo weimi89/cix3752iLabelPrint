@@ -136,8 +136,33 @@ const formatNow = () => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+// 列印前必填驗證 — 同步呼叫,讓呼叫端在「清空欄位/排入佇列」之前先擋下,失敗就不清掉已刷的條碼
+const validatePrintForm = () => {
+  if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return false }
+  if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return false }
+  if (!form.print_types.length) { playSound('effect_2'); toast(t('page.auto.toast.errPrintTypeRequired'), { type: 'error' }); return false }
+  return true
+}
+
+// 列印序列化佇列 — 「送出前清空」讓操作員連刷下一筆,但雲端取圖 + 原生列印必須逐筆排隊執行:
+// 並發會撞印表機 spooler(Windows GDI 對 stale-state 敏感)、觸發雲端節流,且反查清單會以
+// 「最後一筆」覆蓋彼此狀態。單筆失敗(.catch)不中斷整條佇列,後續仍照常執行。
+// pendingPrints:佇列中(排隊+執行中)筆數,給 UI 顯示「列印中 N」,讓操作員知道連刷後還沒消化完
+let printChain = Promise.resolve()
+const pendingPrints = ref(0)
+const enqueuePrint = task => {
+  pendingPrints.value++
+  const wrapped = async () => {
+    try { await task() } finally { pendingPrints.value-- }
+  }
+  const run = printChain.then(wrapped, wrapped)
+  printChain = run.then(() => {}, () => {})
+  return run
+}
+
 // 共用列印流程 — 呼叫雲端取面單 + 原生列印,回傳 { success, data? }
 // 不負責更新 packageOrders / 清空欄位,由呼叫端按情境處理
+// (例外:ABNORMAL-PACKAGE 袋號本身異常,必須回到袋號欄重刷,故在此就近清空 shipment_no + 聚焦)
 const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
   if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return { success: false } }
   if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return { success: false } }
@@ -180,7 +205,13 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
       case 'UNCONFIRMED-SHIPMENT': playSound('effect_4'); toast(t('page.auto.toast.unconfirmed', { sn: orderSn }), { type: 'warning' }); break
       case 'ERROR-SHIPMENT': playSound('effect_2'); toast(t('page.auto.toast.errorShipment', { sn: orderSn }) + (data.respond_message ? `\n${data.respond_message}` : ''), { type: 'error' }); break
       case 'ABNORMAL-SHIPMENT': playSound('effect_2'); toast(t('page.auto.toast.abnormalShipment', { sn: data.shipment_no || orderSn }), { type: 'info' }); break
-      case 'ABNORMAL-PACKAGE': playSound('effect_2'); toast(t('page.auto.toast.abnormalPackage', { sn: data.package_sn || orderSn }), { type: 'warning' }); break
+      case 'ABNORMAL-PACKAGE':
+        playSound('effect_2')
+        toast(t('page.auto.toast.abnormalPackage', { sn: data.package_sn || orderSn }), { type: 'warning' })
+        // 袋號異常:清空包裹條碼並重新聚焦,讓操作員重刷袋號(對應 cix3752iWeb 舊版 $('[name="shipment_no"]').val('').focus())
+        form.shipment_no = ''
+        nextTick(() => shipmentNoRef.value?.focus())
+        break
       case 'WRAPPER-ERROR': playSound('effect_2'); toast(t('page.auto.toast.wrapperError', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
       case 'STORE-CLOSED': playSound('effect_3'); toast(t('page.auto.toast.storeClosed', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
       default: playSound('effect_2'); toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
@@ -194,81 +225,94 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
 }
 
 // 包裹條碼掃描 → 取訂單清單;在「以訂單編號反查」模式遇到未分袋訂單時 fallback 列印單張
-const handleExaminePackage = async () => {
+const handleExaminePackage = () => {
   const value = form.shipment_no.trim()
   if (!value) return
-  try {
-    const data = await cloudExaminePackage(value)
-    if (data?.respond_code === 'FIND-PACKAGE-ORDER') {
-      form.package_sn = data.package_sn || ''
-      packageOrders.value = data.orders || []
-      form.shipment_no = ''
-      playSound('effect_1')
-      toast(t('page.auto.toast.packageLoaded', { sn: data.package_sn, n: data.orders?.length || 0 }), { type: 'success' })
-      // ON 模式下第二個欄位隱藏了,焦點留在 shipmentNoRef 讓使用者繼續刷下一筆
-      nextTick(() => (examineByOrderSn.value ? shipmentNoRef.value?.focus() : orderSnRef.value?.focus()))
-      // ON 模式 + 已分袋 → 刷的就是訂單編號,載入清單後立即列印該筆,不必再刷一次
-      // (原本只在 NO-PACKAGE-DATA 走 fallback 直接印,FIND-PACKAGE-ORDER 卻只載清單不出單,違反「反查模式 = 直接出單」預期)
-      if (examineByOrderSn.value) {
-        const r = await performPrintOrder(value, { packageSn: data.package_sn || '' })
-        if (r.success && r.data) {
-          packageOrders.value = packageOrders.value.map(o =>
-            o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
-          )
+  // 反查模式載入後會立即出單 → 先同步驗證,失敗就不清欄位、不排隊,讓操作員補資料後重刷
+  if (examineByOrderSn.value && !validatePrintForm()) return
+  // 同步清空條碼欄(value 已快照),焦點仍在本欄 → 操作員可在往返期間連刷下一筆;
+  // 實際查詢/列印進佇列逐筆執行避免並發。回應後一律不再清空,避免清掉等待期間已刷入的下一筆
+  form.shipment_no = ''
+  enqueuePrint(async () => {
+    try {
+      const data = await cloudExaminePackage(value)
+      if (data?.respond_code === 'FIND-PACKAGE-ORDER') {
+        form.package_sn = data.package_sn || ''
+        packageOrders.value = data.orders || []
+        playSound('effect_1')
+        toast(t('page.auto.toast.packageLoaded', { sn: data.package_sn, n: data.orders?.length || 0 }), { type: 'success' })
+        // ON 模式下第二個欄位隱藏了,焦點留在 shipmentNoRef 讓使用者繼續刷下一筆
+        nextTick(() => (examineByOrderSn.value ? shipmentNoRef.value?.focus() : orderSnRef.value?.focus()))
+        // ON 模式 + 已分袋 → 刷的就是訂單編號,載入清單後立即列印該筆,不必再刷一次
+        if (examineByOrderSn.value) {
+          const r = await performPrintOrder(value, { packageSn: data.package_sn || '' })
+          if (r.success && r.data) {
+            packageOrders.value = packageOrders.value.map(o =>
+              o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
+            )
+          }
         }
-      }
-    } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
-      if (examineByOrderSn.value) {
-        // mode ON + 沒袋號 → 直接列印單張,清單只顯示當下這筆,不累加
-        // 若上一筆是有袋號清單(FIND-PACKAGE-ORDER 載入 N 筆),這一筆會清掉整個舊清單 + 舊袋號,
-        // 只剩當下單筆,避免畫面殘留誤導
-        const r = await performPrintOrder(value, { packageSn: '' })
-        form.shipment_no = ''
-        form.package_sn = ''
-        nextTick(() => shipmentNoRef.value?.focus())
-        if (r.success && r.data) {
-          const provName = ALL_PROVIDER_ITEMS.value.find(p => p.value === r.data.provider_code)?.title || ''
-          packageOrders.value = [
-            {
-              order_sn: value,
-              shipping_no: r.data.shipment_no || '',
-              shipping_provider: r.data.provider_code,
-              provider_name: provName,
-              last_print_time: r.printedAt,
-              _printed: true,
-            },
-          ]
+      } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
+        if (examineByOrderSn.value) {
+          // mode ON + 沒袋號 → 直接列印單張,清單只顯示當下這筆,不累加;
+          // 若上一筆是有袋號清單(載入 N 筆),這一筆會清掉整個舊清單 + 舊袋號,避免畫面殘留誤導
+          const r = await performPrintOrder(value, { packageSn: '' })
+          form.package_sn = ''
+          nextTick(() => shipmentNoRef.value?.focus())
+          if (r.success && r.data) {
+            const provName = ALL_PROVIDER_ITEMS.value.find(p => p.value === r.data.provider_code)?.title || ''
+            packageOrders.value = [
+              {
+                order_sn: value,
+                shipping_no: r.data.shipment_no || '',
+                shipping_provider: r.data.provider_code,
+                provider_name: provName,
+                last_print_time: r.printedAt,
+                _printed: true,
+              },
+            ]
+          } else {
+            packageOrders.value = []
+          }
         } else {
+          playSound('effect_2')
+          toast(data.respond_message || t('common.noResults'), { type: 'error' })
           packageOrders.value = []
+          form.package_sn = ''
         }
       } else {
         playSound('effect_2')
-        toast(data.respond_message || t('common.noResults'), { type: 'error' })
-        packageOrders.value = []
-        form.package_sn = ''
+        toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
       }
-    } else {
+    } catch (e) {
       playSound('effect_2')
-      toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
+      toast(String(e), { type: 'error' })
     }
-  } catch (e) {
-    playSound('effect_2')
-    toast(String(e), { type: 'error' })
-  }
+  })
 }
 
 // 訂單編號掃描 → 用既有袋號列印單張,並更新清單那筆的時間 / 已印標記
-const handlePrintSubmit = async () => {
+const handlePrintSubmit = () => {
   const orderSn = form.order_sn.trim()
   if (!orderSn) return
-  const r = await performPrintOrder(orderSn, { packageSn: form.package_sn || '' })
+  if (!validatePrintForm()) return // 驗證失敗:不清欄位、不排隊,讓操作員補資料後重刷
+  const packageSn = form.package_sn || '' // 掃描當下快照,避免佇列延後執行時袋號已被下一袋覆蓋
+  // 同步清空訂單欄並聚焦 → 立刻可刷下一筆;實際列印進佇列逐筆執行,回應後一律不再清(以免清掉那筆下一個條碼)
   form.order_sn = ''
   nextTick(() => orderSnRef.value?.focus())
-  if (r.success && r.data) {
-    packageOrders.value = packageOrders.value.map(o =>
-      o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
-    )
-  }
+  enqueuePrint(async () => {
+    const r = await performPrintOrder(orderSn, { packageSn })
+    // 唯一例外:ABNORMAL-PACKAGE 袋號異常需整袋重來 → 清掉等待期間可能誤刷入的下一筆;
+    // 袋號欄已由 performPrintOrder 清空並聚焦 shipmentNoRef
+    if (r.data?.respond_code === 'ABNORMAL-PACKAGE') {
+      form.order_sn = ''
+    }
+    if (r.success && r.data) {
+      packageOrders.value = packageOrders.value.map(o =>
+        o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
+      )
+    }
+  })
 }
 
 const isAnyPrinterReady = computed(() => Object.keys(printerMap.value).length > 0)
@@ -300,121 +344,134 @@ onMounted(() => {
 
     <VRow>
       <VCol cols="12" lg="5">
-        <VCard>
-          <VCardTitle
-            class="d-flex align-center px-4 py-2 multi-switch-row panel-title"
-            :class="examineByOrderSn ? 'panel-title--idle' : 'bg-grey-300'"
-            style="min-height: 58px;"
-          >
-            <VIcon size="22" icon="tabler-printer" class="me-2" />
-            <span>{{ $t('page.scan.printLabelTitle') }}</span>
-            <VSpacer />
+        <div class="left-sticky">
+          <VCard>
+            <VCardTitle
+              class="d-flex align-center px-4 py-2 multi-switch-row panel-title"
+              :class="examineByOrderSn ? 'panel-title--idle' : 'bg-grey-300'"
+              style="min-height: 58px;"
+            >
+              <VIcon size="22" icon="tabler-printer" class="me-2" />
+              <span>{{ $t('page.scan.printLabelTitle') }}</span>
+              <!-- 列印佇列提示:連刷後仍在排隊/列印的筆數,序列化逐筆消化中 -->
+              <VChip
+                v-if="pendingPrints > 0"
+                color="info"
+                size="small"
+                variant="flat"
+                class="ms-3 font-weight-bold"
+              >
+                <VProgressCircular indeterminate size="14" width="2" class="me-1" />
+                {{ $t('page.auto.printing') }} {{ pendingPrints }}
+              </VChip>
+              <VSpacer />
+              <VSwitch
+                v-model="printTypeMultiple"
+                color="primary"
+                density="compact"
+                hide-details
+                inset
+              />
+              <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+                {{ $t('page.scan.printScopeMultiple') }}
+              </span>
+            </VCardTitle>
+            <VCardText>
+              <div class="d-flex ga-3 my-3">
+                <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
+                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                    {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
+                  </VLabel>
+                  <PersonnelCombobox
+                    v-model="form.scanner_user"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
+                <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
+                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                    {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
+                  </VLabel>
+                  <PersonnelCombobox
+                    v-model="form.sticker_user"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
+              </div>
+              <div class="mb-3">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  {{ examineByOrderSn ? $t('page.auto.orderSn') : $t('page.auto.packageBarcode') }}
+                </VLabel>
+                <VTextField
+                  ref="shipmentNoRef"
+                  v-model="form.shipment_no"
+                  autofocus
+                  clearable
+                  @keyup.enter="handleExaminePackage"
+                />
+              </div>
+              <!-- ON 模式時(直接刷訂單編號反查),第二個逐筆列印欄位邏輯上用不到 —
+                  上面那個輸入框 enter 後直接走 examinePackage,後續還是回到上面繼續刷,
+                  第二個欄位 label 重複「系統訂單編號」會讓使用者不知道刷哪個,直接隱藏 -->
+              <div v-if="!examineByOrderSn" class="mb-3">
+                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
+                <VTextField
+                  ref="orderSnRef"
+                  v-model="form.order_sn"
+                  clearable
+                  @keyup.enter="handlePrintSubmit"
+                />
+              </div>
+              <div>
+                <VLabel
+                  class="mb-1 text-body-2"
+                  style="line-height: 15px;"
+                  :class="{ 'text-error font-weight-bold': printTypeMultiple }"
+                >
+                  {{ $t('page.auto.printType') }}
+                </VLabel>
+                <div
+                  v-if="PRINT_TYPE_OPTIONS.length > 0"
+                  class="print-type-checkboxes d-flex flex-wrap px-1"
+                  :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
+                >
+                  <VCheckbox
+                    v-for="opt in PRINT_TYPE_OPTIONS"
+                    :key="opt.value"
+                    :model-value="form.print_types.includes(opt.value)"
+                    :label="opt.title"
+                    hide-details
+                    @update:model-value="checked => togglePrintType(opt.value, checked)"
+                  />
+                </div>
+                <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                  {{ $t('common.noPrintersConfigured') }}
+                </div>
+              </div>
+            </VCardText>
+          </VCard>
+
+          <!-- 入口模式開關 — 列印面單卡下方靠右,低頻操作不擠表單動線 -->
+          <div class="d-flex align-center justify-end mt-2 pe-1 examine-mode-row">
             <VSwitch
-              v-model="printTypeMultiple"
+              v-model="examineByOrderSn"
               color="primary"
               density="compact"
               hide-details
               inset
             />
-            <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
-              {{ $t('page.scan.printScopeMultiple') }}
+            <span
+              class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
+              @click="examineByOrderSn = !examineByOrderSn"
+            >
+              {{ $t('page.auto.examineByOrderSn') }}
             </span>
-          </VCardTitle>
-          <VCardText>
-            <div class="d-flex ga-3 my-3">
-              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
-                  {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
-                </VLabel>
-                <PersonnelCombobox
-                  v-model="form.scanner_user"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
-                />
-              </div>
-              <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
-                  {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
-                </VLabel>
-                <PersonnelCombobox
-                  v-model="form.sticker_user"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
-                />
-              </div>
-            </div>
-            <div class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
-                {{ examineByOrderSn ? $t('page.auto.orderSn') : $t('page.auto.packageBarcode') }}
-              </VLabel>
-              <VTextField
-                ref="shipmentNoRef"
-                v-model="form.shipment_no"
-                autofocus
-                clearable
-                @keyup.enter="handleExaminePackage"
-              />
-            </div>
-            <!-- ON 模式時(直接刷訂單編號反查),第二個逐筆列印欄位邏輯上用不到 —
-                 上面那個輸入框 enter 後直接走 examinePackage,後續還是回到上面繼續刷,
-                 第二個欄位 label 重複「系統訂單編號」會讓使用者不知道刷哪個,直接隱藏 -->
-            <div v-if="!examineByOrderSn" class="mb-3">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
-              <VTextField
-                ref="orderSnRef"
-                v-model="form.order_sn"
-                clearable
-                @keyup.enter="handlePrintSubmit"
-              />
-            </div>
-            <div>
-              <VLabel
-                class="mb-1 text-body-2"
-                style="line-height: 15px;"
-                :class="{ 'text-error font-weight-bold': printTypeMultiple }"
-              >
-                {{ $t('page.auto.printType') }}
-              </VLabel>
-              <div
-                v-if="PRINT_TYPE_OPTIONS.length > 0"
-                class="print-type-checkboxes d-flex flex-wrap px-1"
-                :class="{ 'print-type-checkboxes--multiple': printTypeMultiple }"
-              >
-                <VCheckbox
-                  v-for="opt in PRINT_TYPE_OPTIONS"
-                  :key="opt.value"
-                  :model-value="form.print_types.includes(opt.value)"
-                  :label="opt.title"
-                  hide-details
-                  @update:model-value="checked => togglePrintType(opt.value, checked)"
-                />
-              </div>
-              <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
-                {{ $t('common.noPrintersConfigured') }}
-              </div>
-            </div>
-          </VCardText>
-        </VCard>
-
-        <!-- 入口模式開關 — 列印面單卡下方靠右,低頻操作不擠表單動線 -->
-        <div class="d-flex align-center justify-end mt-2 pe-1 examine-mode-row">
-          <VSwitch
-            v-model="examineByOrderSn"
-            color="primary"
-            density="compact"
-            hide-details
-            inset
-          />
-          <span
-            class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
-            @click="examineByOrderSn = !examineByOrderSn"
-          >
-            {{ $t('page.auto.examineByOrderSn') }}
-          </span>
+          </div>
         </div>
       </VCol>
 
@@ -510,6 +567,14 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 左欄(列印面單卡 + 入口模式開關)隨頁面捲動時固定:對齊 ScanPrintPage 的 left-sticky,
+   distance 5rem 避開頂部 sticky header,右側清單可獨立長捲不影響左側操作區 */
+.left-sticky {
+  position: sticky;
+  inset-block-start: 5rem;
+  z-index: 1;
+}
+
 .border-b {
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
