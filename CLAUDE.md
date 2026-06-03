@@ -140,6 +140,14 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 ## 發佈與 release
 
+### 發版步驟(依序)
+
+1. **先更新 `CHANGELOG.md`** — 在最上方新增 `## vX.Y.Z` 段落,寫本次修改/調整內容。**這步不可跳過**:`release.yml` 會依 tag 抽出對應段落注入 release 說明與 `latest.json` 的 `notes`,in-app「發現新版本」對話框顯示的就是它。沒寫 = 用戶只看到安裝包樣板、看不到變更。標題格式須為 `## vX.Y.Z`(對齊 tag,抽取靠此 regex)。
+2. **三檔版本號一起改** — `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`(三處都要,Cargo.toml 改完跑 `cd src-tauri && cargo check` 驗證)。
+3. **commit + tag + push** — `git commit` → `git tag vX.Y.Z` → `git push origin main && git push origin vX.Y.Z`。push tag 觸發 Actions。
+4. **手動公開** — workflow 產出的是 **draft release**(`releaseDraft: true`),需 `gh release edit vX.Y.Z --draft=false` 才公開、`latest.json` 才生效供自動更新。
+5. **已發佈版本要補 changelog** — 若 release 已 publish 才發現 notes 漏了變更:`latest.json` 的 `notes` 已烤死,直接下載該 asset、改 `notes` 欄(平台 `signature` 不要動,簽的是 binary)、`gh release upload --clobber` 重傳,再 `gh release edit --notes-file` 更新頁面 body。
+
 - **Tag `v*` 觸發** `.github/workflows/release.yml` GitHub Actions
 - 三平台 runner:`macos-latest` (arm64) / `windows-latest` (NSIS) / `ubuntu:20.04|22.04|24.04` container(三條獨立 tarball)
 - **macOS Intel 不再 native build** — v0.2.0 起 `macos-13` runner 移除(queue 3h+ 是常態),Intel Mac 啟用 Rosetta 2 跑 ARM64 dmg
