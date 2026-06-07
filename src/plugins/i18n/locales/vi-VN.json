@@ -231,6 +231,13 @@
       "dateNotFound": "Ngày này không có dữ liệu",
       "progress": "Tiến độ tải nhãn",
       "successCount": "Thành công {n}",
+      "statTotal": "Tổng",
+      "statDone": "Hoàn tất",
+      "statSuccess": "Thành công",
+      "statFail": "Thất bại",
+      "manyHint": "Tổng {n} đơn. Số lượng lớn nên không hiển thị từng ảnh nhãn để giữ hiệu năng; server sẽ tạo sẵn ảnh nhãn ở chế độ nền, hoàn tất có thể dùng trực tiếp ở Quét in / Tự động in / máy công nghiệp.",
+      "failReason": "Lý do",
+      "failMore": "Còn {n} đơn thất bại chưa liệt kê",
       "empty": "Chưa tải nhãn nào",
       "emptyHint": "Vui lòng nhập mã đơn hàng ở bên trái và nhấn \"Tìm kiếm\"",
       "downloadWarnings": "Cảnh báo tải xuống"

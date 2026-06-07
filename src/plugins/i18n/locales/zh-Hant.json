@@ -231,6 +231,13 @@
       "dateNotFound": "該日期查無資料",
       "progress": "面單載入進度",
       "successCount": "成功 {n}",
+      "statTotal": "總數",
+      "statDone": "完成",
+      "statSuccess": "成功",
+      "statFail": "失敗",
+      "manyHint": "共 {n} 筆,大量預產不逐張顯示縮圖以維持效能;伺服器會在背景把面單圖產好快取,完成後可於掃描列印 / 自動印單 / 工控機直接取用。",
+      "failReason": "原因",
+      "failMore": "另有 {n} 筆失敗未列出",
       "empty": "尚未載入面單",
       "emptyHint": "請在左側輸入訂單編號後按下「查詢」",
       "downloadWarnings": "下載警告"

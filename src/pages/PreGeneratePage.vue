@@ -12,69 +12,80 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const orderSnList = ref([])
+// 縮圖 cells:僅少量(<= THUMBNAIL_LIMIT)時建立並渲染;大量批次不建,避免上萬 DOM/img 把 webview 撐爆
 const downloadList = reactive([])
+// 失敗清單(限量保留),供下方列出
 const downloadStatus = reactive([])
-const progressPct = ref(0)
 const isProcessing = ref(false)
 let abortRequested = false
 
-const totalItems = computed(() => downloadList.length)
-const completedItems = computed(() => downloadList.filter(p => p.code !== '').length)
-const successItems = computed(() => downloadList.filter(p => isDownloadable(p.code)).length)
+// 統計改用計數器(避免上萬筆每完成一筆就 filter 全表重算)
+const totalCount = ref(0)
+const completedCount = ref(0)
+const successCount = ref(0)
+const failCount = ref(0)
+const progressPct = computed(() => (totalCount.value ? Math.round(completedCount.value / totalCount.value * 100) : 0))
 
 const CONCURRENCY = 5
+const FAIL_LIST_LIMIT = 300  // 失敗清單最多保留筆數
 
-const initDownloadList = snList => {
+const startBatch = snList => {
   downloadList.splice(0)
   downloadStatus.splice(0)
+  totalCount.value = snList.length
+  completedCount.value = 0
+  successCount.value = 0
+  failCount.value = 0
   for (const sn of snList) {
-    downloadList.push({
-      sn, code: '', message: '', shipping_no: '', shipping_provider: '', image: null,
-    })
+    downloadList.push({ sn, code: '', message: '', shipping_no: '', shipping_provider: '', image: null })
   }
 }
 
-const insertStatusByIndex = (index, entry) => {
-  const tagged = { ...entry, _idx: index }
-  let pos = downloadStatus.length
-  while (pos > 0 && downloadStatus[pos - 1]._idx > index) pos--
-  downloadStatus.splice(pos, 0, tagged)
+const pushFail = (sn, code, message = '') => {
+  if (downloadStatus.length < FAIL_LIST_LIMIT) {
+    downloadStatus.push({ sn, code, message: message || statusLabel(code) })
+  }
 }
 
-const processOne = async index => {
-  const item = downloadList[index]
+const processOne = async (sn, index) => {
+  const thumb = downloadList.length ? downloadList[index] : null
   try {
-    const data = await cloudFetchLabel(item.sn, { mode: 'download' })
-    item.code = data.print_view_status || ''
-    item.shipping_no = data.print_shipping_no || ''
-    item.shipping_provider = data.print_shipping_provider || ''
-    item.image = data.print_file_path || null
-    item.message = statusLabel(item.code)
-    if (!isDownloadable(item.code)) {
-      insertStatusByIndex(index, { sn: item.sn, code: item.code })
+    const data = await cloudFetchLabel(sn, { mode: 'download' })
+    const code = data.print_view_status || ''
+    if (isDownloadable(code)) {
+      successCount.value++
+    } else {
+      failCount.value++
+      pushFail(sn, code)
+    }
+    if (thumb) {
+      thumb.code = code
+      thumb.shipping_no = data.print_shipping_no || ''
+      thumb.shipping_provider = data.print_shipping_provider || ''
+      thumb.image = data.print_file_path || null
+      thumb.message = statusLabel(code)
     }
   } catch (e) {
-    item.code = 'ERROR'
-    item.message = errorMessageFromException(e)
-    insertStatusByIndex(index, { sn: item.sn, code: 'ERROR' })
+    const msg = errorMessageFromException(e)
+    failCount.value++
+    pushFail(sn, 'ERROR', msg)
+    if (thumb) { thumb.code = 'ERROR'; thumb.message = msg }
+  } finally {
+    completedCount.value++
   }
 }
 
-const processShipments = async () => {
+const processShipments = async snList => {
   isProcessing.value = true
   abortRequested = false
-  progressPct.value = 0
-  const total = downloadList.length
+  const total = snList.length
   let cursor = 0
-  let completed = 0
 
   const worker = async () => {
     while (!abortRequested) {
       const i = cursor++
       if (i >= total) break
-      await processOne(i)
-      completed += 1
-      progressPct.value = Math.round((completed / total) * 100)
+      await processOne(snList[i], i)
     }
   }
 
@@ -88,9 +99,10 @@ const stopProcessing = () => { abortRequested = true }
 
 const handleQuery = async () => {
   if (orderSnList.value.length === 0) return
-  initDownloadList(orderSnList.value)
+  const list = [...orderSnList.value]
   orderSnList.value = []
-  await processShipments()
+  startBatch(list)
+  await processShipments(list)
 }
 
 // 清關袋號反查(可多組):逐袋反查整袋訂單編號 → 合併去重 → 直接預產
@@ -123,8 +135,8 @@ const handleQueryByPackage = async () => {
       packageError.value = t('page.preGenerate.packageSomeNotFound', { list: notFound.join('、') })
     }
     packageNoList.value = []
-    initDownloadList(uniqueSns)
-    await processShipments()
+    startBatch(uniqueSns)
+    await processShipments(uniqueSns)
   } catch (e) {
     packageError.value = errorMessageFromException(e)
   } finally {
@@ -149,8 +161,8 @@ const handleQueryByDate = async () => {
       dateError.value = data?.respond_message || t('page.preGenerate.dateNotFound')
       return
     }
-    initDownloadList(snList)
-    await processShipments()
+    startBatch(snList)
+    await processShipments(snList)
   } catch (e) {
     dateError.value = errorMessageFromException(e)
   } finally {
@@ -189,12 +201,12 @@ const handleQueryByDate = async () => {
                 <VAlert v-if="dateError" type="error" variant="tonal" density="compact" class="mt-2">{{ dateError }}</VAlert>
               </template>
 
-              <div v-if="totalItems > 0" class="mt-3">
+              <div v-if="totalCount > 0" class="mt-3">
                 <div class="d-flex justify-space-between mb-1">
                   <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
                   <span class="text-xs text-medium-emphasis">
-                    {{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）·
-                    <span class="text-success">{{ $t('page.preGenerate.successCount', { n: successItems }) }}</span>
+                    {{ completedCount }} / {{ totalCount }}（{{ progressPct }}%）·
+                    <span class="text-success">{{ $t('page.preGenerate.successCount', { n: successCount }) }}</span>
                   </span>
                 </div>
                 <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
@@ -224,24 +236,49 @@ const handleQueryByDate = async () => {
       <VCol cols="12" lg="7">
         <VCard>
           <VCardText>
-            <div v-if="downloadList.length === 0" class="text-center py-12">
+            <div v-if="totalCount === 0" class="text-center py-12">
               <VIcon icon="tabler-photo-down" size="80" color="primary" class="opacity-50" />
               <h4 class="text-h6 mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
               <p class="text-body-2 text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
             </div>
-            <div v-else class="label-grid">
-              <div v-for="item in downloadList" :key="item.sn" class="cell">
-                <div class="cell__paper">
-                  <img v-if="item.image" :src="item.image" :alt="item.sn" />
-                  <div v-else-if="!item.code" class="cell__loading"><VProgressCircular indeterminate size="32" /></div>
-                  <div v-else class="cell__error">
-                    <VIcon :icon="statusIcon(item.code)" size="40" class="cell__error-icon" />
-                    <div class="cell__error-sn">{{ item.sn }}</div>
-                    <div class="cell__error-msg">{{ item.message }}</div>
+            <template v-else>
+              <!-- 統計列 -->
+              <div class="d-flex justify-space-around text-center mb-4">
+                <div>
+                  <div class="text-h6">{{ totalCount }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statTotal') }}</div>
+                </div>
+                <div>
+                  <div class="text-h6">{{ completedCount }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statDone') }}</div>
+                </div>
+                <div>
+                  <div class="text-h6 text-success">{{ successCount }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statSuccess') }}</div>
+                </div>
+                <div>
+                  <div class="text-h6" :class="failCount ? 'text-error' : 'text-disabled'">{{ failCount }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statFail') }}</div>
+                </div>
+              </div>
+              <VProgressLinear :model-value="progressPct" color="primary" height="8" rounded class="mb-4" />
+
+              <!-- 全部 cell 都渲染,但靠 .cell 的 content-visibility + img loading=lazy,
+                   只有捲到可視範圍的才真正 layout/paint 與下載圖片,上萬筆也不卡 -->
+              <div class="label-grid">
+                <div v-for="item in downloadList" :key="item.sn" class="cell">
+                  <div class="cell__paper">
+                    <img v-if="item.image" :src="item.image" :alt="item.sn" loading="lazy" />
+                    <div v-else-if="!item.code" class="cell__loading"><VProgressCircular indeterminate size="32" /></div>
+                    <div v-else class="cell__error">
+                      <VIcon :icon="statusIcon(item.code)" size="40" class="cell__error-icon" />
+                      <div class="cell__error-sn">{{ item.sn }}</div>
+                      <div class="cell__error-msg">{{ item.message }}</div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </template>
           </VCardText>
         </VCard>
       </VCol>
@@ -252,7 +289,24 @@ const handleQueryByDate = async () => {
         <div class="text-body-1 mb-2">
           <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
           {{ $t('page.preGenerate.downloadWarnings') }}
-          <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ downloadStatus.length }}</VChip>
+          <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
+        </div>
+        <VTable density="compact">
+          <thead>
+            <tr>
+              <th class="text-start">{{ $t('form.orderSn') }}</th>
+              <th class="text-start">{{ $t('page.preGenerate.failReason') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(f, i) in downloadStatus" :key="f.sn + i">
+              <td>{{ f.sn }}</td>
+              <td>{{ f.message || f.code }}</td>
+            </tr>
+          </tbody>
+        </VTable>
+        <div v-if="failCount > downloadStatus.length" class="text-caption text-medium-emphasis mt-2">
+          {{ $t('page.preGenerate.failMore', { n: failCount - downloadStatus.length }) }}
         </div>
       </VCardText>
     </VCard>
@@ -305,6 +359,10 @@ const handleQueryByDate = async () => {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   overflow: hidden;
+  /* 離開可視範圍的 cell 由瀏覽器跳過 layout/paint(只渲染畫面看得到的);
+     contain-intrinsic-size 給離屏 cell 一個預估高度,維持捲軸長度正確 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
 }
 .cell__paper {
   position: relative;
