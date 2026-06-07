@@ -7,6 +7,8 @@
 export const navItems = [
   { heading: 'nav.section.main' },
   { title: 'nav.dashboard', icon: { icon: 'tabler-layout-dashboard' }, to: { name: 'dashboard' } },
+  { title: 'nav.bagCheck', icon: { icon: 'tabler-packages' }, to: { name: 'bag-check' } },
+  { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
   { title: 'nav.preGenerate', icon: { icon: 'tabler-photo-down' }, to: { name: 'pre-generate' } },
 
   { heading: 'nav.section.print' },
@@ -21,7 +23,6 @@ export const navItems = [
   { title: 'nav.eventLog', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },
 
   { heading: 'nav.section.settings' },
-  { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
   { title: 'nav.cacheSettings', icon: { icon: 'tabler-photo' }, to: { name: 'cache-settings' } },
   { title: 'nav.dispatchProviders', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'dispatch-providers' } },
   { title: 'nav.serverSettings', icon: { icon: 'tabler-server-2' }, to: { name: 'server-settings' } },

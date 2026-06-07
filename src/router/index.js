@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 import DashboardPage from '@/pages/DashboardPage.vue'
+import BagCheckPage from '@/pages/BagCheckPage.vue'
 import ScanPrintPage from '@/pages/ScanPrintPage.vue'
 import AutoPrintPage from '@/pages/AutoPrintPage.vue'
 import PreGeneratePage from '@/pages/PreGeneratePage.vue'
@@ -18,6 +19,8 @@ import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
 const routes = [
   { path: '/', name: 'dashboard', component: DashboardPage,
     meta: { title: 'nav.dashboard', icon: 'tabler-layout-dashboard' } },
+  { path: '/bag-check', name: 'bag-check', component: BagCheckPage,
+    meta: { title: 'nav.bagCheck', icon: 'tabler-packages', group: 'nav.section.main' } },
   { path: '/scan-print', name: 'scan-print', component: ScanPrintPage,
     meta: { title: 'nav.scanPrint', icon: 'tabler-browser', group: 'nav.section.print' } },
   { path: '/auto-print', name: 'auto-print', component: AutoPrintPage,
@@ -25,7 +28,7 @@ const routes = [
   { path: '/pre-generate', name: 'pre-generate', component: PreGeneratePage,
     meta: { title: 'nav.preGenerate', icon: 'tabler-photo-down', group: 'nav.section.print' } },
   { path: '/sort-channels', name: 'sort-channels', component: SortChannelsPage,
-    meta: { title: 'nav.sortChannels', icon: 'tabler-route', group: 'nav.section.settings' } },
+    meta: { title: 'nav.sortChannels', icon: 'tabler-route', group: 'nav.section.main' } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,
     meta: { title: 'nav.dispatchProviders', icon: 'tabler-truck-delivery', group: 'nav.section.settings' } },
   { path: '/printer-settings', name: 'printer-settings', component: PrinterSettingsPage,

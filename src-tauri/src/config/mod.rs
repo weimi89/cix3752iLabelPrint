@@ -69,6 +69,12 @@ pub struct CloudConfig {
     /// 面單預產 path
     #[serde(default = "default_pre_generate_path")]
     pub pre_generate_path: String,
+    /// 袋號反查整袋訂單編號 (面單預產用) path
+    #[serde(default = "default_package_orders_path")]
+    pub package_orders_path: String,
+    /// 依日期反查整批訂單編號 (面單預產用;清關/轉寄) path
+    #[serde(default = "default_orders_by_date_path")]
+    pub orders_by_date_path: String,
     /// 雲端列印 path
     #[serde(default = "default_cloud_print_path")]
     pub cloud_print_path: String,
@@ -94,6 +100,8 @@ impl Default for CloudConfig {
             session_path: default_session_path(),
             scan_print_path: default_scan_print_path(),
             pre_generate_path: default_pre_generate_path(),
+            package_orders_path: default_package_orders_path(),
+            orders_by_date_path: default_orders_by_date_path(),
             cloud_print_path: default_cloud_print_path(),
             examine_package_path: default_examine_package_path(),
             webhook_path: default_webhook_path(),
@@ -239,6 +247,8 @@ fn default_scan_print_path() -> String { "/api/v1/local-middleware/label/scan-pr
 fn default_pre_generate_path() -> String { "/api/v1/local-middleware/label/pre-generate".to_string() }
 fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-print".to_string() }
 fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/examine-package".to_string() }
+fn default_package_orders_path() -> String { "/api/v1/local-middleware/label/package-orders".to_string() }
+fn default_orders_by_date_path() -> String { "/api/v1/local-middleware/label/orders-by-date".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 fn default_net_interval() -> u64 { 15 }
 fn default_net_degrade_interval() -> u64 { 60 }

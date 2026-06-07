@@ -73,6 +73,20 @@ export const cloudFetchCloudPrint = (orderSn, { printTypes = ['ALL'], enforce = 
   invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printTypes, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
 export const cloudExaminePackage = shipmentNo =>
   invoke('cloud_examine_package', { req: { shipment_no: shipmentNo } })
+// 面單預產:袋號反查整袋訂單編號
+export const cloudPackageOrders = async packageSn => {
+  if (!isTauri) {
+    return { respond_code: 'FIND-PACKAGE-ORDER', package_sn: packageSn, order_sns: ['SO-MOCK-1', 'SO-MOCK-2', 'SO-MOCK-3'] }
+  }
+  return await invoke('cloud_package_orders', { req: { package_sn: packageSn } })
+}
+// 面單預產:依日期反查整批訂單編號(source: clearance 清關 / transfer 轉寄出貨)
+export const cloudOrdersByDate = async (date, source = 'clearance') => {
+  if (!isTauri) {
+    return { respond_code: 'FIND-PACKAGE-ORDER', date, source, package_count: source === 'clearance' ? 2 : 0, order_sns: ['SO-MOCK-1', 'SO-MOCK-2', 'SO-MOCK-3', 'SO-MOCK-4'] }
+  }
+  return await invoke('cloud_orders_by_date', { req: { date, source } })
+}
 
 // 印表機
 export const listPrinters = () => invoke('list_printers')
@@ -85,6 +99,20 @@ export const serverStatus = async () => {
   return await invoke('server_status')
 }
 export const serverRestart = () => invoke('server_restart')
+
+// 本機 LAN IP 清單(工控機連線位址)
+export const localLanIps = async () => {
+  if (!isTauri) {
+    return {
+      ips: [
+        { name: 'en0', ip: '192.168.1.50' },
+        { name: 'en1', ip: '10.0.0.12' },
+      ],
+      port: 18080,
+    }
+  }
+  return await invoke('local_lan_ips')
+}
 
 // Queue
 export const queueStats = async () => {
@@ -351,5 +379,49 @@ export const printStatsCompare = async () => {
 export const workSessionReset = async () => {
   if (!isTauri) return new Date().toISOString().slice(0, 19).replace('T', ' ')
   return await invoke('work_session_reset')
+}
+
+// 分揀袋件核對 — 後端常駐記憶體狀態(由工控機 GET /api/parcel 事件驅動更新,
+// 並 emit 'bag-check-updated' 推播)。前端只讀快照(切頁保留)與清除。
+const MOCK_BAG_CHECK = [
+  {
+    package_sn: 'BAG20260606-002',
+    status: 'ok',
+    message: null,
+    total: 4,
+    printed: 2,
+    missing: 2,
+    last_request_at: '2026-06-06 22:33:08',
+    orders: [
+      { shipping_no: '7108158620', order_sn: 'SO2606060021', shipping_provider: 'H', last_print_time: '2026-06-06 22:32:50' },
+      { shipping_no: '7108158621', order_sn: 'SO2606060022', shipping_provider: 'H', last_print_time: '2026-06-06 22:33:08' },
+      { shipping_no: '7108158622', order_sn: 'SO2606060023', shipping_provider: 'C', last_print_time: null },
+      { shipping_no: '7108158623', order_sn: 'SO2606060024', shipping_provider: 'C', last_print_time: null },
+    ],
+  },
+  {
+    package_sn: 'BAG20260606-001',
+    status: 'ok',
+    message: null,
+    total: 5,
+    printed: 5,
+    missing: 0,
+    last_request_at: '2026-06-06 22:30:55',
+    orders: [
+      { shipping_no: '7108158570', order_sn: 'SO2606060011', shipping_provider: 'F', last_print_time: '2026-06-06 22:30:01' },
+      { shipping_no: '7108158571', order_sn: 'SO2606060012', shipping_provider: 'F', last_print_time: '2026-06-06 22:30:14' },
+      { shipping_no: '7108158572', order_sn: 'SO2606060013', shipping_provider: '7', last_print_time: '2026-06-06 22:30:33' },
+      { shipping_no: '7108158573', order_sn: 'SO2606060014', shipping_provider: '7', last_print_time: '2026-06-06 22:30:44' },
+      { shipping_no: '7108158574', order_sn: 'SO2606060015', shipping_provider: 'E', last_print_time: '2026-06-06 22:30:55' },
+    ],
+  },
+]
+export const bagCheckSnapshot = async () => {
+  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_BAG_CHECK))
+  return await invoke('bag_check_snapshot')
+}
+export const bagCheckClear = async () => {
+  if (!isTauri) return Promise.resolve()
+  return await invoke('bag_check_clear')
 }
 

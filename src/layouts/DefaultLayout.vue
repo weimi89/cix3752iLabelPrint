@@ -9,9 +9,11 @@ import AppLogo from '@/components/AppLogo.vue'
 import { navItems } from '@/config/navConfig'
 import { useSkins } from '@core/composable/useSkins'
 import { useStatusStore } from '@/stores/status'
+import { useParcelAlert } from '@/composables/useParcelAlert'
 
 const { layoutAttrs } = useSkins()
 const status = useStatusStore()
+const parcelAlert = useParcelAlert()
 const appVersion = ref('')
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -40,11 +42,18 @@ onMounted(async () => {
   } catch (e) {
     console.warn('listen print-stats-updated 失敗', e)
   }
+  // 工控機請求失敗的全域聲音 + toast 提示(成功不出聲)
+  try {
+    await parcelAlert.start()
+  } catch (e) {
+    console.warn('listen parcel-alert 失敗', e)
+  }
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (unlistenPrintStats) unlistenPrintStats()
+  parcelAlert.stop()
 })
 </script>
 

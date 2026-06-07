@@ -1,3 +1,4 @@
+pub mod bag_check_commands;
 pub mod cache_commands;
 pub mod cloud_commands;
 pub mod config_commands;

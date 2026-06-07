@@ -28,6 +28,7 @@ use crate::models::{
 };
 use crate::queue::QueueManager;
 use crate::watermark::{derive_repeat_key, WatermarkRenderer};
+use crate::bag_check::BagCheckState;
 use crate::{AppError, AppResult};
 
 /// 面單路徑解析器:依設定把本地絕對路徑轉成 local / share / http 三種形態
@@ -108,6 +109,7 @@ struct ServerState {
     rr: RoundRobinState,
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
+    bag_check: BagCheckState,
     app: tauri::AppHandle,
 }
 
@@ -134,6 +136,7 @@ pub async fn start(
     queue: QueueManager,
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
+    bag_check: BagCheckState,
     app: tauri::AppHandle,
 ) -> AppResult<ServerHandle> {
     let addr: SocketAddr = format!("{}:{}", config.server.listen_ip, config.server.port)
@@ -148,6 +151,7 @@ pub async fn start(
         rr: Arc::new(Mutex::new(HashMap::new())),
         label_resolver,
         watermark,
+        bag_check,
         app,
     };
 
@@ -207,6 +211,40 @@ fn err_resp(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json
             status_code: status.as_u16(),
         }),
     )
+}
+
+/// 工控機 GET /api/parcel 失敗時推給前端的提示(前端依 kind 播對應提示音 + toast)
+#[derive(Serialize, Clone)]
+struct ParcelAlert<'a> {
+    kind: &'a str,
+    message: String,
+    query_no: String,
+}
+
+/// 依雲端回的機器可讀 code 歸類成前端 kind(對應提示音)。
+/// 雲端 OrderPrintController 各錯誤分支回 code:STORE_CLOSED / UNCONFIRMED / NOT_FOUND /
+/// STATUS_ABNORMAL / NOT_PROXY / NOT_FORWARD / LABEL_FAILED;後三者與未知 code 一律 "error"。
+/// 舊版雲端未回 code 時 code 會是 HTTP 狀態碼字串 → 落入 "error"(仍會顯示原始 message)。
+fn classify_parcel_alert(code: &str) -> &'static str {
+    match code {
+        "STORE_CLOSED" => "store_closed",
+        "UNCONFIRMED" => "unconfirmed",
+        "NOT_FOUND" => "not_found",
+        _ => "error",
+    }
+}
+
+/// emit `parcel-alert` 給前端;失敗只記 warn,不影響回應工控機
+fn emit_parcel_alert(app: &tauri::AppHandle, kind: &str, message: &str, query_no: &str) {
+    use tauri::Emitter;
+    let payload = ParcelAlert {
+        kind,
+        message: message.to_string(),
+        query_no: query_no.to_string(),
+    };
+    if let Err(e) = app.emit("parcel-alert", payload) {
+        tracing::warn!(?e, "emit parcel-alert 失敗");
+    }
 }
 
 /// GET /api/parcel/:query_no — 工控機呼叫
@@ -379,6 +417,14 @@ async fn get_parcel(
                 );
             }
 
+            // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)
+            state.bag_check.on_parcel(
+                info.package_sn.clone(),
+                &info.order_sn,
+                &info.shipping_no,
+                &info.shipping_provider,
+            );
+
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
@@ -394,6 +440,12 @@ async fn get_parcel(
             )
             .execute(&state.db)
             .await;
+            emit_parcel_alert(
+                &state.app,
+                "unauthorized",
+                "雲端未登入,請先在桌面 App 完成登入",
+                &query_no,
+            );
             Err(err_resp(
                 StatusCode::UNAUTHORIZED,
                 "雲端未登入,請先在桌面 App 完成登入",
@@ -407,6 +459,14 @@ async fn get_parcel(
             )
             .execute(&state.db)
             .await;
+            // 依雲端錯誤訊息分類,讓前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
+            let (kind, msg) = match &e {
+                AppError::Cloud { code, message } => {
+                    (classify_parcel_alert(code), message.clone())
+                }
+                other => ("error", other.to_string()),
+            };
+            emit_parcel_alert(&state.app, kind, &msg, &query_no);
             Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()))
         }
     }

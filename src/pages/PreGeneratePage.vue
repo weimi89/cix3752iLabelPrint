@@ -1,10 +1,15 @@
 <script setup>
-import { cloudFetchLabel } from '@/api/tauri'
+import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate } from '@/api/tauri'
+import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
 import {
   isDownloadable, statusLabel, statusIcon, errorMessageFromException,
 } from '@/composables/useLabelStatus'
 import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const orderSnList = ref([])
 const downloadList = reactive([])
@@ -87,6 +92,71 @@ const handleQuery = async () => {
   orderSnList.value = []
   await processShipments()
 }
+
+// 清關袋號反查(可多組):逐袋反查整袋訂單編號 → 合併去重 → 直接預產
+const packageNoList = ref([])
+const packageLoading = ref(false)
+const packageError = ref('')
+
+const handleQueryByPackage = async () => {
+  const pkgs = packageNoList.value
+  if (!pkgs.length || packageLoading.value || isProcessing.value) return
+  packageError.value = ''
+  packageLoading.value = true
+  try {
+    const allSns = []
+    const notFound = []
+    for (const pkg of pkgs) {
+      const data = await cloudPackageOrders(pkg)
+      if (data?.respond_code === 'FIND-PACKAGE-ORDER' && data.order_sns?.length) {
+        allSns.push(...data.order_sns)
+      } else {
+        notFound.push(pkg)
+      }
+    }
+    const uniqueSns = [...new Set(allSns)]
+    if (!uniqueSns.length) {
+      packageError.value = t('page.preGenerate.packageNotFound')
+      return
+    }
+    if (notFound.length) {
+      packageError.value = t('page.preGenerate.packageSomeNotFound', { list: notFound.join('、') })
+    }
+    packageNoList.value = []
+    initDownloadList(uniqueSns)
+    await processShipments()
+  } catch (e) {
+    packageError.value = errorMessageFromException(e)
+  } finally {
+    packageLoading.value = false
+  }
+}
+
+// 依清關日期執行:選日期 → 反查當日整批訂單編號 → 直接預產
+const clearanceDate = ref(new Date().toISOString().slice(0, 10))
+const dateLoading = ref(false)
+const dateError = ref('')
+
+const handleQueryByDate = async () => {
+  const date = clearanceDate.value
+  if (!date || dateLoading.value || isProcessing.value) return
+  dateError.value = ''
+  dateLoading.value = true
+  try {
+    const data = await cloudOrdersByDate(date, inputMode.value === 'transfer' ? 'transfer' : 'clearance')
+    const snList = data?.respond_code === 'FIND-PACKAGE-ORDER' ? (data.order_sns || []) : []
+    if (!snList.length) {
+      dateError.value = data?.respond_message || t('page.preGenerate.dateNotFound')
+      return
+    }
+    initDownloadList(snList)
+    await processShipments()
+  } catch (e) {
+    dateError.value = errorMessageFromException(e)
+  } finally {
+    dateLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -96,13 +166,36 @@ const handleQuery = async () => {
     <VRow>
       <VCol cols="12" lg="5">
         <div class="left-sticky">
-          <VCard>
+          <VTabs v-model="inputMode" grow hide-slider class="bookmark-tabs">
+            <VTab value="order">{{ $t('page.preGenerate.byOrderSn') }}</VTab>
+            <VTab value="package">{{ $t('page.preGenerate.byPackage') }}</VTab>
+            <VTab value="clearance">{{ $t('page.preGenerate.sourceClearance') }}</VTab>
+            <VTab value="transfer">{{ $t('page.preGenerate.sourceTransfer') }}</VTab>
+          </VTabs>
+
+          <VCard class="bookmark-card">
             <VCardText>
-              <AppBulkInput v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
+              <AppBulkInput v-if="inputMode === 'order'" v-model="orderSnList" :label="$t('form.orderSn')" :placeholder="$t('form.orderSnPlaceholder')" clearable-top />
+              <template v-else-if="inputMode === 'package'">
+                <AppBulkInput v-model="packageNoList" :label="$t('page.preGenerate.packageNo')" :placeholder="$t('page.preGenerate.packagePlaceholder')" clearable-top />
+                <VAlert v-if="packageError" type="error" variant="tonal" density="compact" class="mt-2">{{ packageError }}</VAlert>
+              </template>
+              <template v-else>
+                <div class="text-body-2 text-medium-emphasis mb-1">{{ $t('page.preGenerate.dateLabel') }}</div>
+                <AppDatePicker
+                  v-model="clearanceDate"
+                  :disabled="isProcessing || dateLoading"
+                />
+                <VAlert v-if="dateError" type="error" variant="tonal" density="compact" class="mt-2">{{ dateError }}</VAlert>
+              </template>
+
               <div v-if="totalItems > 0" class="mt-3">
                 <div class="d-flex justify-space-between mb-1">
                   <span class="text-xs text-medium-emphasis">{{ $t('page.preGenerate.progress') }}</span>
-                  <span class="text-xs text-medium-emphasis">{{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）</span>
+                  <span class="text-xs text-medium-emphasis">
+                    {{ completedItems }} / {{ totalItems }}（{{ progressPct }}%）·
+                    <span class="text-success">{{ $t('page.preGenerate.successCount', { n: successItems }) }}</span>
+                  </span>
                 </div>
                 <VProgressLinear :model-value="progressPct" color="primary" height="6" rounded />
               </div>
@@ -110,9 +203,17 @@ const handleQuery = async () => {
           </VCard>
 
           <div class="d-flex justify-center gap-2 mt-3">
-            <VBtn v-if="!isProcessing" color="primary" @click="handleQuery">
-              <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
-            </VBtn>
+            <template v-if="!isProcessing">
+              <VBtn v-if="inputMode === 'order'" color="primary" @click="handleQuery">
+                <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
+              </VBtn>
+              <VBtn v-else-if="inputMode === 'package'" color="primary" :loading="packageLoading" :disabled="!packageNoList.length" @click="handleQueryByPackage">
+                <VIcon icon="tabler-search" class="me-1" />{{ $t('page.preGenerate.packageQueryBtn') }}
+              </VBtn>
+              <VBtn v-else color="primary" :loading="dateLoading" @click="handleQueryByDate">
+                <VIcon icon="tabler-player-play" class="me-1" />{{ $t('page.preGenerate.dateQueryBtn') }}
+              </VBtn>
+            </template>
             <VBtn v-else color="error" @click="stopProcessing">
               <VIcon icon="tabler-player-stop" class="me-1" />{{ $t('common.stop') }}
             </VBtn>
@@ -163,6 +264,36 @@ const handleQuery = async () => {
   position: sticky;
   inset-block-start: 5rem;
   z-index: 1;
+}
+
+/* 書籤式分頁:平均寬、上圓角,選中頁籤白底高亮並與下方卡片連成一體 */
+.bookmark-tabs {
+  min-block-size: 42px;
+}
+.bookmark-tabs :deep(.v-tab.v-btn) {
+  border-start-start-radius: 10px !important;
+  border-start-end-radius: 10px !important;
+  border-end-start-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+  margin-inline-end: 3px;
+  min-block-size: 42px;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.bookmark-tabs :deep(.v-tab.v-btn:last-child) {
+  margin-inline-end: 0;
+}
+.bookmark-tabs :deep(.v-tab--selected) {
+  background: rgb(var(--v-theme-primary)) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+/* 卡片上緣左右改直角,與上方 tab 列平接成一體 */
+.bookmark-card {
+  border-start-start-radius: 0 !important;
+  border-start-end-radius: 0 !important;
 }
 
 .label-grid {

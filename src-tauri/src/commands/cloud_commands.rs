@@ -4,7 +4,9 @@ use tauri::{AppHandle, State};
 use crate::cache::derive_label_key;
 use crate::cloud::LabelFetchMode;
 use crate::commands::print_stats_commands::emit_print_stats_updated;
-use crate::models::{CloudPrintResult, CloudSession, ExaminePackageResult, PrintViewResult};
+use crate::models::{
+    CloudPrintResult, CloudSession, ExaminePackageResult, PackageOrdersResult, PrintViewResult,
+};
 use crate::watermark::derive_repeat_key;
 use crate::{AppResult, SharedState};
 
@@ -206,6 +208,37 @@ pub async fn cloud_examine_package(
     req: ExaminePackageRequest,
 ) -> AppResult<ExaminePackageResult> {
     state.cloud.examine_package(&req.shipment_no).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PackageOrdersRequest {
+    pub package_sn: String,
+}
+
+/// 面單預產:袋號反查整袋訂單編號
+#[tauri::command]
+pub async fn cloud_package_orders(
+    state: State<'_, SharedState>,
+    req: PackageOrdersRequest,
+) -> AppResult<PackageOrdersResult> {
+    state.cloud.fetch_package_orders(&req.package_sn).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrdersByDateRequest {
+    pub date: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// 面單預產:依日期反查整批訂單編號(source: clearance 清關 / transfer 轉寄出貨)
+#[tauri::command]
+pub async fn cloud_orders_by_date(
+    state: State<'_, SharedState>,
+    req: OrdersByDateRequest,
+) -> AppResult<PackageOrdersResult> {
+    let source = req.source.as_deref().unwrap_or("clearance");
+    state.cloud.fetch_orders_by_date(&req.date, source).await
 }
 
 /// 自動印單專用:cloud-print 端點回應 schema 與 PrintViewResult 不同,需獨立 command

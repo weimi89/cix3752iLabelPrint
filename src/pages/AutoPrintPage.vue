@@ -43,6 +43,9 @@ const PRINT_TYPE_MULTIPLE_KEY = 'cix3752iLabelPrint.autoPrintTypeMultiple'
 // 掃描入口模式:false=掃包裹訂單條碼(預設)、true=改以系統訂單編號反查
 // 雲端 examinePackageGoods 直接以 order_sn 欄位查 package,兩種輸入殊途同歸,僅 label 切換
 const EXAMINE_BY_ORDER_SN_KEY = 'cix3752iLabelPrint.autoExamineByOrderSn'
+// 刷包裹訂單條碼後是否自動列印該筆:預設開(刷即印);關閉時只載入清單供查件/查漏,不出單
+// (系統訂單編號欄的手動列印不受此開關影響,查到漏件仍可從該欄補印)
+const AUTO_PRINT_ON_SCAN_KEY = 'cix3752iLabelPrint.autoPrintOnScan'
 
 // 讀取舊版單值字串 / 新版 JSON array,兩種格式都吃,讓既有使用者升級不掉資料
 const loadStoredPrintTypes = () => {
@@ -63,6 +66,9 @@ const loadStoredPrintTypes = () => {
 const printTypeMultiple = ref(localStorage.getItem(PRINT_TYPE_MULTIPLE_KEY) === '1')
 const examineByOrderSn = ref(localStorage.getItem(EXAMINE_BY_ORDER_SN_KEY) === '1')
 watch(examineByOrderSn, v => localStorage.setItem(EXAMINE_BY_ORDER_SN_KEY, v ? '1' : '0'))
+// 預設 true:localStorage 無值(新使用者)時維持「刷即印」,僅顯式關過(存 '0')才不自動印
+const autoPrintOnScan = ref(localStorage.getItem(AUTO_PRINT_ON_SCAN_KEY) !== '0')
+watch(autoPrintOnScan, v => localStorage.setItem(AUTO_PRINT_ON_SCAN_KEY, v ? '1' : '0'))
 const initialPrintTypes = loadStoredPrintTypes()
 if (!printTypeMultiple.value && initialPrintTypes.length > 1) {
   initialPrintTypes.splice(1)
@@ -228,8 +234,9 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
 const handleExaminePackage = () => {
   const value = form.shipment_no.trim()
   if (!value) return
-  // 反查模式載入後會立即出單 → 先同步驗證,失敗就不清欄位、不排隊,讓操作員補資料後重刷
-  if (examineByOrderSn.value && !validatePrintForm()) return
+  // 只有「ON 反查 + 會自動印」時才前置驗證(焦點連刷停在本欄,失敗就不清欄位、不排隊,讓操作員補資料後重刷)。
+  // 關閉自動列印 = 純查件/查漏,不該被人員未填卡住;OFF 模式以「查清單」為主,人員未填時由 performPrintOrder 內部提示
+  if (examineByOrderSn.value && autoPrintOnScan.value && !validatePrintForm()) return
   // 同步清空條碼欄(value 已快照),焦點仍在本欄 → 操作員可在往返期間連刷下一筆;
   // 實際查詢/列印進佇列逐筆執行避免並發。回應後一律不再清空,避免清掉等待期間已刷入的下一筆
   form.shipment_no = ''
@@ -241,20 +248,33 @@ const handleExaminePackage = () => {
         packageOrders.value = data.orders || []
         playSound('effect_1')
         toast(t('page.auto.toast.packageLoaded', { sn: data.package_sn, n: data.orders?.length || 0 }), { type: 'success' })
-        // ON 模式下第二個欄位隱藏了,焦點留在 shipmentNoRef 讓使用者繼續刷下一筆
-        nextTick(() => (examineByOrderSn.value ? shipmentNoRef.value?.focus() : orderSnRef.value?.focus()))
-        // ON 模式 + 已分袋 → 刷的就是訂單編號,載入清單後立即列印該筆,不必再刷一次
-        if (examineByOrderSn.value) {
+        // 先把焦點放回對應輸入欄,讓操作員在本筆列印期間就能連刷下一筆。
+        // 不自動列印(純查件/查漏)→ 留在包裹訂單條碼欄連續查下一袋;
+        // 自動列印 + OFF 模式 → 移到系統訂單編號欄續刷其他筆;ON 模式隱藏了該欄,一律留 shipmentNoRef
+        nextTick(() =>
+          (!autoPrintOnScan.value || examineByOrderSn.value
+            ? shipmentNoRef.value?.focus()
+            : orderSnRef.value?.focus()),
+        )
+        // 開啟自動列印時:刷入的條碼本身就是系統訂單編號(=包裹訂單條碼),載入清單後立即當訂單編號列印該筆,
+        // 免去在系統訂單編號欄再刷一次同一個條碼;ON / OFF 兩模式一致。
+        // 人員/列印類型未填時 performPrintOrder 內部會擋下並提示,清單照常顯示,不影響查件
+        if (autoPrintOnScan.value) {
           const r = await performPrintOrder(value, { packageSn: data.package_sn || '' })
           if (r.success && r.data) {
             packageOrders.value = packageOrders.value.map(o =>
               o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
             )
+            // 整袋件數都印完 → 游標移回包裹訂單條碼欄,直接刷下一袋(與 handlePrintSubmit 一致)
+            if (allPrinted.value) {
+              form.order_sn = ''
+              nextTick(() => shipmentNoRef.value?.focus())
+            }
           }
         }
       } else if (data?.respond_code === 'NO-PACKAGE-DATA') {
-        if (examineByOrderSn.value) {
-          // mode ON + 沒袋號 → 直接列印單張,清單只顯示當下這筆,不累加;
+        if (examineByOrderSn.value && autoPrintOnScan.value) {
+          // mode ON + 自動列印 + 沒袋號 → 直接列印單張,清單只顯示當下這筆,不累加;
           // 若上一筆是有袋號清單(載入 N 筆),這一筆會清掉整個舊清單 + 舊袋號,避免畫面殘留誤導
           const r = await performPrintOrder(value, { packageSn: '' })
           form.package_sn = ''
@@ -311,6 +331,12 @@ const handlePrintSubmit = () => {
       packageOrders.value = packageOrders.value.map(o =>
         o.shipping_no === r.data.shipment_no ? { ...o, _printed: true, last_print_time: r.printedAt } : o,
       )
+      // 整袋件數都列印完 → 游標移回「包裹訂單條碼」欄,操作員可直接刷下一袋,
+      // 不必手動點回袋號欄(line 302 送出時已先聚焦 orderSnRef 供連刷,此處在最後一筆刷完後覆蓋)
+      if (allPrinted.value) {
+        form.order_sn = ''
+        nextTick(() => shipmentNoRef.value?.focus())
+      }
     }
   })
 }
@@ -456,21 +482,39 @@ onMounted(() => {
             </VCardText>
           </VCard>
 
-          <!-- 入口模式開關 — 列印面單卡下方靠右,低頻操作不擠表單動線 -->
-          <div class="d-flex align-center justify-end mt-2 pe-1 examine-mode-row">
-            <VSwitch
-              v-model="examineByOrderSn"
-              color="primary"
-              density="compact"
-              hide-details
-              inset
-            />
-            <span
-              class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
-              @click="examineByOrderSn = !examineByOrderSn"
-            >
-              {{ $t('page.auto.examineByOrderSn') }}
-            </span>
+          <!-- 兩個開關同一列分置兩端(左 / 右);低頻操作不擠表單動線。
+               刷碼自動列印:關閉時刷包裹訂單條碼只載清單供查件/查漏,不出單 -->
+          <div class="d-flex align-center justify-space-between flex-wrap mt-2 px-1 examine-mode-row" style="column-gap: 20px;">
+            <div class="d-flex align-center">
+              <VSwitch
+                v-model="autoPrintOnScan"
+                color="primary"
+                density="compact"
+                hide-details
+                inset
+              />
+              <span
+                class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
+                @click="autoPrintOnScan = !autoPrintOnScan"
+              >
+                {{ $t('page.auto.autoPrintOnScan') }}
+              </span>
+            </div>
+            <div class="d-flex align-center">
+              <VSwitch
+                v-model="examineByOrderSn"
+                color="primary"
+                density="compact"
+                hide-details
+                inset
+              />
+              <span
+                class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
+                @click="examineByOrderSn = !examineByOrderSn"
+              >
+                {{ $t('page.auto.examineByOrderSn') }}
+              </span>
+            </div>
           </div>
         </div>
       </VCol>
@@ -595,12 +639,14 @@ onMounted(() => {
   transform-origin: right center;
 }
 
-/* 列印面單卡下方的「以訂單編號反查」開關:縮放原點對齊「列印範圍複選」同習慣 right center,
-   文字用 ms-2 拉開 8px 緊接,跟 examine 開關視覺自然 */
+/* 列印面單卡下方的兩個開關(刷碼自動列印 / 以訂單編號反查)分置兩端。
+   縮放原點用 center,左右兩組對稱縮放,不會一邊正常一邊位移;
+   負 margin 抵消縮放後留白,讓 thumb 視覺貼齊各自那端 */
 .examine-mode-row :deep(.v-switch) {
   flex: 0 0 auto;
   transform: scale(0.7);
-  transform-origin: right center;
+  transform-origin: center center;
+  margin-inline: -6px;
 }
 
 /* 列印類型 checkbox 加大 + 拉開間距: Vuetify 沒有 column-gap utility,直接寫死 */

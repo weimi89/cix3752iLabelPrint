@@ -21,6 +21,9 @@ pub struct ParcelInfo {
     /// 列印記錄 ID(debug 模式不回,所以是 Option)
     #[serde(default)]
     pub response_id: Option<i64>,
+    /// 集包單號(袋號);雲端 v2 回傳新增,舊版雲端未回時為 None → 視為散單不納入袋件核對
+    #[serde(default)]
+    pub package_sn: Option<String>,
 }
 
 /// 統一的成功回應包裝：`{ "message": "OK", "data": {...} }`
@@ -148,4 +151,19 @@ pub struct CloudPrintResult {
     /// 累計列印次數(PRINT-SUCCESS 時才帶)
     #[serde(default)]
     pub print_num: Option<u32>,
+}
+
+/// 袋號反查整袋訂單編號結果(面單預產用)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageOrdersResult {
+    pub respond_code: String,
+    #[serde(default)]
+    pub respond_message: Option<String>,
+    #[serde(default)]
+    pub package_sn: Option<String>,
+    #[serde(default)]
+    pub order_sns: Vec<String>,
+    /// 依清關日期查詢時,當日袋號數(袋號反查單袋時為 None)
+    #[serde(default)]
+    pub package_count: Option<i64>,
 }

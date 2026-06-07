@@ -8,6 +8,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AppBulkInput: typeof import('./components/AppBulkInput.vue')['default']
+    AppDatePicker: typeof import('./components/AppDatePicker.vue')['default']
     AppHeader: typeof import('./components/AppHeader.vue')['default']
     AppLogo: typeof import('./components/AppLogo.vue')['default']
     AppNavbar: typeof import('./components/AppNavbar.vue')['default']

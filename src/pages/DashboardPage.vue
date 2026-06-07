@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useStatusStore } from '@/stores/status'
 import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
-import { workSessionReset } from '@/api/tauri'
+import { workSessionReset, localLanIps } from '@/api/tauri'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -34,6 +34,17 @@ const {
 } = useNetworkStatus()
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+
+// 本機 LAN IP(工控機連線位址);IP 不常變,進頁抓一次即可
+const lanInfo = ref({ ips: [], port: 18080 })
+onMounted(async () => {
+  try {
+    lanInfo.value = await localLanIps()
+  } catch (e) {
+    // 取不到網卡 IP 不影響其他儀表板資訊
+    console.warn('localLanIps 失敗', e)
+  }
+})
 
 const netOverallColor = computed(() => ({
   ok: 'success',
@@ -73,7 +84,7 @@ const formatBytes = bytes => {
     </VAlert>
 
     <!-- 本場累計 banner — 跨日 / 換班 / 計件結算的核心指標,永遠醒目 -->
-    <VCard class="mb-3 card-shadow session-banner">
+    <VCard class="mb-2 card-shadow session-banner">
       <VCardText class="d-flex align-center gap-4">
         <VAvatar color="primary" variant="flat" size="56">
           <VIcon icon="tabler-restore" size="32" />
@@ -97,10 +108,10 @@ const formatBytes = bytes => {
       </VCardText>
     </VCard>
 
-    <!-- 上半:即時狀態(Middleware / 雲端 / 印單統計) -->
+    <!-- 上半:即時狀態(中介服務 / 雲端 / 印單統計)— 單行等高 -->
     <VRow dense>
       <VCol cols="12" md="4">
-        <VCard class="card-shadow">
+        <VCard class="card-shadow h-100">
           <VCardItem>
             <template #prepend>
               <VAvatar :color="status.server.running ? 'success' : 'error'" variant="tonal">
@@ -114,7 +125,7 @@ const formatBytes = bytes => {
       </VCol>
 
       <VCol cols="12" md="4">
-        <VCard class="card-shadow">
+        <VCard class="card-shadow h-100">
           <VCardItem>
             <template #prepend>
               <VAvatar :color="status.cloud.logged_in ? 'success' : 'warning'" variant="tonal">
@@ -151,7 +162,7 @@ const formatBytes = bytes => {
       </VCol>
     </VRow>
 
-    <!-- 下半:本日統計(請求/成功率/cache 命中率/快取容量) -->
+    <!-- 本日統計(請求/成功率/cache 命中率/快取容量) -->
     <VRow dense class="mt-1">
       <VCol cols="12" md="6" lg="3">
         <VCard class="card-shadow">
@@ -207,7 +218,38 @@ const formatBytes = bytes => {
       </VCol>
     </VRow>
 
-    <VCard class="card-shadow mt-4 network-status-card">
+    <!-- 工控機連線位址(LAN IP,部署時工控機要連的位址) -->
+    <VRow dense class="mt-1">
+      <VCol cols="12">
+        <VCard class="card-shadow">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="info" variant="tonal">
+                <VIcon icon="tabler-network" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.dashboard.lanIpLabel') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.dashboard.lanIpHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VCardText class="pt-0 d-flex flex-wrap ga-2">
+            <VChip
+              v-for="ip in lanInfo.ips"
+              :key="ip.ip"
+              color="info"
+              variant="tonal"
+              label
+            >
+              <VIcon icon="tabler-router" start size="16" />
+              {{ ip.ip }}:{{ lanInfo.port }}
+              <span class="text-disabled ms-1">{{ ip.name }}</span>
+            </VChip>
+            <span v-if="!lanInfo.ips.length" class="text-disabled">—</span>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <VCard class="card-shadow mt-2 network-status-card">
       <VCardItem>
         <template #prepend>
           <VAvatar :color="netOverallColor" variant="tonal">
@@ -336,7 +378,7 @@ const formatBytes = bytes => {
       </div>
     </VCard>
 
-    <VAlert v-if="!status.cloud.logged_in && isTauriRuntime" type="warning" variant="tonal" class="mt-4" icon="tabler-alert-triangle">
+    <VAlert v-if="!status.cloud.logged_in && isTauriRuntime" type="warning" variant="tonal" class="mt-2" icon="tabler-alert-triangle">
       {{ $t('page.dashboard.cloudNotLoggedInAlert') }}
     </VAlert>
 

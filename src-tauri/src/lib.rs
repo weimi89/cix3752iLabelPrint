@@ -1,3 +1,4 @@
+mod bag_check;
 mod cache;
 mod cloud;
 mod commands;
@@ -30,6 +31,7 @@ pub struct AppState {
     pub health: health::HealthChecker,
     pub label_resolver: server::LabelPathResolver,
     pub watermark: watermark::WatermarkRenderer,
+    pub bag_check: bag_check::BagCheckState,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -72,6 +74,7 @@ pub fn run() {
             commands::printer_commands::print_image,
             commands::server_commands::server_status,
             commands::server_commands::server_restart,
+            commands::server_commands::local_lan_ips,
             commands::queue_commands::queue_stats,
             commands::queue_commands::queue_list,
             commands::queue_commands::queue_retry_failed,
@@ -87,6 +90,8 @@ pub fn run() {
             commands::cloud_commands::cloud_fetch_label,
             commands::cloud_commands::cloud_fetch_cloud_print,
             commands::cloud_commands::cloud_examine_package,
+            commands::cloud_commands::cloud_package_orders,
+            commands::cloud_commands::cloud_orders_by_date,
             commands::dispatch_commands::dispatch_provider_list,
             commands::dispatch_commands::dispatch_provider_upsert,
             commands::dispatch_commands::dispatch_provider_delete,
@@ -110,6 +115,8 @@ pub fn run() {
             commands::print_stats_commands::print_stats_failure,
             commands::print_stats_commands::print_stats_compare,
             commands::print_stats_commands::work_session_reset,
+            commands::bag_check_commands::bag_check_snapshot,
+            commands::bag_check_commands::bag_check_clear,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");
@@ -128,6 +135,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
 
     let label_resolver = server::LabelPathResolver::new(&app_config);
     let watermark = watermark::WatermarkRenderer::new();
+    let bag_check = bag_check::BagCheckState::new(cloud.clone(), handle.clone());
 
     let server_handle = server::start(
         &app_config,
@@ -137,6 +145,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         queue.clone(),
         label_resolver.clone(),
         watermark.clone(),
+        bag_check.clone(),
         handle.clone(),
     )
     .await?;
@@ -158,5 +167,6 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         health,
         label_resolver,
         watermark,
+        bag_check,
     }))
 }

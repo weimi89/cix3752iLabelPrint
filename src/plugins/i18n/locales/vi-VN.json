@@ -45,6 +45,7 @@
       "logs": "Nhật ký"
     },
     "dashboard": "Bảng điều khiển",
+    "bagCheck": "Đối chiếu túi",
     "preGenerate": "Tạo trước nhãn",
     "scanPrint": "Quét và in",
     "autoPrint": "Tự động in",
@@ -58,6 +59,13 @@
     "queueLog": "Lịch sử hàng đợi",
     "parcelQueryLog": "Lịch sử yêu cầu",
     "printStats": "Thống kê in nhãn"
+  },
+  "parcelAlert": {
+    "store_closed": "Cửa hàng đã đóng/chuyển",
+    "unconfirmed": "Đơn chưa xác nhận",
+    "not_found": "Không tìm thấy kiện hàng",
+    "unauthorized": "Chưa đăng nhập đám mây",
+    "error": "Yêu cầu nhãn thất bại"
   },
   "pagination": {
     "pagePrefix": "Trang",
@@ -184,7 +192,7 @@
       "shareRootPlaceholder": "VD: \\\\10.0.0.1\\labels hoặc /Volumes/labels",
       "shareRootHint": "Phải trỏ tới cùng tập tin với thư mục cache cục bộ (góc nhìn khác); không cần dấu / ở cuối",
       "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
-      "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với Middleware"
+      "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian"
     }
   },
   "page": {
@@ -192,8 +200,10 @@
       "title": "Bảng điều khiển",
       "subtitle": "Trạng thái thời gian thực của dịch vụ trung gian phân loại cục bộ",
       "previewModeAlert": "Chế độ xem trước trình duyệt — Dữ liệu trạng thái đến từ backend Tauri, vui lòng xem giá trị thực tế trong ứng dụng desktop.",
-      "middleware": "Middleware",
+      "middleware": "Dịch vụ trung gian",
       "notStarted": "Chưa khởi động",
+      "lanIpLabel": "Địa chỉ kết nối cho máy công nghiệp",
+      "lanIpHint": "Máy công nghiệp hãy kết nối tới một trong các địa chỉ dưới đây (dịch vụ lắng nghe 0.0.0.0, cần dùng IP LAN thực tế)",
       "cloudConnection": "Kết nối đám mây",
       "todayRequests": "Số yêu cầu hôm nay",
       "todaySuccessRate": "Tỉ lệ thành công hôm nay ({ok}/{total})",
@@ -206,7 +216,21 @@
     "preGenerate": {
       "title": "Tạo trước nhãn",
       "subtitle": "Yêu cầu server tạo trước ảnh nhãn (không ghi nhật ký in, không kiểm tra trạng thái giao hàng)",
+      "byOrderSn": "Mã đơn hàng",
+      "byPackage": "Mã túi thông quan",
+      "packageNo": "Mã túi thông quan",
+      "packagePlaceholder": "Nhập mã túi thông quan (mã gói), tra ngược cả túi và tạo trước nhãn",
+      "packageQueryBtn": "Tra ngược và tạo trước",
+      "packageNotFound": "Không tìm thấy đơn hàng của mã túi thông quan này",
+      "packageSomeNotFound": "Một số mã túi thông quan không có đơn:{list}",
+      "byDate": "Ngày",
+      "dateLabel": "Ngày",
+      "sourceClearance": "Ngày thông quan",
+      "sourceTransfer": "Chuyển tiếp xuất hàng",
+      "dateQueryBtn": "Chạy tạo trước trong ngày",
+      "dateNotFound": "Ngày này không có dữ liệu",
       "progress": "Tiến độ tải nhãn",
+      "successCount": "Thành công {n}",
       "empty": "Chưa tải nhãn nào",
       "emptyHint": "Vui lòng nhập mã đơn hàng ở bên trái và nhấn \"Tìm kiếm\"",
       "downloadWarnings": "Cảnh báo tải xuống"
@@ -310,6 +334,29 @@
         "category": "Phân loại",
         "action": "Hành động",
         "message": "Tin nhắn"
+      }
+    },
+    "bagCheck": {
+      "title": "Đối chiếu kiện theo túi",
+      "subtitle": "Tự động đối chiếu số kiện mỗi túi sau khi thiết bị chạy đơn, hiển thị 3 túi gần nhất kèm thời gian in theo thời gian thực",
+      "clearList": "Xoá danh sách",
+      "empty": "Chưa có dữ liệu túi",
+      "emptyHint": "Sau khi thiết bị (máy công nghiệp) bắt đầu chạy đơn, các túi xử lý gần nhất sẽ tự động hiện ở đây",
+      "total": "Số kiện",
+      "printed": "Đã in",
+      "missing": "Chưa in",
+      "lastRequestAt": "Yêu cầu gần nhất",
+      "loadFailedHint": "Tải danh sách cả túi thất bại (có thể là đơn lẻ, chưa đăng nhập hoặc lỗi truy vấn đám mây), tạm thời không đối chiếu được số kiện",
+      "status": {
+        "complete": "Đầy đủ",
+        "missing": "Chưa in {n} kiện",
+        "loadFailed": "Tải danh sách thất bại"
+      },
+      "col": {
+        "shippingNo": "Số vận đơn",
+        "provider": "Mã",
+        "printTime": "Thời gian in",
+        "unprinted": "Chưa in"
       }
     },
     "parcelQueryLog": {
@@ -448,6 +495,7 @@
       "packageBarcode": "Mã vạch đơn hàng kiện",
       "orderSn": "Mã đơn hàng hệ thống",
       "examineByOrderSn": "Tra cứu theo mã đơn",
+      "autoPrintOnScan": "Quét mã tự động in",
       "packageSn": "Mã túi",
       "totalCount": "Tổng số",
       "unprintedCount": "Chưa quét",

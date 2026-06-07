@@ -7,8 +7,8 @@ use serde_json::json;
 
 use crate::config::AppConfig;
 use crate::models::{
-    CloudOrderResponse, CloudPrintResult, CloudSession, ExaminePackageResult, ParcelInfo,
-    PrintViewResult,
+    CloudOrderResponse, CloudPrintResult, CloudSession, ExaminePackageResult,
+    PackageOrdersResult, ParcelInfo, PrintViewResult,
 };
 use crate::{AppError, AppResult};
 
@@ -48,6 +48,8 @@ struct CloudState {
     pre_generate_path: String,
     cloud_print_path: String,
     examine_package_path: String,
+    package_orders_path: String,
+    orders_by_date_path: String,
     webhook_path: String,
 }
 
@@ -75,6 +77,8 @@ impl CloudClient {
             pre_generate_path: config.cloud.pre_generate_path.clone(),
             cloud_print_path: config.cloud.cloud_print_path.clone(),
             examine_package_path: config.cloud.examine_package_path.clone(),
+            package_orders_path: config.cloud.package_orders_path.clone(),
+            orders_by_date_path: config.cloud.orders_by_date_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
         };
 
@@ -106,6 +110,8 @@ impl CloudClient {
         s.pre_generate_path = config.cloud.pre_generate_path.clone();
         s.cloud_print_path = config.cloud.cloud_print_path.clone();
         s.examine_package_path = config.cloud.examine_package_path.clone();
+        s.package_orders_path = config.cloud.package_orders_path.clone();
+        s.orders_by_date_path = config.cloud.orders_by_date_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
     }
 
@@ -170,11 +176,33 @@ impl CloudClient {
         let url = format!("{}/{}", join_url(&base, &path), query_no);
 
         let http = self.inner.http.read().clone();
-        let resp = http
-            .get(&url)
-            .send()
-            .await?
-            .error_for_status()?;
+        let resp = http.get(&url).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            // 401 維持既有語意(未登入);其餘解析雲端 dingo 錯誤 body 的 message
+            //(errorFormat: { "message": "..." }),保留具體狀態(門市關轉 / 未確認 / 找不到 …)
+            // 供前端分類播放對應提示音
+            if status.as_u16() == 401 {
+                return Err(AppError::Unauthorized);
+            }
+            let body = resp.text().await.unwrap_or_default();
+            let json: Option<serde_json::Value> = serde_json::from_str(&body).ok();
+            // 優先用雲端回的機器可讀 code(STORE_CLOSED / UNCONFIRMED / NOT_FOUND …);
+            // 舊版雲端未回 code 時 fallback 成 HTTP 狀態碼字串
+            let code = json
+                .as_ref()
+                .and_then(|v| v.get("code").and_then(|c| c.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| status.as_u16().to_string());
+            let message = json
+                .as_ref()
+                .and_then(|v| v.get("message").and_then(|m| m.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
+            return Err(AppError::Cloud { code, message });
+        }
 
         let envelope: CloudOrderResponse = resp.json().await?;
         Ok(envelope.data)
@@ -277,6 +305,64 @@ impl CloudClient {
         let result: ExaminePackageResult = serde_json::from_str(&text).map_err(|e| {
             AppError::Server(format!(
                 "雲端 examine-package 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 面單預產用:袋號反查整袋訂單編號(對齊雲端 label/package-orders)
+    pub async fn fetch_package_orders(&self, package_sn: &str) -> AppResult<PackageOrdersResult> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().package_orders_path.clone();
+        let url = join_url(&base, &path);
+
+        let body = json!({ "package_sn": package_sn });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: PackageOrdersResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 package-orders 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 面單預產用:依日期反查整批訂單編號(對齊雲端 label/orders-by-date;source: clearance/transfer)
+    pub async fn fetch_orders_by_date(
+        &self,
+        date: &str,
+        source: &str,
+    ) -> AppResult<PackageOrdersResult> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().orders_by_date_path.clone();
+        let url = join_url(&base, &path);
+
+        let body = json!({ "date": date, "source": source });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: PackageOrdersResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 orders-by-date 回應解析失敗: {e}; body: {}",
                 text.chars().take(500).collect::<String>()
             ))
         })?;

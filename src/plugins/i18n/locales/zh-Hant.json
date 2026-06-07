@@ -45,6 +45,7 @@
       "logs": "日誌"
     },
     "dashboard": "儀表板",
+    "bagCheck": "件數核對",
     "preGenerate": "面單預產",
     "scanPrint": "掃描列印",
     "autoPrint": "自動印單",
@@ -58,6 +59,13 @@
     "queueLog": "佇列歷史",
     "parcelQueryLog": "請求記錄",
     "printStats": "印單統計"
+  },
+  "parcelAlert": {
+    "store_closed": "門市關轉",
+    "unconfirmed": "訂單未確認",
+    "not_found": "找不到包裹",
+    "unauthorized": "雲端未登入",
+    "error": "面單請求失敗"
   },
   "pagination": {
     "pagePrefix": "第",
@@ -184,7 +192,7 @@
       "shareRootPlaceholder": "例:\\\\10.0.0.1\\labels 或 /Volumes/labels",
       "shareRootHint": "需與本機 cache 根目錄指向同一份檔案的不同視角;結尾不需斜線",
       "httpHint": "內網模式自動採用工控機請求的 Host header 組裝 URL,無須額外設定",
-      "localHint": "本機絕對路徑,工控機需與 Middleware 同機"
+      "localHint": "本機絕對路徑,工控機需與中介服務同機"
     }
   },
   "page": {
@@ -192,8 +200,10 @@
       "title": "儀表板",
       "subtitle": "本地分揀中介服務即時狀態",
       "previewModeAlert": "瀏覽器預覽模式 — 狀態資料來自 Tauri 後端,請於桌面 App 內查看實際數值。",
-      "middleware": "Middleware",
+      "middleware": "中介服務",
       "notStarted": "未啟動",
+      "lanIpLabel": "工控機連線位址",
+      "lanIpHint": "工控機請以下列任一位址連線(服務監聽 0.0.0.0,需用實際 LAN IP)",
       "cloudConnection": "雲端連線",
       "todayRequests": "本日請求數",
       "todaySuccessRate": "本日成功率 ({ok}/{total})",
@@ -206,7 +216,21 @@
     "preGenerate": {
       "title": "面單預產",
       "subtitle": "先讓伺服器產好面單圖(不寫列印記錄、不檢查出貨狀態)",
+      "byOrderSn": "訂單編號",
+      "byPackage": "清關袋號",
+      "packageNo": "清關袋號",
+      "packagePlaceholder": "輸入清關袋號(集包單號),反查整袋訂單並預產",
+      "packageQueryBtn": "反查並預產",
+      "packageNotFound": "查無此清關袋號的訂單",
+      "packageSomeNotFound": "部分清關袋號查無訂單:{list}",
+      "byDate": "日期",
+      "dateLabel": "日期",
+      "sourceClearance": "清關日期",
+      "sourceTransfer": "轉寄出貨",
+      "dateQueryBtn": "執行當日預產",
+      "dateNotFound": "該日期查無資料",
       "progress": "面單載入進度",
+      "successCount": "成功 {n}",
       "empty": "尚未載入面單",
       "emptyHint": "請在左側輸入訂單編號後按下「查詢」",
       "downloadWarnings": "下載警告"
@@ -310,6 +334,29 @@
         "category": "類別",
         "action": "動作",
         "message": "訊息"
+      }
+    },
+    "bagCheck": {
+      "title": "件數核對",
+      "subtitle": "設備跑單後自動核對各袋件數,即時顯示最近 3 袋訂單與列印時間",
+      "clearList": "清除清單",
+      "empty": "尚無分袋資料",
+      "emptyHint": "設備(工控機)開始跑單後,最近處理的袋會自動出現於此",
+      "total": "件數",
+      "printed": "已印",
+      "missing": "未印",
+      "lastRequestAt": "最近請求",
+      "loadFailedHint": "整袋清單載入失敗(可能為散單、未登入或雲端查詢失敗),件數核對暫不可用",
+      "status": {
+        "complete": "完整",
+        "missing": "未印 {n} 件",
+        "loadFailed": "清單載入失敗"
+      },
+      "col": {
+        "shippingNo": "物流單號",
+        "provider": "簡碼",
+        "printTime": "列印時間",
+        "unprinted": "未列印"
       }
     },
     "parcelQueryLog": {
@@ -448,6 +495,7 @@
       "packageBarcode": "包裹訂單條碼",
       "orderSn": "系統訂單編號",
       "examineByOrderSn": "以訂單編號反查",
+      "autoPrintOnScan": "刷碼自動列印",
       "packageSn": "袋號",
       "totalCount": "總筆數",
       "unprintedCount": "未刷",
