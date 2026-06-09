@@ -26,7 +26,7 @@ const successCount = ref(0)
 const failCount = ref(0)
 const progressPct = computed(() => (totalCount.value ? Math.round(completedCount.value / totalCount.value * 100) : 0))
 
-const CONCURRENCY = 5
+const CONCURRENCY = 20
 const FAIL_LIST_LIMIT = 300  // 失敗清單最多保留筆數
 
 const startBatch = snList => {
