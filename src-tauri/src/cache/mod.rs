@@ -74,7 +74,7 @@ impl CacheManager {
     pub async fn record_hit(&self, label_key: &str) -> AppResult<()> {
         sqlx::query(
             "UPDATE cache_meta
-             SET hit_count = hit_count + 1, last_hit_at = datetime('now')
+             SET hit_count = hit_count + 1, last_hit_at = datetime('now','localtime')
              WHERE label_key = ?",
         )
         .bind(label_key)
@@ -188,7 +188,7 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
             local_path = excluded.local_path,
             source_url = excluded.source_url,
             size_bytes = excluded.size_bytes,
-            created_at = datetime('now')",
+            created_at = datetime('now','localtime')",
     )
     .bind(label_key)
     .bind(target.to_string_lossy().to_string())
@@ -210,7 +210,7 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
         clean_expired(base, threshold).await?;
         sqlx::query(
             "DELETE FROM cache_meta
-             WHERE created_at < datetime('now', ?)",
+             WHERE created_at < datetime('now','localtime', ?)",
         )
         .bind(format!("-{keep_days} days"))
         .execute(db)

@@ -5,6 +5,9 @@
 
 ## v0.5.2
 
+### 修正
+- 所有記錄的時間顯示比台灣時間慢 8 小時：SQLite `datetime('now')` 預設回傳 UTC，修正為 `datetime('now','localtime')`；並加入 migration 將現有記錄補正 +8 小時。受影響表：`event_log`、`report_queue`、`parcel_query_log`、`scan_history`、`sticker_history`、`sort_channels`、`cache_meta`、`dispatch_provider`、`settings`、`printer_profile`。
+
 ### 調整
 - 面單預產:批次預產並發數從 5 提高到 20,大批量（萬筆級）的預產速度提升約 4 倍。
 

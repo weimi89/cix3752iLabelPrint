@@ -362,7 +362,7 @@ async fn get_parcel(
                        print_profile = excluded.print_profile,
                        should_print = excluded.should_print,
                        label_key = excluded.label_key,
-                       created_at = datetime('now')",
+                       created_at = datetime('now','localtime')",
                 )
                 .bind(rid)
                 .bind(&query_no)

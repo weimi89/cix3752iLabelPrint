@@ -100,7 +100,7 @@ pub async fn queue_list(
 pub async fn queue_retry_failed(state: State<'_, SharedState>) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE report_queue
-         SET status='pending', retry_count=0, updated_at=datetime('now')
+         SET status='pending', retry_count=0, updated_at=datetime('now','localtime')
          WHERE status='failed'",
     )
     .execute(&state.db)

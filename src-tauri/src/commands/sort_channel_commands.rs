@@ -14,8 +14,8 @@ pub async fn upsert_sticker_history(db: &DbPool, name: &str) -> AppResult<()> {
         return Ok(());
     }
     sqlx::query(
-        "INSERT INTO sticker_history (name, used_at) VALUES (?, datetime('now'))
-         ON CONFLICT(name) DO UPDATE SET used_at = datetime('now')",
+        "INSERT INTO sticker_history (name, used_at) VALUES (?, datetime('now','localtime'))
+         ON CONFLICT(name) DO UPDATE SET used_at = datetime('now','localtime')",
     )
     .bind(name)
     .execute(db)
@@ -102,7 +102,7 @@ pub async fn sort_channel_save(
 
     sqlx::query(
         "UPDATE sort_channels
-         SET channel_code = ?, dispatch_code = ?, job_sticker = ?, updated_at = datetime('now')
+         SET channel_code = ?, dispatch_code = ?, job_sticker = ?, updated_at = datetime('now','localtime')
          WHERE position = ?",
     )
     .bind(&channel_code)

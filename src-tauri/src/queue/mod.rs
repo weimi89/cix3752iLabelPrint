@@ -122,7 +122,7 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
         let job_sticker: Option<String> = row.try_get("job_sticker").ok().flatten();
         let retry_count: i64 = row.try_get("retry_count")?;
 
-        sqlx::query("UPDATE report_queue SET status='sending', updated_at=datetime('now') WHERE id=?")
+        sqlx::query("UPDATE report_queue SET status='sending', updated_at=datetime('now','localtime') WHERE id=?")
             .bind(id)
             .execute(&inner.db)
             .await?;
@@ -137,7 +137,7 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
             Ok(()) => {
                 sqlx::query(
                     "UPDATE report_queue
-                     SET status='success', sent_at=datetime('now'), updated_at=datetime('now')
+                     SET status='success', sent_at=datetime('now','localtime'), updated_at=datetime('now','localtime')
                      WHERE id=?",
                 )
                 .bind(id)
@@ -148,7 +148,7 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
                 // 未登入:不累加 retry,下一輪繼續
                 sqlx::query(
                     "UPDATE report_queue
-                     SET status='pending', updated_at=datetime('now')
+                     SET status='pending', updated_at=datetime('now','localtime')
                      WHERE id=?",
                 )
                 .bind(id)
@@ -167,7 +167,7 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
 async fn mark_failed(db: &DbPool, id: i64, retry_count: i64) -> AppResult<()> {
     sqlx::query(
         "UPDATE report_queue
-         SET status='failed', retry_count=?, updated_at=datetime('now')
+         SET status='failed', retry_count=?, updated_at=datetime('now','localtime')
          WHERE id=?",
     )
     .bind(retry_count + 1)

@@ -65,12 +65,12 @@ pub async fn dispatch_provider_upsert(
 
     sqlx::query(
         "INSERT INTO dispatch_provider (code, name, sort_order, print_profile, updated_at)
-         VALUES (?, ?, ?, ?, datetime('now'))
+         VALUES (?, ?, ?, ?, datetime('now','localtime'))
          ON CONFLICT(code) DO UPDATE SET
             name = excluded.name,
             sort_order = excluded.sort_order,
             print_profile = excluded.print_profile,
-            updated_at = datetime('now')",
+            updated_at = datetime('now','localtime')",
     )
     .bind(code)
     .bind(name)
