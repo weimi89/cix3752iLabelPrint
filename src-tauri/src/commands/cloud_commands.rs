@@ -2,13 +2,27 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::cache::derive_label_key;
+use crate::event_log;
 use crate::cloud::LabelFetchMode;
 use crate::commands::print_stats_commands::emit_print_stats_updated;
 use crate::models::{
     CloudPrintResult, CloudSession, ExaminePackageResult, PackageOrdersResult, PrintViewResult,
 };
 use crate::watermark::derive_repeat_key;
-use crate::{AppResult, SharedState};
+use crate::{AppError, AppResult, SharedState};
+
+/// 把掃描列印 print_view_status / 自動印單 respond_code 對應到錯誤面單代碼
+fn to_error_label_code(code: &str) -> &'static str {
+    match code {
+        "STORE_CLOSED" | "STORE-CLOSED"                      => "STORE_CLOSED",
+        "UNCONFIRMED" | "UNCONFIRMED-SHIPMENT"               => "UNCONFIRMED",
+        "NOT_FOUND" | "NO-DATA"                              => "NOT_FOUND",
+        "NOT_PROXY"                                          => "NOT_PROXY",
+        "NOT_FORWARD"                                        => "NOT_FORWARD",
+        "ABNORMAL-SHIPMENT" | "ORDER-UNUSUAL" | "SHIPPING-UNUSUAL" => "ABNORMAL",
+        _                                                    => "ERROR",
+    }
+}
 
 /// 把雲端面單 URL 處理成前端 UI 可用的 middleware 本機 URL:
 ///   1. 下載原圖到 cache(若未命中)
@@ -112,12 +126,19 @@ pub async fn cloud_login(
     state: State<'_, SharedState>,
     req: LoginRequest,
 ) -> AppResult<CloudSession> {
-    state.cloud.login(&req.api_base, &req.token).await
+    let result = state.cloud.login(&req.api_base, &req.token).await?;
+    event_log::log_bg(state.db.clone(), "info", "cloud", "登入",
+        format!("登入成功 {}", req.api_base));
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn cloud_logout(state: State<'_, SharedState>) -> AppResult<()> {
-    state.cloud.logout()
+    let result = state.cloud.logout();
+    if result.is_ok() {
+        event_log::log_bg(state.db.clone(), "info", "cloud", "登出", "已登出".to_string());
+    }
+    result
 }
 
 #[tauri::command]
@@ -136,7 +157,7 @@ pub async fn cloud_fetch_label(
         "cloud_print" => LabelFetchMode::CloudPrint,
         _ => LabelFetchMode::WebPrint,
     };
-    let mut result = state
+    let mut result = match state
         .cloud
         .fetch_label_for_print(
             &req.order_sn,
@@ -146,7 +167,20 @@ pub async fn cloud_fetch_label(
             req.scanner_user.as_deref(),
             req.sticker_user.as_deref(),
         )
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            if let AppError::Cloud { code, .. } = &e {
+                crate::server::spawn_error_label_print(
+                    state.db.clone(),
+                    req.order_sn.clone(),
+                    to_error_label_code(code).to_string(),
+                );
+            }
+            return Err(e);
+        }
+    };
 
     // Download / WebPrint 模式:下載到本地快取 + 套用列印次數浮水印,
     // 回給前端本地 server 路徑(後續列印直接讀 cache,不重打雲端)
@@ -160,37 +194,48 @@ pub async fn cloud_fetch_label(
         }
     }
 
-    // 印單事件 — LABEL-PROCESS = 成功記 print_event;其他狀態(LABEL-UNUSUAL / STORE-CLOSED /
-    // SHIPPING-UNUSUAL / SHIPPING-REPEAT / ORDER-UNUSUAL)= 失敗,記 print_failure_event
-    let shipping_no_opt = result.print_shipping_no.as_deref().filter(|s| !s.is_empty());
-    if result.print_view_status == "LABEL-PROCESS" {
-        if let Some(no) = shipping_no_opt {
-            let insert_res = sqlx::query(
-                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
-                 VALUES ('scan', ?, ?, ?, ?)",
+    // 面單預產(Download 模式)只是下載快取,不是出單,不記印單事件
+    if !matches!(mode, LabelFetchMode::Download) {
+        // 印單事件 — LABEL-PROCESS = 成功記 print_event;其他狀態記 print_failure_event
+        let shipping_no_opt = result.print_shipping_no.as_deref().filter(|s| !s.is_empty());
+        if result.print_view_status == "LABEL-PROCESS" {
+            if let Some(no) = shipping_no_opt {
+                let insert_res = sqlx::query(
+                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user)
+                     VALUES ('scan', ?, ?, ?, ?)",
+                )
+                .bind(no)
+                .bind(result.print_shipping_provider.as_deref())
+                .bind(req.sticker_user.as_deref())
+                .bind(req.scanner_user.as_deref())
+                .execute(&state.db)
+                .await;
+                if insert_res.is_ok() {
+                    emit_print_stats_updated(&app, "scan", no);
+                }
+            }
+        } else {
+            let _ = sqlx::query(
+                "INSERT INTO print_failure_event (source, respond_code, order_sn, shipping_no, scanner_user, sticker_user)
+                 VALUES ('scan', ?, ?, ?, ?, ?)",
             )
-            .bind(no)
-            .bind(result.print_shipping_provider.as_deref())
-            .bind(req.sticker_user.as_deref())
+            .bind(&result.print_view_status)
+            .bind(&req.order_sn)
+            .bind(shipping_no_opt)
             .bind(req.scanner_user.as_deref())
+            .bind(req.sticker_user.as_deref())
             .execute(&state.db)
             .await;
-            if insert_res.is_ok() {
-                emit_print_stats_updated(&app, "scan", no);
+            event_log::log_bg(state.db.clone(), "warn", "cloud", "面單查詢失敗",
+                format!("面單查詢失敗 status={} order={}", result.print_view_status, req.order_sn));
+            if !matches!(result.print_view_status.as_str(), "SHIPPING-REPEAT" | "NO-PRINT-TYPE") {
+                crate::server::spawn_error_label_print(
+                    state.db.clone(),
+                    req.order_sn.clone(),
+                    to_error_label_code(&result.print_view_status).to_string(),
+                );
             }
         }
-    } else {
-        let _ = sqlx::query(
-            "INSERT INTO print_failure_event (source, respond_code, order_sn, shipping_no, scanner_user, sticker_user)
-             VALUES ('scan', ?, ?, ?, ?, ?)",
-        )
-        .bind(&result.print_view_status)
-        .bind(&req.order_sn)
-        .bind(shipping_no_opt)
-        .bind(req.scanner_user.as_deref())
-        .bind(req.sticker_user.as_deref())
-        .execute(&state.db)
-        .await;
     }
 
     Ok(result)
@@ -310,6 +355,13 @@ pub async fn cloud_fetch_cloud_print(
         .bind(req.sticker_user.as_deref())
         .execute(&state.db)
         .await;
+        if !matches!(result.respond_code.as_str(), "ABNORMAL-PACKAGE" | "WRAPPER-ERROR") {
+            crate::server::spawn_error_label_print(
+                state.db.clone(),
+                req.order_sn.clone(),
+                to_error_label_code(&result.respond_code).to_string(),
+            );
+        }
     }
 
     Ok(result)

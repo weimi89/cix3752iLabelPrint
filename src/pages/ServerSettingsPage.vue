@@ -11,6 +11,7 @@ const labelPathModeItems = computed(() => [
   { value: 'local', title: t('label.mode.local') },
   { value: 'share', title: t('label.mode.share') },
   { value: 'http', title: t('label.mode.http') },
+  { value: 'direct_print', title: t('label.mode.direct_print') },
 ])
 
 const config = ref(null)
@@ -237,7 +238,9 @@ const restart = async () => {
                 ? $t('label.settings.shareRootHint')
                 : config.label_path.mode === 'http'
                   ? $t('label.settings.httpHint')
-                  : $t('label.settings.localHint')
+                  : config.label_path.mode === 'direct_print'
+                    ? $t('label.settings.directPrintHint')
+                    : $t('label.settings.localHint')
             }}
           </div>
         </VAlert>

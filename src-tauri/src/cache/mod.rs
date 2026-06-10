@@ -9,6 +9,7 @@ use tokio::fs;
 
 use crate::config::AppConfig;
 use crate::db::DbPool;
+use crate::event_log;
 use crate::{AppError, AppResult};
 
 /// 圖片快取管理 — 負責 local 判斷、補下載、清理過期、命中率統計
@@ -182,8 +183,8 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
     let size = bytes.len() as i64;
 
     sqlx::query(
-        "INSERT INTO cache_meta (label_key, local_path, source_url, size_bytes)
-         VALUES (?, ?, ?, ?)
+        "INSERT INTO cache_meta (label_key, local_path, source_url, size_bytes, created_at)
+         VALUES (?, ?, ?, ?, datetime('now','localtime'))
          ON CONFLICT(label_key) DO UPDATE SET
             local_path = excluded.local_path,
             source_url = excluded.source_url,
@@ -198,6 +199,8 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
     .await?;
 
     tracing::info!(label_key, %source_url, size, "快取補下載完成");
+    event_log::log_bg(inner.db.clone(), "info", "cache", "面單下載",
+        format!("面單下載完成 {label_key}"));
     Ok(())
 }
 
@@ -231,6 +234,7 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
             .fetch_all(db)
             .await?;
 
+            let mut evict_count = 0usize;
             for (key, path, size) in victims {
                 if total <= limit_bytes {
                     break;
@@ -241,6 +245,11 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
                     .execute(db)
                     .await;
                 total -= size;
+                evict_count += 1;
+            }
+            if evict_count > 0 {
+                event_log::log_bg(db.clone(), "info", "cache", "快取清理",
+                    format!("LRU 清理 {evict_count} 個快取檔案"));
             }
         }
     }

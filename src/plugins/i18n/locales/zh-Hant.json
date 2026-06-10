@@ -6,6 +6,7 @@
     "saveSettings": "儲存設定",
     "delete": "刪除",
     "edit": "編輯",
+    "set": "設定",
     "close": "關閉",
     "search": "查詢",
     "reset": "重設",
@@ -64,6 +65,8 @@
     "store_closed": "門市關轉",
     "unconfirmed": "訂單未確認",
     "not_found": "找不到包裹",
+    "not_proxy": "非代寄訂單",
+    "not_forward": "非轉寄訂單",
     "unauthorized": "雲端未登入",
     "error": "面單請求失敗"
   },
@@ -182,7 +185,8 @@
     "mode": {
       "local": "本機端路徑",
       "share": "共用目錄",
-      "http": "HTTP URL"
+      "http": "HTTP URL",
+      "direct_print": "本機直接列印"
     },
     "settings": {
       "section": "面單路徑回傳模式",
@@ -192,7 +196,8 @@
       "shareRootPlaceholder": "例:\\\\10.0.0.1\\labels 或 /Volumes/labels",
       "shareRootHint": "需與本機 cache 根目錄指向同一份檔案的不同視角;結尾不需斜線",
       "httpHint": "內網模式自動採用工控機請求的 Host header 組裝 URL,無須額外設定",
-      "localHint": "本機絕對路徑,工控機需與中介服務同機"
+      "localHint": "本機絕對路徑,工控機需與中介服務同機",
+      "directPrintHint": "App 收到工控機請求後直接呼叫本機印表機列印,label_path 回傳 null;請至「指派物流」頁面為各物流商設定對應印表機"
     }
   },
   "page": {
@@ -379,7 +384,10 @@
         "channel": "通道",
         "printProfile": "印表機設定",
         "responseId": "雲端 ID",
-        "labelKey": "面單 Key"
+        "labelKey": "面單 Key",
+        "cloudMs": "雲端",
+        "labelMs": "圖案",
+        "totalMs": "總花"
       }
     },
     "sort": {
@@ -405,6 +413,14 @@
         "unsaved": "未儲存",
         "enabled": "已啟用",
         "unset": "未設定"
+      },
+      "unassigned": {
+        "label": "未設定指派物流 — 預設通道代碼",
+        "hint": "當包裹的物流商未設定到任何通道時，回傳此代碼",
+        "placeholder": "例: X00（留空表示不回傳）",
+        "current": "預設通道：{code}",
+        "save": "儲存",
+        "saved": "已儲存"
       }
     },
     "dispatch": {
@@ -414,13 +430,15 @@
       "emptyHint": "尚未設定物流商,按右上「新增物流」開始",
       "errCodeNameRequired": "代碼與名稱皆不可為空",
       "errPrintProfileRequired": "列印設定為必填",
+      "errPrinterNameRequired": "直接列印模式需選擇印表機",
       "errCodeDuplicate": "代碼 \"{code}\" 已存在",
       "flashCreated": "已新增物流商",
       "flashUpdated": "已更新物流商",
       "flashDeleted": "已刪除 {name}",
-      "codePlaceholder": "例: SF / BLACK / POST",
+      "codePlaceholder": "例: S / B / P",
       "namePlaceholder": "例: 順豐速運",
       "printProfilePlaceholder": "例: PAPER-01#100x150",
+      "printerNamePlaceholder": "選擇本機印表機",
       "orderHint": "數字越小越前面",
       "confirmDelete": "確認刪除",
       "confirmDeleteBody": "確定要刪除「{name}」({code}) 嗎?",
@@ -430,6 +448,7 @@
         "code": "代碼",
         "name": "名稱",
         "printProfile": "列印設定",
+        "printerName": "本機印表機",
         "actions": "操作"
       }
     },

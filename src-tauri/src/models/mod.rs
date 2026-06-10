@@ -61,6 +61,7 @@ impl<T: Serialize> DataEnvelope<T> {
 pub struct ParcelData {
     pub channel_code: Option<String>,
     pub print_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label_path: Option<String>,
     pub response_id: Option<i64>,
 }

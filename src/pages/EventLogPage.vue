@@ -109,7 +109,9 @@ const totalPages = computed(() => Math.max(1, Math.ceil(mockTotal.value / pageSi
 watch([eventLevel, eventCategory, searchKeyword], () => { page.value = 1; load() })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
-onMounted(load)
+let _timer = null
+onMounted(() => { load(); if (isTauriRuntime) _timer = setInterval(load, 10000) })
+onUnmounted(() => { clearInterval(_timer); _timer = null })
 
 const levelColor = level => ({ info: 'info', warn: 'warning', error: 'error' }[level] || 'grey')
 const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''

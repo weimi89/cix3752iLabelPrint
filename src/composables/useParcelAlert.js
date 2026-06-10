@@ -11,6 +11,8 @@ const KIND_SOUND = {
   store_closed: 'effect_3', // 門市關轉
   unconfirmed: 'effect_4', // 訂單未確認
   not_found: 'effect_2', // 找不到包裹 / 查無訂單
+  not_proxy: 'effect_4',  // 非代寄訂單
+  not_forward: 'effect_4', // 非轉寄訂單
   unauthorized: 'effect_2', // 雲端未登入
   error: 'effect_2', // 一般失敗
 }
@@ -18,6 +20,8 @@ const KIND_TYPE = {
   store_closed: 'warning',
   unconfirmed: 'warning',
   not_found: 'error',
+  not_proxy: 'warning',
+  not_forward: 'warning',
   unauthorized: 'error',
   error: 'error',
 }

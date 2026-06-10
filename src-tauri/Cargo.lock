@@ -309,6 +309,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "barcoders"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "298326aba91e0dd1acba62767652c7c9f4d45ada6804110278680c4f0c6e8ab7"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -592,12 +598,13 @@ dependencies = [
 
 [[package]]
 name = "cix3752i-label-print"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "ab_glyph",
  "anyhow",
  "async-trait",
  "axum",
+ "barcoders",
  "base64 0.22.1",
  "chrono",
  "embed_plist",

@@ -4,6 +4,8 @@ import { RouterLink } from 'vue-router'
 import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
 import { VerticalNavLayout } from '@layouts'
+import { layoutConfig } from '@layouts'
+import { useLayoutConfigStore } from '@layouts/stores/config'
 import AppNavbar from '@/components/AppNavbar.vue'
 import AppLogo from '@/components/AppLogo.vue'
 import { navItems } from '@/config/navConfig'
@@ -12,6 +14,7 @@ import { useStatusStore } from '@/stores/status'
 import { useParcelAlert } from '@/composables/useParcelAlert'
 
 const { layoutAttrs } = useSkins()
+const configStore = useLayoutConfigStore()
 const status = useStatusStore()
 const parcelAlert = useParcelAlert()
 const appVersion = ref('')
@@ -63,7 +66,7 @@ onBeforeUnmount(() => {
     :nav-items="navItems"
     :vertical-nav-attrs="layoutAttrs.verticalNavAttrs"
   >
-    <!-- 👉 Sidebar header (logo + 標題 + version) -->
+    <!-- 👉 Sidebar header (logo + 標題 + version + 收合按鈕) -->
     <template #vertical-nav-header>
       <RouterLink to="/" class="app-logo app-title-wrapper">
         <AppLogo />
@@ -73,6 +76,21 @@ onBeforeUnmount(() => {
           class="app-version-badge text-caption font-weight-medium"
         >v{{ appVersion }}</span>
       </RouterLink>
+      <!-- 桌面：收合/展開按鈕 -->
+      <div class="nav-collapse-btn">
+        <Component
+          :is="layoutConfig.app.iconRenderer || 'div'"
+          v-if="configStore.isVerticalNavCollapsed"
+          v-bind="layoutConfig.icons.verticalNavUnPinned"
+          @click="configStore.isVerticalNavCollapsed = false"
+        />
+        <Component
+          :is="layoutConfig.app.iconRenderer || 'div'"
+          v-else
+          v-bind="layoutConfig.icons.verticalNavPinned"
+          @click="configStore.isVerticalNavCollapsed = true"
+        />
+      </div>
     </template>
 
     <!-- 👉 Navbar -->
@@ -110,9 +128,33 @@ onBeforeUnmount(() => {
   align-self: flex-end;
   padding-block-end: 2px;
 }
+
+.nav-collapse-btn {
+  cursor: pointer;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+
+  &:hover {
+    color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+  }
+}
 </style>
 
 <style lang="scss">
 /* 載入 @layouts plugin 的 layout styles */
 @use "@layouts/styles/default-layout";
+
+/* 側邊欄收合/展開按鈕 — 不使用 header-action class 以避開模板隱藏規則 */
+.layout-vertical-nav .nav-collapse-btn {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+
+  > * {
+    display: inline-flex !important;
+  }
+}
 </style>

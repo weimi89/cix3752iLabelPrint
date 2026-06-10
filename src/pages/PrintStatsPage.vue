@@ -1,5 +1,5 @@
 <script setup>
-import { provide } from 'vue'
+import { provide, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTheme, useLocale } from 'vuetify'
 import { VuetifyDateAdapter } from 'vuetify/date/adapters/vuetify'
@@ -22,6 +22,7 @@ import {
   printStatsCompare,
   workSessionReset,
 } from '@/api/tauri'
+import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 
 // echarts 按需引入 — 用到 line + heatmap + grid + tooltip + visualMap
@@ -378,7 +379,12 @@ watch([startDate, endDate], () => {
   reload()
 })
 
-onMounted(reload)
+let _unlistenStats = null
+onMounted(async () => {
+  await reload()
+  try { _unlistenStats = await listen('print-stats-updated', reload) } catch {}
+})
+onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = null } })
 </script>
 
 <template>

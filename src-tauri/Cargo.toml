@@ -1,9 +1,10 @@
 [package]
 name = "cix3752i-label-print"
-version = "0.5.2"
+version = "0.5.3"
 description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"
+default-run = "cix3752i-label-print"
 rust-version = "1.77"
 
 [lib]
@@ -69,6 +70,7 @@ image = "0.25"
 imageproc = { version = "0.25", default-features = false }
 ab_glyph = "0.2"
 base64 = "0.22"
+barcoders = "1"
 
 # macOS Dock 名稱:dev binary 沒 .app bundle,embed_plist 把最小 Info.plist
 # 編譯期內嵌進 __TEXT,__info_plist section;production .app 仍用 bundle 內 plist 不受影響

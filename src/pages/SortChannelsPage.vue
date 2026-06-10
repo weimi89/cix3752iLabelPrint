@@ -2,6 +2,8 @@
 import {
   sortChannelList,
   sortChannelSave,
+  sortChannelUnassignedGet,
+  sortChannelUnassignedSave,
   dispatchProviderList,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
@@ -22,6 +24,17 @@ const savingAll = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
+// 未設定指派物流的 fallback 通道代碼
+const unassignedCode = ref('')
+const unassignedDialog = ref(false)
+const unassignedDraft = ref('')
+const savingUnassigned = ref(false)
+
+const openUnassignedDialog = () => {
+  unassignedDraft.value = unassignedCode.value
+  unassignedDialog.value = true
+}
+
 const POSITION_LABELS = computed(() => ({
   L1: t('page.sort.pos.L1'), L2: t('page.sort.pos.L2'), L3: t('page.sort.pos.L3'), L4: t('page.sort.pos.L4'),
   R1: t('page.sort.pos.R1'), R2: t('page.sort.pos.R2'), R3: t('page.sort.pos.R3'), R4: t('page.sort.pos.R4'),
@@ -39,18 +52,33 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch] = await Promise.all([
+    const [list, dispatch, uCode] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
+      sortChannelUnassignedGet(),
       reloadStickerHistory(),
     ])
     channels.value = list
     dispatchOptions.value = dispatch
+    unassignedCode.value = uCode ?? ''
     dirty.value = new Set()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
   } finally {
     loading.value = false
+  }
+}
+
+const saveUnassigned = async () => {
+  savingUnassigned.value = true
+  try {
+    await sortChannelUnassignedSave(unassignedDraft.value || null)
+    unassignedCode.value = unassignedDraft.value
+    unassignedDialog.value = false
+  } catch (e) {
+    errorMsg.value = String(e?.message || e)
+  } finally {
+    savingUnassigned.value = false
   }
 }
 onMounted(load)
@@ -162,6 +190,29 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
   }
 }
 
+.unassigned-setting-row {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &--unset {
+    border-color: rgb(var(--v-theme-warning) / 0.5);
+    border-left: 3px solid rgb(var(--v-theme-warning));
+
+    &:hover {
+      box-shadow: 0 0 0 1px rgb(var(--v-theme-warning) / 0.3);
+    }
+  }
+
+  &--set {
+    border-color: rgb(var(--v-theme-primary) / 0.4);
+    border-left: 3px solid rgb(var(--v-theme-primary));
+
+    &:hover {
+      box-shadow: 0 0 0 1px rgb(var(--v-theme-primary) / 0.2);
+    }
+  }
+}
+
 .column-label {
   display: flex;
   align-items: center;
@@ -200,6 +251,75 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
+
+    <!-- 未設定指派物流 fallback 設定入口 -->
+    <VCard
+      variant="outlined"
+      class="mb-4 unassigned-setting-row"
+      :class="unassignedCode ? 'unassigned-setting-row--set' : 'unassigned-setting-row--unset'"
+      @click="openUnassignedDialog"
+    >
+      <div class="d-flex align-center ps-4 ga-3" style="min-height: 52px;">
+        <VIcon
+          :icon="unassignedCode ? 'tabler-check' : 'tabler-alert-triangle'"
+          size="18"
+          :color="unassignedCode ? 'primary' : 'warning'"
+          class="flex-shrink-0"
+        />
+        <span class="text-body-2 flex-grow-1">未指派物流通道 — 預設回傳代碼</span>
+        <VBtn
+          :color="unassignedCode ? 'primary' : 'warning'"
+          :variant="unassignedCode ? 'flat' : 'tonal'"
+          size="large"
+          class="px-5 font-weight-bold rounded-s-0"
+          style="align-self: stretch; height: auto;"
+        >
+          <VIcon :icon="unassignedCode ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-2" />
+          <template v-if="unassignedCode">{{ $t('page.sort.unassigned.current', { code: unassignedCode }) }}</template>
+          <template v-else>{{ $t('page.sort.status.unset') }}</template>
+        </VBtn>
+      </div>
+    </VCard>
+
+    <!-- 未設定指派物流 fallback 設定 Dialog -->
+    <VDialog v-model="unassignedDialog" max-width="420" persistent>
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="unassignedDialog = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
+      <VCard>
+        <VCardTitle class="d-flex align-center ga-2 pt-4 px-5">
+          <VIcon icon="tabler-question-mark" size="18" color="secondary" />
+          {{ $t('page.sort.unassigned.label') }}
+        </VCardTitle>
+        <VCardText class="px-5 pb-2">
+          <div class="text-caption text-medium-emphasis mb-4">{{ $t('page.sort.unassigned.hint') }}</div>
+          <VTextField
+            v-model="unassignedDraft"
+            :label="$t('page.sort.unassigned.placeholder')"
+            density="compact"
+            variant="outlined"
+            autofocus
+            clearable
+            @keyup.enter="saveUnassigned"
+          />
+        </VCardText>
+        <VCardActions class="px-5 pb-4">
+          <VSpacer />
+          <VBtn variant="text" @click="unassignedDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="secondary" variant="elevated" :loading="savingUnassigned" @click="saveUnassigned">
+            {{ $t('page.sort.unassigned.save') }}
+          </VBtn>
+        </VCardActions>
+      </VCard>
+      </div>
+    </VDialog>
 
     <VRow>
       <!-- 左側通道 -->

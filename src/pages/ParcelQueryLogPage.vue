@@ -1,5 +1,6 @@
 <script setup>
 import { parcelQueryLogList } from '@/api/tauri'
+import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import { useI18n } from 'vue-i18n'
@@ -43,7 +44,12 @@ const load = async () => {
 watch(searchKeyword, () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
-onMounted(load)
+let _unlisten = null
+onMounted(async () => {
+  load()
+  if (isTauriRuntime) try { _unlisten = await listen('parcel-query-logged', load) } catch {}
+})
+onUnmounted(() => { if (_unlisten) { _unlisten(); _unlisten = null } })
 
 const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 </script>
@@ -133,11 +139,14 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <th class="text-center" style="min-width: 160px;">{{ $t('page.parcelQueryLog.col.printProfile') }}</th>
             <th class="text-center" style="width: 110px;">{{ $t('page.parcelQueryLog.col.responseId') }}</th>
             <th class="text-center" style="min-width: 220px;">{{ $t('page.parcelQueryLog.col.labelKey') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.cloudMs') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.labelMs') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.totalMs') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!items.length">
-            <td colspan="8">
+            <td colspan="11">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
                 <span class="text-md">{{ $t('common.noResults') }}</span>
@@ -153,6 +162,9 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <td class="text-center">{{ row.print_profile || '—' }}</td>
             <td class="text-center text-disabled">{{ row.response_id }}</td>
             <td class="text-center"><code class="text-caption">{{ row.label_key || '—' }}</code></td>
+            <td class="text-center text-caption">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
+            <td class="text-center text-caption">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
+            <td class="text-center text-caption" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
           </tr>
         </tbody>
       </VTable>

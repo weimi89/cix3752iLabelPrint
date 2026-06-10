@@ -144,18 +144,18 @@ export const dailyStats = async ({ days = 7 } = {}) => {
 
 // 指派物流(物流商主檔)
 const MOCK_DISPATCH = [
-  { code: 'SF', name: '順豐速運', sort_order: 0, print_profile: 'PROFILE_SF' },
-  { code: 'BLACK', name: '黑貓宅急便', sort_order: 1, print_profile: 'PROFILE_BLACK' },
-  { code: 'POST', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_POST' },
+  { code: 'S', name: '順豐速運', sort_order: 0, print_profile: 'PROFILE_S', printer_name: null },
+  { code: 'B', name: '黑貓宅急便', sort_order: 1, print_profile: 'PROFILE_B', printer_name: null },
+  { code: 'P', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_P', printer_name: null },
 ]
 export const dispatchProviderList = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_DISPATCH))
   return await invoke('dispatch_provider_list')
 }
-export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null }) => {
+export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null, printerName = null }) => {
   if (!isTauri) return Promise.resolve()
   return invoke('dispatch_provider_upsert', {
-    req: { code, name, sort_order: sortOrder, print_profile: printProfile || null },
+    req: { code, name, sort_order: sortOrder, print_profile: printProfile || null, printer_name: printerName || null },
   })
 }
 export const dispatchProviderDelete = code => {
@@ -185,6 +185,14 @@ export const sortChannelSave = ({ position, channelCode, dispatchCode, jobSticke
       job_sticker: jobSticker || null,
     },
   })
+}
+export const sortChannelUnassignedGet = async () => {
+  if (!isTauri) return null
+  return await invoke('sort_channel_unassigned_get')
+}
+export const sortChannelUnassignedSave = (code) => {
+  if (!isTauri) return Promise.resolve()
+  return invoke('sort_channel_unassigned_save', { code: code || null })
 }
 export const stickerHistoryList = async () => {
   if (!isTauri) return ['王小明', '陳大華', '林美麗']

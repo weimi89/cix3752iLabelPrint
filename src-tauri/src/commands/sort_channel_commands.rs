@@ -120,6 +120,53 @@ pub async fn sort_channel_save(
     Ok(())
 }
 
+const SETTING_UNASSIGNED_CHANNEL: &str = "unassigned_channel_code";
+
+/// 讀取「未設定指派物流」的 fallback 通道代碼
+#[tauri::command]
+pub async fn sort_channel_unassigned_get(
+    state: State<'_, SharedState>,
+) -> AppResult<Option<String>> {
+    let row = sqlx::query(
+        "SELECT value FROM settings WHERE key = ?",
+    )
+    .bind(SETTING_UNASSIGNED_CHANNEL)
+    .fetch_optional(&state.db)
+    .await?;
+    Ok(row
+        .and_then(|r| r.try_get::<String, _>("value").ok())
+        .filter(|s| !s.is_empty()))
+}
+
+/// 儲存「未設定指派物流」的 fallback 通道代碼（傳 None / 空字串表示清除）
+#[tauri::command]
+pub async fn sort_channel_unassigned_save(
+    state: State<'_, SharedState>,
+    code: Option<String>,
+) -> AppResult<()> {
+    let code = code.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    match code {
+        Some(c) => {
+            sqlx::query(
+                "INSERT INTO settings (key, value, updated_at)
+                 VALUES (?, ?, datetime('now','localtime'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            )
+            .bind(SETTING_UNASSIGNED_CHANNEL)
+            .bind(c)
+            .execute(&state.db)
+            .await?;
+        }
+        None => {
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(SETTING_UNASSIGNED_CHANNEL)
+                .execute(&state.db)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 /// 前端主動把人員姓名加入歷史名單(掃描/自動列印頁送出時呼叫)。
 #[tauri::command]
 pub async fn sticker_history_add(state: State<'_, SharedState>, name: String) -> AppResult<()> {

@@ -160,6 +160,9 @@ pub enum LabelPathMode {
     Share,
     /// HTTP URL(指向 Middleware 的 /images/{label_key} 端點)
     Http,
+    /// 本機直接列印(由 App 呼叫本地印表機，回給工控機 label_path=null)
+    #[serde(rename = "direct_print")]
+    DirectPrint,
 }
 
 impl Default for LabelPathMode {
@@ -236,7 +239,7 @@ fn default_listen_ip() -> String { "0.0.0.0".to_string() }
 fn default_port() -> u16 { 18080 }
 fn default_timeout() -> u64 { 30 }
 fn default_retry() -> u32 { 3 }
-fn default_keep_days() -> u32 { 14 }
+fn default_keep_days() -> u32 { 5 }
 fn default_true() -> bool { true }
 fn default_job_user() -> String { "物流貓".to_string() }
 fn default_parcel_mode() -> String { "forward".to_string() }

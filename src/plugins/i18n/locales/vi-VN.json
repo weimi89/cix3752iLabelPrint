@@ -6,6 +6,7 @@
     "saveSettings": "Lưu cài đặt",
     "delete": "Xoá",
     "edit": "Chỉnh sửa",
+    "set": "Thiết lập",
     "close": "Đóng",
     "search": "Tìm kiếm",
     "reset": "Đặt lại",
@@ -64,6 +65,8 @@
     "store_closed": "Cửa hàng đã đóng/chuyển",
     "unconfirmed": "Đơn chưa xác nhận",
     "not_found": "Không tìm thấy kiện hàng",
+    "not_proxy": "Không phải đơn ủy thác",
+    "not_forward": "Không phải đơn chuyển tiếp",
     "unauthorized": "Chưa đăng nhập đám mây",
     "error": "Yêu cầu nhãn thất bại"
   },
@@ -182,7 +185,8 @@
     "mode": {
       "local": "Đường dẫn cục bộ",
       "share": "Thư mục chia sẻ",
-      "http": "HTTP URL"
+      "http": "HTTP URL",
+      "direct_print": "In trực tiếp tại máy"
     },
     "settings": {
       "section": "Chế độ trả về đường dẫn nhãn",
@@ -192,7 +196,8 @@
       "shareRootPlaceholder": "VD: \\\\10.0.0.1\\labels hoặc /Volumes/labels",
       "shareRootHint": "Phải trỏ tới cùng tập tin với thư mục cache cục bộ (góc nhìn khác); không cần dấu / ở cuối",
       "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
-      "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian"
+      "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian",
+      "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Chỉ định hãng\" để cài máy in cho từng hãng vận chuyển"
     }
   },
   "page": {
@@ -379,7 +384,10 @@
         "channel": "Kênh",
         "printProfile": "Cấu hình máy in",
         "responseId": "ID đám mây",
-        "labelKey": "Key nhãn"
+        "labelKey": "Key nhãn",
+        "cloudMs": "Đám mây",
+        "labelMs": "Hình ảnh",
+        "totalMs": "Tổng"
       }
     },
     "sort": {
@@ -405,6 +413,14 @@
         "unsaved": "Chưa lưu",
         "enabled": "Đã kích hoạt",
         "unset": "Chưa thiết lập"
+      },
+      "unassigned": {
+        "label": "Chưa chỉ định vận chuyển — Mã kênh mặc định",
+        "hint": "Khi vận chuyển của kiện hàng chưa được gán vào kênh nào, trả về mã này",
+        "placeholder": "VD: X00 (để trống = không trả mã)",
+        "current": "Kênh mặc định: {code}",
+        "save": "Lưu",
+        "saved": "Đã lưu"
       }
     },
     "dispatch": {
@@ -414,13 +430,15 @@
       "emptyHint": "Chưa có hãng vận chuyển, nhấn \"Thêm hãng\" ở góc trên bên phải để bắt đầu",
       "errCodeNameRequired": "Mã và tên đều không được để trống",
       "errPrintProfileRequired": "Cấu hình in là bắt buộc",
+      "errPrinterNameRequired": "Chế độ in trực tiếp yêu cầu chọn máy in",
       "errCodeDuplicate": "Mã \"{code}\" đã tồn tại",
       "flashCreated": "Đã thêm hãng vận chuyển",
       "flashUpdated": "Đã cập nhật hãng vận chuyển",
       "flashDeleted": "Đã xoá {name}",
-      "codePlaceholder": "VD: SF / BLACK / POST",
+      "codePlaceholder": "VD: S / B / P",
       "namePlaceholder": "VD: SF Express",
       "printProfilePlaceholder": "VD: PAPER-01#100x150",
+      "printerNamePlaceholder": "Chọn máy in cục bộ",
       "orderHint": "Số càng nhỏ càng đứng trước",
       "confirmDelete": "Xác nhận xoá",
       "confirmDeleteBody": "Bạn có chắc muốn xoá \"{name}\" ({code}) không?",
@@ -430,6 +448,7 @@
         "code": "Mã",
         "name": "Tên",
         "printProfile": "Cấu hình in",
+        "printerName": "Máy in cục bộ",
         "actions": "Thao tác"
       }
     },

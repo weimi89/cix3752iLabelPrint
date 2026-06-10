@@ -118,7 +118,9 @@ const handlePurge = async () => {
 watch([queueStatus, searchKeyword], () => { page.value = 1; load() })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
-onMounted(load)
+let _timer = null
+onMounted(() => { load(); if (isTauriRuntime) _timer = setInterval(load, 5000) })
+onUnmounted(() => { clearInterval(_timer); _timer = null })
 
 const statusColor = s => ({
   pending: 'warning', sending: 'info', success: 'success', failed: 'error',

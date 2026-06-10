@@ -270,8 +270,29 @@ impl CloudClient {
             .bearer_auth(&token)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            if status.as_u16() == 401 {
+                return Err(AppError::Unauthorized);
+            }
+            let body_text = resp.text().await.unwrap_or_default();
+            let json: Option<serde_json::Value> = serde_json::from_str(&body_text).ok();
+            let code = json
+                .as_ref()
+                .and_then(|v| v.get("code").and_then(|c| c.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| status.as_u16().to_string());
+            let message = json
+                .as_ref()
+                .and_then(|v| v.get("message").and_then(|m| m.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
+            return Err(AppError::Cloud { code, message });
+        }
 
         let mut result: PrintViewResult = resp.json().await?;
         // 雲端可能回相對路徑（例 /data/labels/.../xxx.png），補上 api_base 變完整 URL，

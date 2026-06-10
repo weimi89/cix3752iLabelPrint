@@ -5,6 +5,8 @@ mod commands;
 mod config;
 mod db;
 mod error;
+pub mod error_label;
+pub mod event_log;
 mod health;
 mod log;
 mod models;
@@ -97,6 +99,8 @@ pub fn run() {
             commands::dispatch_commands::dispatch_provider_delete,
             commands::sort_channel_commands::sort_channel_list,
             commands::sort_channel_commands::sort_channel_save,
+            commands::sort_channel_commands::sort_channel_unassigned_get,
+            commands::sort_channel_commands::sort_channel_unassigned_save,
             commands::sort_channel_commands::sticker_history_list,
             commands::sort_channel_commands::sticker_history_add,
             commands::sort_channel_commands::sticker_history_delete,

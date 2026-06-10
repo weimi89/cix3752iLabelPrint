@@ -28,6 +28,9 @@ pub struct ParcelQueryLogItem {
     pub should_print: i64,
     pub label_key: Option<String>,
     pub created_at: String,
+    pub cloud_ms: Option<i64>,
+    pub label_ms: Option<i64>,
+    pub total_ms: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,7 +56,7 @@ pub async fn parcel_query_log_list(
         let like = format!("%{kw}%");
         let rows = sqlx::query(
             "SELECT response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile,
-                    should_print, label_key, created_at
+                    should_print, label_key, created_at, cloud_ms, label_ms, total_ms
              FROM parcel_query_log
              WHERE query_no LIKE ?1 OR tracking_no LIKE ?1 OR label_key LIKE ?1
              ORDER BY created_at DESC
@@ -78,7 +81,7 @@ pub async fn parcel_query_log_list(
     } else {
         let rows = sqlx::query(
             "SELECT response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile,
-                    should_print, label_key, created_at
+                    should_print, label_key, created_at, cloud_ms, label_ms, total_ms
              FROM parcel_query_log
              ORDER BY created_at DESC
              LIMIT ? OFFSET ?",
@@ -107,6 +110,9 @@ pub async fn parcel_query_log_list(
             should_print: row.try_get("should_print").unwrap_or(0),
             label_key: row.try_get("label_key").ok(),
             created_at: row.try_get("created_at").unwrap_or_default(),
+            cloud_ms: row.try_get("cloud_ms").ok(),
+            label_ms: row.try_get("label_ms").ok(),
+            total_ms: row.try_get("total_ms").ok(),
         })
         .collect();
 

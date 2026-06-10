@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use std::path::Path as StdPath;
 use std::sync::Arc;
 
+use crate::event_log;
+
 use axum::{
     extract::{Host, Path, State},
     http::StatusCode,
@@ -46,6 +48,10 @@ impl LabelPathResolver {
         *self.inner.write() = config.label_path.clone();
     }
 
+    pub fn current_mode(&self) -> LabelPathMode {
+        self.inner.read().mode
+    }
+
     /// 將本地絕對路徑依當前模式轉換為要回給工控機的字串
     /// - `local_abs`: cache 命中後產生的本地絕對路徑
     /// - `cache_base`: cache 根目錄(用來推出相對路徑)
@@ -79,6 +85,8 @@ impl LabelPathResolver {
                     None => format!("/images/{}", key),
                 }
             }
+            // DirectPrint 模式不經此方法，fallback 回本機路徑(理論上不會到達)
+            LabelPathMode::DirectPrint => local_abs.to_string_lossy().to_string(),
         }
     }
 }
@@ -143,6 +151,7 @@ pub async fn start(
         .parse()
         .map_err(|e| AppError::Server(format!("無法解析 listen 位址: {e}")))?;
 
+    let log_db = db.clone();
     let state = ServerState {
         db,
         cloud,
@@ -184,6 +193,8 @@ pub async fn start(
     });
 
     tracing::info!(%addr, "本地 HTTP server 已啟動");
+    event_log::log_bg(log_db, "info", "server", "伺服器啟動",
+        format!("HTTP server 已啟動 {addr}"));
 
     Ok(ServerHandle {
         bind_addr: addr.to_string(),
@@ -230,8 +241,52 @@ fn classify_parcel_alert(code: &str) -> &'static str {
         "STORE_CLOSED" => "store_closed",
         "UNCONFIRMED" => "unconfirmed",
         "NOT_FOUND" => "not_found",
+        "NOT_PROXY" => "not_proxy",
+        "NOT_FORWARD" => "not_forward",
         _ => "error",
     }
+}
+
+/// 找一個可用的列印機（優先取 dispatch_provider 中設定的第一台，否則取系統預設印表機）。
+/// 在 background task 中呼叫，失敗只 warn 不 panic。
+async fn find_any_printer(db: &DbPool) -> Option<String> {
+    // 優先：任何已設定 printer_name 的物流商設定
+    let row = sqlx::query(
+        "SELECT printer_name FROM dispatch_provider WHERE printer_name IS NOT NULL AND printer_name != '' LIMIT 1",
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some(r) = row {
+        if let Ok(Some(name)) = r.try_get::<Option<String>, _>("printer_name") {
+            return Some(name);
+        }
+    }
+
+    // fallback：系統預設印表機
+    crate::printer::list_printers()
+        .into_iter()
+        .find(|p| p.is_default)
+        .map(|p| p.name)
+}
+
+/// 產生錯誤面單並背景列印（fire-and-forget，不阻塞主流程）
+pub(crate) fn spawn_error_label_print(db: DbPool, query_no: String, error_code: String) {
+    tokio::spawn(async move {
+        let label_bytes = crate::error_label::generate(&query_no, &error_code, crate::error_label::LabelHeight::H100mm);
+        match find_any_printer(&db).await {
+            Some(printer_name) => {
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::printer::print_image_bytes(&printer_name, &label_bytes) {
+                        tracing::warn!(?e, query_no, "錯誤面單列印失敗");
+                    }
+                });
+            }
+            None => tracing::warn!(query_no, "無可用印表機，略過錯誤面單列印"),
+        }
+    });
 }
 
 /// emit `parcel-alert` 給前端;失敗只記 warn,不影響回應工控機
@@ -253,12 +308,16 @@ async fn get_parcel(
     Host(host): Host,
     Path(query_no): Path<String>,
 ) -> Result<Json<DataEnvelope<ParcelData>>, (StatusCode, Json<ApiErrorBody>)> {
+    let t_start = std::time::Instant::now();
     match state.cloud.fetch_parcel(&query_no).await {
         Ok(info) => {
+            let cloud_ms = t_start.elapsed().as_millis() as i64;
+
             // 用 shipping_no 作為快取 key (檔名末段帶副檔名,從 shipping_image URL 推得)
             let label_key = derive_label_key(&info.shipping_image);
             let cache_base = state.cache.base_dir();
 
+            let t_label = std::time::Instant::now();
             // 第一階段:確保原圖已在本地快取
             let original_ok = if state.cache.has_local(&label_key) {
                 let _ = state.cache.record_hit(&label_key).await;
@@ -291,16 +350,49 @@ async fn get_parcel(
             } else {
                 label_key.clone()
             };
+            let label_ms = t_label.elapsed().as_millis() as i64;
 
-            // 第三階段:依 label_path.mode 把絕對路徑轉成回應字串
+            // 第三階段:依 label_path.mode 處理路徑或直接列印
             let label_path = if original_ok {
                 let local_abs = cache_base.join(&effective_key);
-                Some(state.label_resolver.resolve(
-                    &local_abs,
-                    &cache_base,
-                    &effective_key,
-                    Some(host.as_str()),
-                ))
+                if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+                    // direct_print 模式:查 dispatch_provider.printer_name，背景列印，不回路徑
+                    let printer_name: Option<String> = sqlx::query(
+                        "SELECT printer_name FROM dispatch_provider WHERE code = ?",
+                    )
+                    .bind(&info.shipping_provider)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten());
+                    if let Some(pname) = printer_name {
+                        let img_path = local_abs;
+                        tokio::task::spawn_blocking(move || {
+                            match std::fs::read(&img_path) {
+                                Ok(bytes) => {
+                                    if let Err(e) = crate::printer::print_image_bytes(&pname, &bytes) {
+                                        tracing::warn!(?e, "直接列印失敗");
+                                    }
+                                }
+                                Err(e) => tracing::warn!(?e, "讀取面單圖失敗，無法列印"),
+                            }
+                        });
+                    } else {
+                        tracing::warn!(
+                            shipping_provider = %info.shipping_provider,
+                            "direct_print 模式但物流商未設定印表機"
+                        );
+                    }
+                    None
+                } else {
+                    Some(state.label_resolver.resolve(
+                        &local_abs,
+                        &cache_base,
+                        &effective_key,
+                        Some(host.as_str()),
+                    ))
+                }
             } else {
                 None
             };
@@ -328,7 +420,14 @@ async fn get_parcel(
                 .collect();
 
             let channel_code: Option<String> = if codes.is_empty() {
-                None
+                // 未設定指派物流時，使用 fallback 通道代碼
+                sqlx::query("SELECT value FROM settings WHERE key = 'unassigned_channel_code'")
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|r| r.try_get::<String, _>("value").ok())
+                    .filter(|s| !s.is_empty())
             } else {
                 let mut rr = state.rr.lock();
                 let entry = rr.entry(info.shipping_provider.clone()).or_insert(0);
@@ -336,6 +435,9 @@ async fn get_parcel(
                 *entry = (idx + 1) % codes.len();
                 Some(codes[idx].clone())
             };
+
+            // 無指派物流通道時，面單路徑不回傳（工控機無通道可分揀，不需要面單）
+            let label_path = if codes.is_empty() { None } else { label_path };
 
             // 從 dispatch_provider 取 print_profile (使用者在「指派物流」頁面設定)
             let print_profile: Option<String> = sqlx::query(
@@ -350,10 +452,11 @@ async fn get_parcel(
 
             // 紀錄這次查詢,POST /api/report 用 response_id 反查
             if let Some(rid) = info.response_id {
+                let total_ms = t_start.elapsed().as_millis() as i64;
                 let _ = sqlx::query(
                     "INSERT INTO parcel_query_log
-                       (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                       (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, created_at, cloud_ms, label_ms, total_ms)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?)
                      ON CONFLICT(response_id) DO UPDATE SET
                        query_no = excluded.query_no,
                        tracking_no = excluded.tracking_no,
@@ -362,7 +465,10 @@ async fn get_parcel(
                        print_profile = excluded.print_profile,
                        should_print = excluded.should_print,
                        label_key = excluded.label_key,
-                       created_at = datetime('now','localtime')",
+                       created_at = datetime('now','localtime'),
+                       cloud_ms = excluded.cloud_ms,
+                       label_ms = excluded.label_ms,
+                       total_ms = excluded.total_ms",
                 )
                 .bind(rid)
                 .bind(&query_no)
@@ -372,8 +478,13 @@ async fn get_parcel(
                 .bind(&print_profile)
                 .bind(1) // 雲端 v2 路徑表示「要列印」,固定寫 1
                 .bind(&label_key)
+                .bind(cloud_ms)
+                .bind(label_ms)
+                .bind(total_ms)
                 .execute(&state.db)
                 .await;
+                use tauri::Emitter;
+                let _ = state.app.emit("parcel-query-logged", ());
             }
 
             // 記一筆 daily request 統計
@@ -460,13 +571,14 @@ async fn get_parcel(
             .execute(&state.db)
             .await;
             // 依雲端錯誤訊息分類,讓前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
-            let (kind, msg) = match &e {
+            let (kind, msg, err_code) = match &e {
                 AppError::Cloud { code, message } => {
-                    (classify_parcel_alert(code), message.clone())
+                    (classify_parcel_alert(code), message.clone(), code.clone())
                 }
-                other => ("error", other.to_string()),
+                other => ("error", other.to_string(), "ERROR".to_string()),
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
+            spawn_error_label_print(state.db.clone(), query_no.clone(), err_code);
             Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()))
         }
     }
@@ -555,6 +667,9 @@ async fn post_report(
             ),
         );
     }
+
+    event_log::log_bg(state.db.clone(), "info", "server", "收到回報",
+        format!("工控機回報已排隊 tracking_no={tracking_no}"));
 
     (
         StatusCode::OK,

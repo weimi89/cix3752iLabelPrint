@@ -6,6 +6,7 @@ use sqlx::Row;
 
 use crate::cloud::CloudClient;
 use crate::db::DbPool;
+use crate::event_log;
 use crate::models::ReportPayload;
 use crate::{AppError, AppResult};
 
@@ -47,8 +48,8 @@ impl QueueManager {
         let json = serde_json::to_string(payload)?;
         let row = sqlx::query(
             "INSERT INTO report_queue
-                 (tracking_no, payload_json, response_id, sort_channel, job_sticker, status)
-             VALUES (?, ?, ?, ?, ?, 'pending')",
+                 (tracking_no, payload_json, response_id, sort_channel, job_sticker, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', datetime('now','localtime'), datetime('now','localtime'))",
         )
         .bind(tracking_no)
         .bind(&json)
@@ -143,6 +144,8 @@ async fn process_once(inner: &Inner) -> AppResult<()> {
                 .bind(id)
                 .execute(&inner.db)
                 .await?;
+                event_log::log_bg(inner.db.clone(), "info", "queue", "推送成功",
+                    format!("回報推送成功 queue_id={id}"));
             }
             Err(AppError::Unauthorized) => {
                 // 未登入:不累加 retry,下一輪繼續
@@ -174,5 +177,7 @@ async fn mark_failed(db: &DbPool, id: i64, retry_count: i64) -> AppResult<()> {
     .bind(id)
     .execute(db)
     .await?;
+    event_log::log_bg(db.clone(), "warn", "queue", "推送失敗",
+        format!("回報推送失敗 queue_id={id} retry={}", retry_count + 1));
     Ok(())
 }

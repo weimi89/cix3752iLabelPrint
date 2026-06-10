@@ -3,6 +3,8 @@ import {
   dispatchProviderList,
   dispatchProviderUpsert,
   dispatchProviderDelete,
+  listPrinters,
+  getConfig,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
@@ -14,10 +16,12 @@ const items = ref([])
 const loading = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
+const isDirectPrintMode = ref(false)
+const printerList = ref([])
 
 const dialogOpen = ref(false)
 const editingOriginalCode = ref(null) // null 代表新增
-const form = ref({ code: '', name: '', sort_order: 0, print_profile: '' })
+const form = ref({ code: '', name: '', sort_order: 0, print_profile: '', printer_name: null })
 
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
@@ -33,17 +37,26 @@ const load = async () => {
     loading.value = false
   }
 }
-onMounted(load)
+
+const loadMeta = async () => {
+  if (!isTauriRuntime) return
+  try {
+    const [cfg, ps] = await Promise.all([getConfig(), listPrinters()])
+    isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
+    printerList.value = (ps || []).map(p => ({ title: p.name, value: p.name }))
+  } catch {}
+}
+onMounted(() => { load(); loadMeta() })
 
 const openCreate = () => {
   editingOriginalCode.value = null
-  form.value = { code: '', name: '', sort_order: items.value.length, print_profile: '' }
+  form.value = { code: '', name: '', sort_order: items.value.length, print_profile: '', printer_name: null }
   dialogOpen.value = true
 }
 
 const openEdit = row => {
   editingOriginalCode.value = row.code
-  form.value = { ...row, print_profile: row.print_profile ?? '' }
+  form.value = { ...row, print_profile: row.print_profile ?? '', printer_name: row.printer_name ?? null }
   dialogOpen.value = true
 }
 
@@ -57,12 +70,17 @@ const save = async () => {
   const code = (form.value.code || '').trim()
   const name = (form.value.name || '').trim()
   const printProfile = (form.value.print_profile || '').trim()
+  const printerName = form.value.printer_name || null
   if (!code || !name) {
     errorMsg.value = t('page.dispatch.errCodeNameRequired')
     return
   }
-  if (!printProfile) {
+  if (!isDirectPrintMode.value && !printProfile) {
     errorMsg.value = t('page.dispatch.errPrintProfileRequired')
+    return
+  }
+  if (isDirectPrintMode.value && !printerName) {
+    errorMsg.value = t('page.dispatch.errPrinterNameRequired')
     return
   }
   if (editingOriginalCode.value === null
@@ -75,7 +93,8 @@ const save = async () => {
       code,
       name,
       sortOrder: Number(form.value.sort_order) || 0,
-      printProfile,
+      printProfile: printProfile || null,
+      printerName,
     })
     dialogOpen.value = false
     flash(t(editingOriginalCode.value === null ? 'page.dispatch.flashCreated' : 'page.dispatch.flashUpdated'))
@@ -128,7 +147,8 @@ const confirmDelete = async () => {
             <th class="text-center" style="width: 80px;">{{ $t('page.dispatch.col.order') }}</th>
             <th style="min-width: 100px;">{{ $t('page.dispatch.col.code') }}</th>
             <th style="min-width: 160px;">{{ $t('page.dispatch.col.name') }}</th>
-            <th style="min-width: 180px;">{{ $t('page.dispatch.col.printProfile') }}</th>
+            <th v-if="!isDirectPrintMode" style="min-width: 180px;">{{ $t('page.dispatch.col.printProfile') }}</th>
+            <th v-if="isDirectPrintMode" style="min-width: 200px;">{{ $t('page.dispatch.col.printerName') }}</th>
             <th class="text-end" style="width: 125px;">{{ $t('page.dispatch.col.actions') }}</th>
           </tr>
         </thead>
@@ -145,7 +165,8 @@ const confirmDelete = async () => {
             <td class="text-center text-disabled">{{ row.sort_order }}</td>
             <td class="text-center font-weight-medium">{{ row.code }}</td>
             <td class="text-center">{{ row.name }}</td>
-            <td class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
+            <td v-if="!isDirectPrintMode" class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
+            <td v-if="isDirectPrintMode" class="text-center text-disabled">{{ row.printer_name || '—' }}</td>
             <td class="text-center">
               <VBtn icon="tabler-edit" variant="text" color="primary" size="small" @click="openEdit(row)" />
               <VBtn icon="tabler-trash" variant="text" color="error" size="small" @click="askDelete(row)" />
@@ -155,7 +176,17 @@ const confirmDelete = async () => {
       </VTable>
     </VCard>
 
-    <VDialog v-model="dialogOpen" max-width="480">
+    <VDialog v-model="dialogOpen" max-width="480" persistent>
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="dialogOpen = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
       <VCard>
         <VCardTitle>{{ $t(editingOriginalCode === null ? 'page.dispatch.create' : 'common.edit') }}</VCardTitle>
         <VCardText>
@@ -190,6 +221,18 @@ const confirmDelete = async () => {
               hide-details
             />
           </div>
+          <div class="search-field mb-3">
+            <label>{{ $t('page.dispatch.col.printerName') }}</label>
+            <VSelect
+              v-model="form.printer_name"
+              :items="printerList"
+              :placeholder="$t('page.dispatch.printerNamePlaceholder')"
+              variant="outlined"
+              density="compact"
+              hide-details
+              clearable
+            />
+          </div>
           <div class="search-field">
             <label>{{ $t('page.dispatch.col.order') }}</label>
             <VNumberInput
@@ -206,9 +249,20 @@ const confirmDelete = async () => {
           <VBtn color="primary" variant="elevated" @click="save">{{ $t('common.save') }}</VBtn>
         </VCardActions>
       </VCard>
+      </div>
     </VDialog>
 
-    <VDialog v-model="deleteOpen" max-width="420">
+    <VDialog v-model="deleteOpen" max-width="420" persistent>
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="deleteOpen = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
       <VCard>
         <VCardTitle>{{ $t('page.dispatch.confirmDelete') }}</VCardTitle>
         <VCardText v-if="deleteTarget">
@@ -225,6 +279,7 @@ const confirmDelete = async () => {
           <VBtn color="error" variant="elevated" @click="confirmDelete">{{ $t('common.delete') }}</VBtn>
         </VCardActions>
       </VCard>
+      </div>
     </VDialog>
   </div>
 </template>

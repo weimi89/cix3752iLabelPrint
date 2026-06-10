@@ -112,8 +112,24 @@ const hideTitleAndIcon = configStore.isVerticalNavMini(isHovered)
             </h1>
           </Transition>
         </RouterLink>
-        <!-- 👉 只保留 mobile overlay 模式的關閉鈕。桌面不顯示 pin/unpin(強制展開) -->
+        <!-- 👉 桌面顯示收合/展開，手機顯示關閉 -->
         <div class="header-action">
+          <Component
+            :is="layoutConfig.app.iconRenderer || 'div'"
+            v-show="configStore.isVerticalNavCollapsed"
+            class="d-none nav-unpin"
+            :class="configStore.isVerticalNavCollapsed && 'd-lg-block'"
+            v-bind="layoutConfig.icons.verticalNavUnPinned"
+            @click="configStore.isVerticalNavCollapsed = !configStore.isVerticalNavCollapsed"
+          />
+          <Component
+            :is="layoutConfig.app.iconRenderer || 'div'"
+            v-show="!configStore.isVerticalNavCollapsed"
+            class="d-none nav-pin"
+            :class="!configStore.isVerticalNavCollapsed && 'd-lg-block'"
+            v-bind="layoutConfig.icons.verticalNavPinned"
+            @click="configStore.isVerticalNavCollapsed = !configStore.isVerticalNavCollapsed"
+          />
           <Component
             :is="layoutConfig.app.iconRenderer || 'div'"
             class="d-lg-none"
