@@ -50,10 +50,10 @@ jobs:
     # (排隊本身不算 timeout;timeout 從 job 真正開始跑算起。配 fail-fast:false,單個 matrix item 卡也不影響其他)
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
@@ -198,7 +198,7 @@ jobs:
       - name: Restore built upstream stack cache (20.04 only)
         if: matrix.distro == 'ubuntu-20.04'
         id: cache-stack
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: /opt/cix-stack
           key: focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1
@@ -320,7 +320,7 @@ jobs:
       # 強制 save:即使 Tauri build / packaging 後續 fail,webkit 編好的成果也保住
       - name: Save built upstream stack cache (20.04 only, always)
         if: always() && matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: /opt/cix-stack
           key: focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1
@@ -335,7 +335,7 @@ jobs:
           curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
           apt-get install -y nodejs
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
@@ -556,7 +556,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload tarball to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           body: ${{ steps.notes.outputs.body }}
