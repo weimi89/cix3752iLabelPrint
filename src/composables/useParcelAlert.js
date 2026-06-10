@@ -29,6 +29,7 @@ const KIND_TYPE = {
 export function useParcelAlert() {
   const { t } = useI18n()
   let unlisten = null
+  let unlistenLabelFailed = null
 
   const handle = payload => {
     const kind = payload?.kind || 'error'
@@ -50,12 +51,28 @@ export function useParcelAlert() {
     toast(text, { type: KIND_TYPE[kind] || 'error' })
   }
 
+  // 錯誤面單產生了但「印不出來」(無印表機 / 列印失敗 / 暫存失敗)。
+  // 這以前只在後端 tracing::warn,操作員完全無感 → 現在 emit 事件跳 toast,避免靜默盲區。
+  const handleLabelFailed = payload => {
+    const reason = payload?.reason || 'print_failed'
+    const queryNo = payload?.query_no || ''
+    playSound('effect_2')
+    let text = t(`errorLabelFailed.${reason}`)
+    if (queryNo) text += `(${queryNo})`
+    toast(text, { type: 'error' })
+  }
+
   const start = async () => {
-    if (unlisten) return
-    unlisten = await listen('parcel-alert', evt => handle(evt.payload))
+    if (!unlisten) {
+      unlisten = await listen('parcel-alert', evt => handle(evt.payload))
+    }
+    if (!unlistenLabelFailed) {
+      unlistenLabelFailed = await listen('error-label-print-failed', evt => handleLabelFailed(evt.payload))
+    }
   }
   const stop = () => {
     if (unlisten) { unlisten(); unlisten = null }
+    if (unlistenLabelFailed) { unlistenLabelFailed(); unlistenLabelFailed = null }
   }
 
   return { start, stop }

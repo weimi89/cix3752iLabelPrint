@@ -2,6 +2,7 @@
 import { toast } from 'vue3-toastify'
 import { useRouter } from 'vue-router'
 import { cloudFetchLabel, printImage } from '@/api/tauri'
+import { printErrorLabel } from '@/composables/useErrorLabelPrint'
 import { isPrintable, statusLabel, statusIcon, statusGroupColor, errorMessageFromException } from '@/composables/useLabelStatus'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppBulkInput from '@/components/AppBulkInput.vue'
@@ -152,6 +153,7 @@ const initPrintList = snList => {
       shipping_provider: '',
       image: null,
       print_time: [],
+      error_label_path: null,
     })
   }
 }
@@ -179,6 +181,7 @@ const processOne = async index => {
     item.image = data.print_file_path || null
     item.message = statusLabel(item.code)
     item.print_time = Array.isArray(data.print_time) ? data.print_time : []
+    item.error_label_path = data.error_label_path || null
     if (item.code !== 'LABEL-PROCESS') {
       insertStatusByIndex(index, { sn: item.sn, code: item.code })
     }
@@ -213,6 +216,22 @@ const processShipments = async () => {
     Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()),
   )
   isProcessing.value = false
+
+  // 查詢失敗(非 LABEL-PROCESS)的訂單若有錯誤面單,序列化印出(避免並發撞 spooler),
+  // 用該物流商在「印表機設定」的同一台印表機 —— 與正常面單同出口。
+  await printErrorLabelsForFailed()
+}
+
+// 把本批查詢失敗、且 middleware 有回錯誤面單的訂單逐筆印出(逐筆排隊,不並發)
+const printErrorLabelsForFailed = async () => {
+  for (const item of printList) {
+    if (!item.error_label_path) continue
+    try {
+      await printErrorLabel(item.error_label_path, item.shipping_provider, printerMap.value)
+    } catch (e) {
+      console.error('錯誤面單列印失敗', item.sn, e)
+    }
+  }
 }
 
 const stopProcessing = () => {

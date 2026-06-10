@@ -1,6 +1,7 @@
 <script setup>
 import { toast } from 'vue3-toastify'
 import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
+import { printErrorLabel } from '@/composables/useErrorLabelPrint'
 import { playSound } from '@/composables/useSoundEffects'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppHeader from '@/components/AppHeader.vue'
@@ -221,6 +222,14 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
       case 'WRAPPER-ERROR': playSound('effect_2'); toast(t('page.auto.toast.wrapperError', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
       case 'STORE-CLOSED': playSound('effect_3'); toast(t('page.auto.toast.storeClosed', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
       default: playSound('effect_2'); toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
+    }
+    // 失敗時若 middleware 有回錯誤面單,用該物流商的同一台印表機印出(與正常面單同出口)
+    if (data?.error_label_path) {
+      try {
+        await printErrorLabel(data.error_label_path, data.provider_code, printerMap.value)
+      } catch (e) {
+        console.error('錯誤面單列印失敗', e)
+      }
     }
     return { success: false, data }
   } catch (e) {

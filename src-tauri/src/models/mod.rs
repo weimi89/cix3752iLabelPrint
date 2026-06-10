@@ -64,6 +64,23 @@ pub struct ParcelData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label_path: Option<String>,
     pub response_id: Option<i64>,
+    /// 此筆為「錯誤面單」(雲端業務錯誤時自動產生的提示圖)。
+    /// 工控機收到 true 時應把 label_path 當一般面單印出,但**不要** POST /api/report
+    /// (錯誤面單無 response_id,僅供現場辨識撿出異常包裹)。
+    /// 正常面單時此欄省略(預設 false)。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_error_label: bool,
+    /// 錯誤面單對應的機器可讀 code(STORE_CLOSED / NOT_FOUND / …),正常面單省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    /// 錯誤面單的人類可讀訊息(雲端回的原始 message),正常面單省略。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// serde skip helper：bool 為 false 時不序列化
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// 工控機看到的錯誤回應：`{ "message": "...", "status_code": 404 }`
@@ -100,6 +117,11 @@ pub struct PrintViewResult {
     /// 累計列印次數(雲端 addRepeatWatermark=false,middleware 自行依此值疊加浮水印)
     #[serde(default)]
     pub print_num: Option<u32>,
+    /// 查詢失敗時 middleware 產生的「錯誤面單」URL(http://127.0.0.1:port/images/@error/...);
+    /// 前端用該物流商在「印表機設定」的同一台印表機印出,與正常面單同出口(避免印表機來源不一致)。
+    /// 成功或不需錯誤面單時為 None。由 middleware 填,雲端不回此欄位故需 default。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_label_path: Option<String>,
 }
 
 /// 包裹查詢結果（自動印單第一步：掃包裹條碼取訂單清單）
@@ -152,6 +174,10 @@ pub struct CloudPrintResult {
     /// 累計列印次數(PRINT-SUCCESS 時才帶)
     #[serde(default)]
     pub print_num: Option<u32>,
+    /// 印單失敗時 middleware 產生的「錯誤面單」URL(同 PrintViewResult.error_label_path 語意);
+    /// 前端用 provider_code 對應的印表機印出。成功或不需錯誤面單時為 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_label_path: Option<String>,
 }
 
 /// 袋號反查整袋訂單編號結果(面單預產用)

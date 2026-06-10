@@ -113,6 +113,7 @@ declare global {
   const playSound: typeof import('./composables/useSoundEffects.js')['playSound']
   const preGenInputMode: typeof import('./composables/usePreGenState.js')['preGenInputMode']
   const prefixWithPlus: typeof import('./@core/utils/formatters.js')['prefixWithPlus']
+  const printErrorLabel: typeof import('./composables/useErrorLabelPrint.js')['printErrorLabel']
   const provide: typeof import('vue')['provide']
   const provideLocal: typeof import('@vueuse/core')['provideLocal']
   const reactify: typeof import('@vueuse/core')['reactify']
@@ -483,6 +484,7 @@ declare module 'vue' {
     readonly playSound: UnwrapRef<typeof import('./composables/useSoundEffects.js')['playSound']>
     readonly preGenInputMode: UnwrapRef<typeof import('./composables/usePreGenState.js')['preGenInputMode']>
     readonly prefixWithPlus: UnwrapRef<typeof import('./@core/utils/formatters.js')['prefixWithPlus']>
+    readonly printErrorLabel: UnwrapRef<typeof import('./composables/useErrorLabelPrint.js')['printErrorLabel']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly provideLocal: UnwrapRef<typeof import('@vueuse/core')['provideLocal']>
     readonly reactify: UnwrapRef<typeof import('@vueuse/core')['reactify']>

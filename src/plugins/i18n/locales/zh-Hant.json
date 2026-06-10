@@ -70,6 +70,11 @@
     "unauthorized": "雲端未登入",
     "error": "面單請求失敗"
   },
+  "errorLabelFailed": {
+    "no_printer": "錯誤面單無法列印：找不到可用印表機",
+    "print_failed": "錯誤面單列印失敗",
+    "cache_write_failed": "錯誤面單暫存失敗，已改用本機列印"
+  },
   "pagination": {
     "pagePrefix": "第",
     "pageSuffix": "頁",

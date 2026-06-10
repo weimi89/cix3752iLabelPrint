@@ -272,21 +272,88 @@ async fn find_any_printer(db: &DbPool) -> Option<String> {
         .map(|p| p.name)
 }
 
-/// 產生錯誤面單並背景列印（fire-and-forget，不阻塞主流程）
-pub(crate) fn spawn_error_label_print(db: DbPool, query_no: String, error_code: String) {
+/// 把已產生的錯誤面單 bytes 背景送到本機印表機（fire-and-forget，不阻塞主流程）。
+/// 找不到印表機或列印失敗時，除了 warn 也 emit `error-label-print-failed` 讓桌面 GUI 跳提示，
+/// 避免「以為印了其實沒印」的靜默盲區。
+fn spawn_print_error_label_bytes(
+    db: DbPool,
+    app: tauri::AppHandle,
+    query_no: String,
+    label_bytes: Vec<u8>,
+) {
     tokio::spawn(async move {
-        let label_bytes = crate::error_label::generate(&query_no, &error_code, crate::error_label::LabelHeight::H100mm);
         match find_any_printer(&db).await {
             Some(printer_name) => {
+                let qn = query_no.clone();
                 tokio::task::spawn_blocking(move || {
                     if let Err(e) = crate::printer::print_image_bytes(&printer_name, &label_bytes) {
-                        tracing::warn!(?e, query_no, "錯誤面單列印失敗");
+                        tracing::warn!(?e, query_no = %qn, "錯誤面單列印失敗");
+                        emit_error_label_failed(&app, &qn, "print_failed");
                     }
                 });
             }
-            None => tracing::warn!(query_no, "無可用印表機，略過錯誤面單列印"),
+            None => {
+                tracing::warn!(query_no = %query_no, "無可用印表機，略過錯誤面單列印");
+                emit_error_label_failed(&app, &query_no, "no_printer");
+            }
         }
     });
+}
+
+/// 產生錯誤面單並背景列印（GUI 掃描 / 自動印單用：操作員在本機，直接送本機印表機）。
+pub(crate) fn spawn_error_label_print(
+    db: DbPool,
+    app: tauri::AppHandle,
+    query_no: String,
+    error_code: String,
+) {
+    let label_bytes = crate::error_label::generate(
+        &query_no,
+        &error_code,
+        crate::error_label::LabelHeight::H100mm,
+    );
+    spawn_print_error_label_bytes(db, app, query_no, label_bytes);
+}
+
+/// emit `error-label-print-failed` 給桌面前端（reason: "no_printer" / "print_failed" / "cache_write_failed"）。
+fn emit_error_label_failed(app: &tauri::AppHandle, query_no: &str, reason: &str) {
+    use tauri::Emitter;
+    let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
+    if let Err(e) = app.emit("error-label-print-failed", payload) {
+        tracing::warn!(?e, "emit error-label-print-failed 失敗");
+    }
+}
+
+/// 將錯誤面單 PNG 寫入 cache（key 前綴 `@error/`，對齊浮水印 `@repeat/` 慣例），
+/// 讓工控機可透過 `/images/{key}` 或 share / local 路徑自行取用列印。
+/// 回傳 cache 相對 key；寫檔失敗回 None（呼叫端退回本機直接列印 + 502）。
+/// 亦供 cloud_commands(GUI 掃描 / 自動印單)組裝錯誤面單 URL 用。
+pub(crate) async fn write_error_label_to_cache(
+    cache_base: &StdPath,
+    query_no: &str,
+    error_code: &str,
+    bytes: &[u8],
+) -> Option<String> {
+    // 檔名只保留安全字元，避免 query_no 帶斜線 / 空白等破壞路徑
+    let safe_qn: String = query_no
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let key = format!("@error/{safe_qn}_{error_code}.png");
+    let path = cache_base.join(&key);
+    if let Some(parent) = path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            tracing::warn!(?e, "建立錯誤面單快取目錄失敗");
+            return None;
+        }
+    }
+    match tokio::fs::write(&path, bytes).await {
+        Ok(()) => Some(key),
+        Err(e) => {
+            tracing::warn!(?e, "寫入錯誤面單快取失敗");
+            None
+        }
+    }
 }
 
 /// emit `parcel-alert` 給前端;失敗只記 warn,不影響回應工控機
@@ -541,6 +608,9 @@ async fn get_parcel(
                 print_profile,
                 label_path,
                 response_id: info.response_id,
+                is_error_label: false,
+                error_code: None,
+                message: None,
             })))
         }
         Err(AppError::Unauthorized) => {
@@ -570,7 +640,7 @@ async fn get_parcel(
             )
             .execute(&state.db)
             .await;
-            // 依雲端錯誤訊息分類,讓前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
+            // 依雲端錯誤訊息分類,讓桌面前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
             let (kind, msg, err_code) = match &e {
                 AppError::Cloud { code, message } => {
                     (classify_parcel_alert(code), message.clone(), code.clone())
@@ -578,8 +648,62 @@ async fn get_parcel(
                 other => ("error", other.to_string(), "ERROR".to_string()),
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
-            spawn_error_label_print(state.db.clone(), query_no.clone(), err_code);
-            Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()))
+
+            // 錯誤面單(取向 A):產生提示圖,依面單路徑模式決定出口 —
+            //   direct_print : 中介 PC 本機直接列印(label_path 回 null)
+            //   local/share/http : 寫入 cache 後回 label_path,讓工控機如同一般面單自行列印
+            // 這樣 http 模式(工控機跨機、本機無印表機)也能在分揀線印出錯誤面單,
+            // 不再只有 direct_print 模式能用。
+            let label_bytes = crate::error_label::generate(
+                &query_no,
+                &err_code,
+                crate::error_label::LabelHeight::H100mm,
+            );
+            let label_path = if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+                spawn_print_error_label_bytes(
+                    state.db.clone(),
+                    state.app.clone(),
+                    query_no.clone(),
+                    label_bytes,
+                );
+                None
+            } else {
+                let cache_base = state.cache.base_dir();
+                match write_error_label_to_cache(&cache_base, &query_no, &err_code, &label_bytes)
+                    .await
+                {
+                    Some(key) => {
+                        let local_abs = cache_base.join(&key);
+                        Some(state.label_resolver.resolve(
+                            &local_abs,
+                            &cache_base,
+                            &key,
+                            Some(host.as_str()),
+                        ))
+                    }
+                    None => {
+                        // 寫檔失敗 → 退回舊行為:本機嘗試列印 + 回 502,不讓工控機誤以為有面單
+                        emit_error_label_failed(&state.app, &query_no, "cache_write_failed");
+                        spawn_print_error_label_bytes(
+                            state.db.clone(),
+                            state.app.clone(),
+                            query_no.clone(),
+                            label_bytes,
+                        );
+                        return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
+                    }
+                }
+            };
+
+            Ok(Json(DataEnvelope::new(ParcelData {
+                channel_code: None,
+                print_profile: None,
+                label_path,
+                response_id: None,
+                is_error_label: true,
+                error_code: Some(err_code),
+                message: Some(msg),
+            })))
         }
     }
 }

@@ -3,6 +3,18 @@
 本檔記錄各版本的修改與調整內容,標題版本號對應 GitHub Release tag。
 `release.yml` 會依 tag 自動抽取對應段落,寫進 Release 說明與 `latest.json`(in-app 更新提示)。
 
+## v0.5.4
+
+### 修正
+- 錯誤面單在 `http` / `local` / `share` 面單路徑模式下印不出來：根因為錯誤面單只走中介機本機印表機（`find_any_printer`），但這些模式下印表機在工控機端、中介機無印表機，導致錯誤面單被靜默丟棄（先前僅 `direct_print` 模式可用）。修正後工控機 `GET /api/parcel` 遇雲端業務錯誤改回 **HTTP 200** + `is_error_label` 旗標與 `label_path`，錯誤面單與正常面單走同一條出口，工控機如同一般面單自行列印（所有模式皆可印出）。
+- 掃描列印 / 自動印單的錯誤面單印表機來源不一致：正常面單用前端印表機設定（`printerMap`），錯誤面單卻用後端 `dispatch_provider` 設定或系統預設印表機，兩者未同步時造成「正常面單印得出、錯誤面單卻印不出或印錯印表機」。修正為錯誤面單一律用該物流商在「印表機設定」的同一台印表機印出。
+
+### 調整
+- 錯誤面單列印失敗（找不到印表機 / 列印失敗 / 暫存失敗）時，桌面 App 顯示提示（先前僅後端記錄、操作員無感）。
+
+### 工控機整合注意
+- `GET /api/parcel` 對雲端業務錯誤（門市關轉 / 未確認 / 找不到 / 非代寄 / 非轉寄 / 狀態異常等）改回 **HTTP 200**（不再是 502），回應 `data.is_error_label = true` 並帶 `label_path`（錯誤面單）、`error_code`、`message`。工控機需依 `is_error_label` 旗標判斷，並把 `label_path` 當一般面單印出；錯誤面單無 `response_id`，不需 `POST /api/report`。僅 401 未登入仍回 401、暫存失敗才退回 502。詳見 `docs/local-http-api.md`。
+
 ## v0.5.3
 
 ### 新增

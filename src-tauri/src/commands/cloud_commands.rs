@@ -68,6 +68,28 @@ async fn process_label_for_ui(
     format!("http://127.0.0.1:{port}/images/{effective_key}")
 }
 
+/// 產生錯誤面單、寫入 cache,回傳本機 middleware URL(`http://127.0.0.1:{port}/images/@error/...`)。
+/// 給 GUI 掃描 / 自動印單用:前端拿到後以「該物流商在印表機設定的同一台印表機」印出,
+/// 與正常面單同出口 —— 避免後端 find_any_printer(dispatch_provider DB / 系統預設)與
+/// 前端 printerMap(localStorage)印表機來源不一致,導致正常面單印得出、錯誤面單卻印不出或印錯台。
+/// 寫檔失敗回 None(前端略過,後端不再 fallback 列印,與正常面單失敗時行為一致)。
+async fn build_error_label_url(
+    state: &SharedState,
+    query_no: &str,
+    error_code: &str,
+) -> Option<String> {
+    let bytes = crate::error_label::generate(
+        query_no,
+        error_code,
+        crate::error_label::LabelHeight::H100mm,
+    );
+    let cache_base = state.cache.base_dir();
+    let key = crate::server::write_error_label_to_cache(&cache_base, query_no, error_code, &bytes)
+        .await?;
+    let port = state.config.read().await.server.port;
+    Some(format!("http://127.0.0.1:{port}/images/{key}"))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub api_base: String,
@@ -174,6 +196,7 @@ pub async fn cloud_fetch_label(
             if let AppError::Cloud { code, .. } = &e {
                 crate::server::spawn_error_label_print(
                     state.db.clone(),
+                    app.clone(),
                     req.order_sn.clone(),
                     to_error_label_code(code).to_string(),
                 );
@@ -229,11 +252,13 @@ pub async fn cloud_fetch_label(
             event_log::log_bg(state.db.clone(), "warn", "cloud", "面單查詢失敗",
                 format!("面單查詢失敗 status={} order={}", result.print_view_status, req.order_sn));
             if !matches!(result.print_view_status.as_str(), "SHIPPING-REPEAT" | "NO-PRINT-TYPE") {
-                crate::server::spawn_error_label_print(
-                    state.db.clone(),
-                    req.order_sn.clone(),
-                    to_error_label_code(&result.print_view_status).to_string(),
-                );
+                // 產生錯誤面單 URL 回前端,由前端用 printerMap[provider] 印(同正常面單出口)
+                result.error_label_path = build_error_label_url(
+                    state.inner(),
+                    &req.order_sn,
+                    to_error_label_code(&result.print_view_status),
+                )
+                .await;
             }
         }
     }
@@ -356,11 +381,13 @@ pub async fn cloud_fetch_cloud_print(
         .execute(&state.db)
         .await;
         if !matches!(result.respond_code.as_str(), "ABNORMAL-PACKAGE" | "WRAPPER-ERROR") {
-            crate::server::spawn_error_label_print(
-                state.db.clone(),
-                req.order_sn.clone(),
-                to_error_label_code(&result.respond_code).to_string(),
-            );
+            // 產生錯誤面單 URL 回前端,由前端用 printerMap[provider_code] 印(同正常面單出口)
+            result.error_label_path = build_error_label_url(
+                state.inner(),
+                &req.order_sn,
+                to_error_label_code(&result.respond_code),
+            )
+            .await;
         }
     }
 

@@ -70,6 +70,11 @@
     "unauthorized": "Chưa đăng nhập đám mây",
     "error": "Yêu cầu nhãn thất bại"
   },
+  "errorLabelFailed": {
+    "no_printer": "Không in được nhãn lỗi: không tìm thấy máy in khả dụng",
+    "print_failed": "In nhãn lỗi thất bại",
+    "cache_write_failed": "Lưu tạm nhãn lỗi thất bại, đã chuyển sang in cục bộ"
+  },
   "pagination": {
     "pagePrefix": "Trang",
     "pageSuffix": "",

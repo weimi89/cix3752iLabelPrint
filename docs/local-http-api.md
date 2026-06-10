@@ -156,26 +156,45 @@ Host: <middleware-ip>:18080
 | `print_profile` | string \| null | 是 | 對應本機印表機設定（本地 `dispatch_provider.print_profile`，用 `shipping_provider` 查）。無對應設定時為 `null` |
 | `label_path` | string \| null | 是 | 面單存取路徑;格式由「面單路徑回傳模式」設定決定(三選一,見下)。同步下載失敗時為 `null`,工控機可重試 |
 | `response_id` | integer \| null | 是 | 雲端列印記錄 ID，工控機需於 `POST /api/report` 帶回以利配對；雲端 debug 模式時為 `null` |
+| `is_error_label` | boolean | 否 | **錯誤面單旗標**。正常面單時省略(視為 `false`);為 `true` 時代表這是一張「錯誤提示面單」(見下節) |
+| `error_code` | string | 否 | 僅錯誤面單出現:機器可讀代碼(`STORE_CLOSED` / `NOT_FOUND` / …) |
+| `message` | string | 否 | 僅錯誤面單出現:人類可讀的雲端原始錯誤敘述 |
 
-**失敗**
+### 錯誤面單（雲端業務錯誤 → HTTP 200 + `is_error_label`）
 
-| HTTP | message | 觸發條件 |
-|---|---|---|
-| `401 Unauthorized` | `雲端未登入,請先在桌面 App 完成登入` | Middleware 尚未登入雲端 API |
-| `502 Bad Gateway` | 雲端錯誤敘述（透傳） | 雲端 API 拒絕、逾時、解析失敗等所有非 401 的雲端錯誤 |
-
-**注意** *[實作差異]*：規格書範例提到 `404 找不到此包裹條碼`，但實作中所有非 401 的雲端錯誤一律歸 `502 Bad Gateway`（在 `message` 中保留雲端原始錯誤敘述）。
-
-**錯誤範例（HTTP 502）**
+當雲端回業務錯誤（門市關轉 / 未確認 / 找不到 / 非代寄 / 非轉寄 / 狀態異常 / 出單失敗等所有**非 401** 的雲端錯誤），Middleware **不再回 502**，改為：自動產生一張「錯誤提示面單」(條碼 + 查詢號 + 對應圖示 + 中越雙語說明)，並以 **HTTP 200** 回傳，body 形態與正常面單相同，但帶 `is_error_label: true`：
 
 ```json
 {
-  "message": "雲端 API 錯誤: 404 NOT FOUND",
-  "status_code": 502
+  "data": {
+    "channel_code": null,
+    "print_profile": null,
+    "label_path": "http://10.0.0.5:18080/images/@error/SF0220862051573_NOT_FOUND.png",
+    "response_id": null,
+    "is_error_label": true,
+    "error_code": "NOT_FOUND",
+    "message": "雲端 API 錯誤: 404 NOT FOUND"
+  }
 }
 ```
 
-無論成功或失敗，`daily_stats.request_count` 皆會 +1。
+**工控機處理規則**：
+
+1. 看到 `is_error_label: true` 時，把 `label_path` **當成一般面單印出**（讓現場人員憑這張圖把異常包裹撿出處理）。`label_path` 的格式同樣依面單路徑模式（`local` / `share` / `http`）決定。
+2. 錯誤面單**沒有 `response_id`（為 `null`）**，工控機**不要** `POST /api/report`（無回報對象）。
+3. `channel_code` / `print_profile` 一律為 `null`（錯誤包裹不進分揀通道）。
+4. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印，`label_path` 回 `null`（與正常面單一致）。
+
+> *[設計演進]* 舊版實作對雲端業務錯誤一律回 `502 Bad Gateway`，導致 `http` / `local` / `share` 模式下錯誤面單無法送達工控機（錯誤面單僅在 `direct_print` 模式有效）。現改為取向 A：錯誤面單與正常面單走同一條 `label_path` 出口，所有模式皆可印出。
+
+**仍回錯誤碼的情況**
+
+| HTTP | message | 觸發條件 |
+|---|---|---|
+| `401 Unauthorized` | `雲端未登入,請先在桌面 App 完成登入` | Middleware 尚未登入雲端 API（系統層問題，現場無法處理，故不產錯誤面單） |
+| `502 Bad Gateway` | 雲端錯誤敘述（透傳） | 僅在錯誤面單**暫存到 cache 失敗**時退化回此行為（同時嘗試本機列印） |
+
+無論成功、錯誤面單或失敗，`daily_stats.request_count` 皆會 +1。
 
 ## 面單路徑回傳模式
 
