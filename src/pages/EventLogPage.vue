@@ -93,6 +93,7 @@ const load = async () => {
     events.value = await eventLogList({
       level: eventLevel.value,
       category: eventCategory.value,
+      keyword: searchKeyword.value.trim() || null,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
     })

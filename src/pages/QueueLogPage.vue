@@ -83,6 +83,7 @@ const load = async () => {
   try {
     queueItems.value = await queueList({
       status: queueStatus.value,
+      keyword: searchKeyword.value.trim() || null,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
     })

@@ -10,6 +10,9 @@ pub struct EventLogReq {
     pub level: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
+    /// 關鍵字(對 message / action 做 LIKE 模糊比對)
+    #[serde(default)]
+    pub keyword: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -38,6 +41,11 @@ pub async fn event_log_list(
 ) -> AppResult<Vec<EventLogItem>> {
     let limit = req.limit.clamp(1, 1000);
     let offset = req.offset.max(0);
+    let keyword = req
+        .keyword
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
 
     // 動態組 WHERE
     let mut where_clauses: Vec<&str> = Vec::new();
@@ -46,6 +54,9 @@ pub async fn event_log_list(
     }
     if req.category.is_some() {
         where_clauses.push("category = ?");
+    }
+    if keyword.is_some() {
+        where_clauses.push("(message LIKE ? OR action LIKE ?)");
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -62,12 +73,16 @@ pub async fn event_log_list(
          LIMIT ? OFFSET ?"
     );
 
+    let like = keyword.map(|kw| format!("%{kw}%"));
     let mut query = sqlx::query(&sql);
     if let Some(l) = req.level.as_deref() {
         query = query.bind(l);
     }
     if let Some(c) = req.category.as_deref() {
         query = query.bind(c);
+    }
+    if let Some(like) = like.as_deref() {
+        query = query.bind(like).bind(like);
     }
     let rows = query.bind(limit).bind(offset).fetch_all(&state.db).await?;
 

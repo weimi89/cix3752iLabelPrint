@@ -10,6 +10,7 @@
 - `direct_print` 模式錯誤面單印表機選擇：可判斷物流商時優先用該物流商在「指派物流」頁設定的印表機（原為無序取任一台已設定印表機，可能印到別站）。
 
 - 錯誤面單回報 `POST /api/report` 會失敗：錯誤查詢先前不寫入查詢記錄且 `response_id` 為 `null`，工控機照正常流程回報時反查不到記錄而收到 422。現錯誤查詢**同步寫入查詢記錄**（`response_id` 用本地負數，與雲端正數 ID 區隔），回報可正常配對回 200（只記錄本機、不推雲端 webhook）；「查詢記錄」頁同時也看得到錯誤查詢（含耗時欄位），不再是診斷盲區。
+- 「事件記錄」與「佇列歷史」頁的關鍵字搜尋無作用：過濾邏輯只實作在瀏覽器預覽的 mock 分支，實際 App 內關鍵字從未送到後端。現後端 `event_log_list`（對 `message` / `action`）與 `queue_list`（對 `tracking_no` / `sort_channel` / `job_sticker`）支援 LIKE 模糊查詢，前端同步帶入關鍵字。
 
 ### 工控機整合注意
 - 錯誤面單（`is_error_label: true`）回應的 `channel_code` / `print_profile` **不再一律為 `null`**，且帶**負數 `response_id`**：工控機把錯誤包裹當一般面單跑完整流程（分揀進 `channel_code` 通道 → 列印 `label_path` → `POST /api/report` 回報）即可，**端上零特殊處理**。詳見 `docs/local-http-api.md`。

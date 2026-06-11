@@ -14,6 +14,9 @@ pub async fn queue_stats(state: State<'_, SharedState>) -> AppResult<QueueStats>
 pub struct QueueListReq {
     #[serde(default)]
     pub status: Option<String>,
+    /// 關鍵字(對 tracking_no / sort_channel / job_sticker 做 LIKE 模糊比對)
+    #[serde(default)]
+    pub keyword: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -46,36 +49,46 @@ pub async fn queue_list(
 ) -> AppResult<Vec<QueueItem>> {
     let limit = req.limit.clamp(1, 1000);
     let offset = req.offset.max(0);
+    let keyword = req
+        .keyword
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
 
-    let rows = if let Some(status) = req.status.as_deref() {
-        sqlx::query(
-            "SELECT id, tracking_no, response_id, status, retry_count,
-                    created_at, updated_at, sent_at, payload_json,
-                    sort_channel, job_sticker
-             FROM report_queue
-             WHERE status = ?
-             ORDER BY id DESC
-             LIMIT ? OFFSET ?",
-        )
-        .bind(status)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?
+    // 動態組 WHERE(status / keyword 可任意組合)
+    let mut where_clauses: Vec<&str> = Vec::new();
+    if req.status.is_some() {
+        where_clauses.push("status = ?");
+    }
+    if keyword.is_some() {
+        where_clauses.push("(tracking_no LIKE ? OR sort_channel LIKE ? OR job_sticker LIKE ?)");
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
     } else {
-        sqlx::query(
-            "SELECT id, tracking_no, response_id, status, retry_count,
-                    created_at, updated_at, sent_at, payload_json,
-                    sort_channel, job_sticker
-             FROM report_queue
-             ORDER BY id DESC
-             LIMIT ? OFFSET ?",
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?
+        format!("WHERE {}", where_clauses.join(" AND "))
     };
+
+    let sql = format!(
+        "SELECT id, tracking_no, response_id, status, retry_count,
+                created_at, updated_at, sent_at, payload_json,
+                sort_channel, job_sticker
+         FROM report_queue
+         {where_sql}
+         ORDER BY id DESC
+         LIMIT ? OFFSET ?"
+    );
+
+    let like = keyword.map(|kw| format!("%{kw}%"));
+    let mut query = sqlx::query(&sql);
+    if let Some(status) = req.status.as_deref() {
+        query = query.bind(status);
+    }
+    if let Some(like) = like.as_deref() {
+        query = query.bind(like).bind(like).bind(like);
+    }
+    let rows = query.bind(limit).bind(offset).fetch_all(&state.db).await?;
 
     Ok(rows
         .into_iter()
