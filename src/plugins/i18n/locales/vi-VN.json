@@ -70,6 +70,13 @@
     "unauthorized": "Chưa đăng nhập đám mây",
     "error": "Yêu cầu nhãn thất bại"
   },
+  "deviceAlert": {
+    "PARCEL_JAM": "Chú ý, máy phân loại bị kẹt kiện hàng, nhân viên hiện trường xử lý ngay",
+    "USB_DISCONNECT": "Chú ý, cổng USB bị ngắt kết nối bất thường, vui lòng kiểm tra kết nối thiết bị",
+    "SCANNER_ERROR": "Chú ý, máy quét gặp sự cố, vui lòng kiểm tra thiết bị",
+    "PRINTER_ERROR": "Chú ý, máy in gặp sự cố, vui lòng kiểm tra thiết bị",
+    "ERROR": "Chú ý, thiết bị phân loại gặp sự cố, nhân viên hiện trường vui lòng kiểm tra"
+  },
   "errorLabelFailed": {
     "no_printer": "Không in được nhãn lỗi: không tìm thấy máy in khả dụng",
     "print_failed": "In nhãn lỗi thất bại",
@@ -245,6 +252,11 @@
       "statDone": "Hoàn tất",
       "statSuccess": "Thành công",
       "statFail": "Thất bại",
+      "statElapsed": "Thời gian",
+      "statSkipped": "Bỏ qua",
+      "skipped": "Đã tạo, bỏ qua",
+      "elapsedSec": "{s} giây",
+      "elapsedMin": "{m} phút {s} giây",
       "manyHint": "Tổng {n} đơn. Số lượng lớn nên không hiển thị từng ảnh nhãn để giữ hiệu năng; server sẽ tạo sẵn ảnh nhãn ở chế độ nền, hoàn tất có thể dùng trực tiếp ở Quét in / Tự động in / máy công nghiệp.",
       "failReason": "Lý do",
       "failMore": "Còn {n} đơn thất bại chưa liệt kê",

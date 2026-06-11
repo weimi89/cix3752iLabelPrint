@@ -15,6 +15,7 @@ declare global {
   const autoResetRef: typeof import('@vueuse/core')['autoResetRef']
   const avatarText: typeof import('./@core/utils/formatters.js')['avatarText']
   const betweenValidator: typeof import('./@core/utils/validators.js')['betweenValidator']
+  const cancelSpeech: typeof import('./composables/useSpeech.js')['cancelSpeech']
   const carNoValidator: typeof import('./@core/utils/validators.js')['carNoValidator']
   const checkForUpdates: typeof import('./composables/useUpdater.js')['checkForUpdates']
   const computed: typeof import('vue')['computed']
@@ -57,6 +58,7 @@ declare global {
   const getCurrentInstance: typeof import('vue')['getCurrentInstance']
   const getCurrentScope: typeof import('vue')['getCurrentScope']
   const h: typeof import('vue')['h']
+  const hasVoiceFor: typeof import('./composables/useSpeech.js')['hasVoiceFor']
   const hexToRgb: typeof import('./@core/utils/colorConverter.js')['hexToRgb']
   const idNoValidator: typeof import('./@core/utils/validators.js')['idNoValidator']
   const ignorableWatch: typeof import('@vueuse/core')['ignorableWatch']
@@ -70,11 +72,13 @@ declare global {
   const isEmptyArray: typeof import('./@core/utils/helpers.js')['isEmptyArray']
   const isNullOrUndefined: typeof import('./@core/utils/helpers.js')['isNullOrUndefined']
   const isObject: typeof import('./@core/utils/helpers.js')['isObject']
+  const isOrderProcessed: typeof import('./composables/usePreGenProcessed.js')['isOrderProcessed']
   const isPrintable: typeof import('./composables/useLabelStatus.js')['isPrintable']
   const isProxy: typeof import('vue')['isProxy']
   const isReactive: typeof import('vue')['isReactive']
   const isReadonly: typeof import('vue')['isReadonly']
   const isRef: typeof import('vue')['isRef']
+  const isSpeechSupported: typeof import('./composables/useSpeech.js')['isSpeechSupported']
   const isToday: typeof import('./@core/utils/helpers.js')['isToday']
   const kFormatter: typeof import('./@core/utils/formatters.js')['kFormatter']
   const lengthValidator: typeof import('./@core/utils/validators.js')['lengthValidator']
@@ -84,6 +88,7 @@ declare global {
   const mapState: typeof import('pinia')['mapState']
   const mapStores: typeof import('pinia')['mapStores']
   const mapWritableState: typeof import('pinia')['mapWritableState']
+  const markOrderProcessed: typeof import('./composables/usePreGenProcessed.js')['markOrderProcessed']
   const markRaw: typeof import('vue')['markRaw']
   const nextTick: typeof import('vue')['nextTick']
   const numericValidator: typeof import('./@core/utils/validators.js')['numericValidator']
@@ -109,6 +114,7 @@ declare global {
   const onWatcherCleanup: typeof import('vue')['onWatcherCleanup']
   const passwordValidator: typeof import('./@core/utils/validators.js')['passwordValidator']
   const pausableWatch: typeof import('@vueuse/core')['pausableWatch']
+  const persistProcessed: typeof import('./composables/usePreGenProcessed.js')['persistProcessed']
   const phoneNumberValidator: typeof import('./@core/utils/validators.js')['phoneNumberValidator']
   const playSound: typeof import('./composables/useSoundEffects.js')['playSound']
   const preGenInputMode: typeof import('./composables/usePreGenState.js')['preGenInputMode']
@@ -143,6 +149,8 @@ declare global {
   const shallowReactive: typeof import('vue')['shallowReactive']
   const shallowReadonly: typeof import('vue')['shallowReadonly']
   const shallowRef: typeof import('vue')['shallowRef']
+  const speak: typeof import('./composables/useSpeech.js')['speak']
+  const speechLangOf: typeof import('./composables/useSpeech.js')['speechLangOf']
   const statusGroupColor: typeof import('./composables/useLabelStatus.js')['statusGroupColor']
   const statusIcon: typeof import('./composables/useLabelStatus.js')['statusIcon']
   const statusLabel: typeof import('./composables/useLabelStatus.js')['statusLabel']
@@ -209,6 +217,7 @@ declare global {
   const useDebounce: typeof import('@vueuse/core')['useDebounce']
   const useDebounceFn: typeof import('@vueuse/core')['useDebounceFn']
   const useDebouncedRefHistory: typeof import('@vueuse/core')['useDebouncedRefHistory']
+  const useDeviceAlert: typeof import('./composables/useDeviceAlert.js')['useDeviceAlert']
   const useDeviceMotion: typeof import('@vueuse/core')['useDeviceMotion']
   const useDeviceOrientation: typeof import('@vueuse/core')['useDeviceOrientation']
   const useDevicePixelRatio: typeof import('@vueuse/core')['useDevicePixelRatio']
@@ -386,6 +395,7 @@ declare module 'vue' {
     readonly autoResetRef: UnwrapRef<typeof import('@vueuse/core')['autoResetRef']>
     readonly avatarText: UnwrapRef<typeof import('./@core/utils/formatters.js')['avatarText']>
     readonly betweenValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['betweenValidator']>
+    readonly cancelSpeech: UnwrapRef<typeof import('./composables/useSpeech.js')['cancelSpeech']>
     readonly carNoValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['carNoValidator']>
     readonly checkForUpdates: UnwrapRef<typeof import('./composables/useUpdater.js')['checkForUpdates']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
@@ -428,6 +438,7 @@ declare module 'vue' {
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
     readonly h: UnwrapRef<typeof import('vue')['h']>
+    readonly hasVoiceFor: UnwrapRef<typeof import('./composables/useSpeech.js')['hasVoiceFor']>
     readonly hexToRgb: UnwrapRef<typeof import('./@core/utils/colorConverter.js')['hexToRgb']>
     readonly idNoValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['idNoValidator']>
     readonly ignorableWatch: UnwrapRef<typeof import('@vueuse/core')['ignorableWatch']>
@@ -441,11 +452,13 @@ declare module 'vue' {
     readonly isEmptyArray: UnwrapRef<typeof import('./@core/utils/helpers.js')['isEmptyArray']>
     readonly isNullOrUndefined: UnwrapRef<typeof import('./@core/utils/helpers.js')['isNullOrUndefined']>
     readonly isObject: UnwrapRef<typeof import('./@core/utils/helpers.js')['isObject']>
+    readonly isOrderProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['isOrderProcessed']>
     readonly isPrintable: UnwrapRef<typeof import('./composables/useLabelStatus.js')['isPrintable']>
     readonly isProxy: UnwrapRef<typeof import('vue')['isProxy']>
     readonly isReactive: UnwrapRef<typeof import('vue')['isReactive']>
     readonly isReadonly: UnwrapRef<typeof import('vue')['isReadonly']>
     readonly isRef: UnwrapRef<typeof import('vue')['isRef']>
+    readonly isSpeechSupported: UnwrapRef<typeof import('./composables/useSpeech.js')['isSpeechSupported']>
     readonly isToday: UnwrapRef<typeof import('./@core/utils/helpers.js')['isToday']>
     readonly kFormatter: UnwrapRef<typeof import('./@core/utils/formatters.js')['kFormatter']>
     readonly lengthValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['lengthValidator']>
@@ -455,6 +468,7 @@ declare module 'vue' {
     readonly mapState: UnwrapRef<typeof import('pinia')['mapState']>
     readonly mapStores: UnwrapRef<typeof import('pinia')['mapStores']>
     readonly mapWritableState: UnwrapRef<typeof import('pinia')['mapWritableState']>
+    readonly markOrderProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['markOrderProcessed']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
     readonly numericValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['numericValidator']>
@@ -480,6 +494,7 @@ declare module 'vue' {
     readonly onWatcherCleanup: UnwrapRef<typeof import('vue')['onWatcherCleanup']>
     readonly passwordValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['passwordValidator']>
     readonly pausableWatch: UnwrapRef<typeof import('@vueuse/core')['pausableWatch']>
+    readonly persistProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['persistProcessed']>
     readonly phoneNumberValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['phoneNumberValidator']>
     readonly playSound: UnwrapRef<typeof import('./composables/useSoundEffects.js')['playSound']>
     readonly preGenInputMode: UnwrapRef<typeof import('./composables/usePreGenState.js')['preGenInputMode']>
@@ -514,6 +529,8 @@ declare module 'vue' {
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
+    readonly speak: UnwrapRef<typeof import('./composables/useSpeech.js')['speak']>
+    readonly speechLangOf: UnwrapRef<typeof import('./composables/useSpeech.js')['speechLangOf']>
     readonly statusGroupColor: UnwrapRef<typeof import('./composables/useLabelStatus.js')['statusGroupColor']>
     readonly statusIcon: UnwrapRef<typeof import('./composables/useLabelStatus.js')['statusIcon']>
     readonly statusLabel: UnwrapRef<typeof import('./composables/useLabelStatus.js')['statusLabel']>
@@ -580,6 +597,7 @@ declare module 'vue' {
     readonly useDebounce: UnwrapRef<typeof import('@vueuse/core')['useDebounce']>
     readonly useDebounceFn: UnwrapRef<typeof import('@vueuse/core')['useDebounceFn']>
     readonly useDebouncedRefHistory: UnwrapRef<typeof import('@vueuse/core')['useDebouncedRefHistory']>
+    readonly useDeviceAlert: UnwrapRef<typeof import('./composables/useDeviceAlert.js')['useDeviceAlert']>
     readonly useDeviceMotion: UnwrapRef<typeof import('@vueuse/core')['useDeviceMotion']>
     readonly useDeviceOrientation: UnwrapRef<typeof import('@vueuse/core')['useDeviceOrientation']>
     readonly useDevicePixelRatio: UnwrapRef<typeof import('@vueuse/core')['useDevicePixelRatio']>

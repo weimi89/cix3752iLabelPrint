@@ -30,6 +30,7 @@ documentclass: report
 | `GET` | `/healthz` | 服務存活檢查 |
 | `GET` | `/api/parcel/{queryNo}` | 工控機掃碼查詢包裹資料 |
 | `POST` | `/api/report` | 工控機回報執行結果 |
+| `POST` | `/api/device-alert` | 工控機回報設備異常（卡包裹 / USB 斷線 …），觸發雙語語音廣播 |
 | `GET` | `/images/*` *[從 code 補]* | 面單圖檔靜態服務（`tower_http::ServeDir`，根路徑為快取目錄） |
 
 ---
@@ -48,6 +49,7 @@ documentclass: report
 
 - `GET /api/parcel`：`{ "data": { ... } }`（HTTP 200 即代表成功，無 `message`）
 - `POST /api/report`：`{ "message": "OK" }`（無業務資料需回，只確認收到）
+- `POST /api/device-alert`：`{ "message": "OK" }`（立即回 200，語音廣播由桌面 App 背景處理）
 
 ## 錯誤回應（HTTP 4xx / 5xx）
 
@@ -154,7 +156,7 @@ Host: <middleware-ip>:18080
 |---|---|---|---|
 | `channel_code` | string \| null | 是 | 分揀通道代碼（本地 `sort_channels`，用雲端 `shipping_provider` 查 `dispatch_code` 後依 round-robin 取一個）。無對應通道時為 `null` |
 | `print_profile` | string \| null | 是 | 對應本機印表機設定（本地 `dispatch_provider.print_profile`，用 `shipping_provider` 查）。無對應設定時為 `null` |
-| `label_path` | string \| null | 是 | 面單存取路徑;格式由「面單路徑回傳模式」設定決定(三選一,見下)。同步下載失敗時為 `null`,工控機可重試 |
+| `label_path` | string（可省略） | 省略 | 面單存取路徑;格式由「面單路徑回傳模式」設定決定(見下)。**`direct_print` 模式、或同步下載失敗時,整個欄位不回傳**(不是 `null`,是 JSON 裡根本沒有這個 key);工控機應判斷「欄位是否存在」而非「是否為 null」 |
 | `response_id` | integer \| null | 是 | 雲端列印記錄 ID，工控機需於 `POST /api/report` 帶回以利配對；雲端 debug 模式時為 `null` |
 | `is_error_label` | boolean | 否 | **錯誤面單旗標**。正常面單時省略(視為 `false`);為 `true` 時代表這是一張「錯誤提示面單」(見下節) |
 | `error_code` | string | 否 | 僅錯誤面單出現:機器可讀代碼(`STORE_CLOSED` / `NOT_FOUND` / …) |
@@ -183,7 +185,7 @@ Host: <middleware-ip>:18080
 1. 看到 `is_error_label: true` 時，把 `label_path` **當成一般面單印出**（讓現場人員憑這張圖把異常包裹撿出處理）。`label_path` 的格式同樣依面單路徑模式（`local` / `share` / `http`）決定。
 2. 錯誤面單**沒有 `response_id`（為 `null`）**，工控機**不要** `POST /api/report`（無回報對象）。
 3. `channel_code` / `print_profile` 一律為 `null`（錯誤包裹不進分揀通道）。
-4. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印，`label_path` 回 `null`（與正常面單一致）。
+4. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印，**不回傳 `label_path` 欄位**（與正常面單一致）。
 
 > *[設計演進]* 舊版實作對雲端業務錯誤一律回 `502 Bad Gateway`，導致 `http` / `local` / `share` 模式下錯誤面單無法送達工控機（錯誤面單僅在 `direct_print` 模式有效）。現改為取向 A：錯誤面單與正常面單走同一條 `label_path` 出口，所有模式皆可印出。
 
@@ -198,19 +200,40 @@ Host: <middleware-ip>:18080
 
 ## 面單路徑回傳模式
 
-`label_path` 的形態由 `config.toml` 中 `[label_path]` 區塊或設定頁「面單路徑回傳模式」決定,可在執行期熱套用(不需重啟 server)。三種模式:
+`label_path` 的形態由 `config.toml` 中 `[label_path]` 區塊或設定頁「面單路徑回傳模式」決定,可在執行期熱套用(不需重啟 server)。四種模式:
 
 | `mode` | `label_path` 範例 | 設定欄位 | 工控機行為 |
 |---|---|---|---|
 | `local`(預設) | `/Users/.../labels/2026/05/SF.png` | — | 直接讀本機檔(僅同機器有效) |
 | `share` | `\\10.0.0.1\labels\2026\05\SF.png` | `share_root` | 經 SMB / NFS 掛載讀檔 |
 | `http` | `http://192.168.1.50:18080/images/SF.png` | — | 走 HTTP GET 下載 |
+| `direct_print` | (不回傳此欄位) | 指派物流頁各物流商 `printer_name` | 不讀檔;由中介機本機印表機直接列印 |
 
 **`share` 模式**:Middleware 把本地 `cache_root` 前綴替換為 `share_root`,再依 `share_root` 含 `\` 與否決定分隔符風格。`share_root` 必須與 cache 根目錄指向同一份檔案的不同視角。
 
 **`http` 模式**:設計為內網部署,直接以工控機請求的 Host header 組合 `http://{host}/images/{label_key}`,**無須額外設定**。內部走現有靜態檔案端點(第 4 節)。
 
+**`direct_print` 模式**:**回應不含 `label_path` 欄位**(因 `Option::is_none` skip 而整個省略,不是 `null`),面單由中介機直接送本機印表機(依「指派物流」頁各物流商設定的 `printer_name`)。
+
 **設定錯誤的退化策略**:`share_root` 為空時退回 `local`。
+
+### 兩種列印模型(回應時序差異)
+
+依「誰負責列印」分成兩條不同處理路徑:
+
+| | 回傳工控機處理(`local`/`share`/`http`) | 中介機本機列印(`direct_print`) |
+|---|---|---|
+| 列印者 | **工控機**(讀 `label_path` 自行列印) | **中介機**(送本機印表機) |
+| 回應內容 | 回 `label_path`(路徑/URL) | 不回 `label_path` 欄位 |
+| 圖檔下載時機 | **回應前同步下載到完成**(工控機要讀檔,設計原則 #3) | **回應後背景處理**(立即回應,不讓工控機等雲端,設計原則 #2) |
+| `parcel_query_log.label_ms` | 實際圖檔處理耗時 | `0`(回應路徑不含圖檔處理) |
+| 列印順序保證 | 由工控機掌控(等每筆同步回應才送下一筆,天生照順序) | 由中介機**單一 FIFO 列印佇列**保證(見下) |
+
+**`direct_print` 的列印順序保證**:中介機收到請求 → 取得雲端 metadata → 把「下載+浮水印+列印」工作**排入有序佇列**後立即回應。佇列由**單一 worker 逐筆 `await`**(下載完一筆、送印完一筆,才取下一筆),因此:
+
+- 列印順序 **= 入列順序 = 工控機請求順序**(工控機在分揀線一件件刷、等回應才送下一件,故入列即照順序);**不會**因為「第 2 件圖檔下載比第 1 件快」而搶先印出。
+- 同一時間只送印一筆,**不並發打印表機 spooler**(Windows GDI 對並發 stale-state 敏感)。
+- 圖檔下載逾時 30 秒:某筆下載卡住最多塞住佇列 30 秒,逾時後該筆略過、後續照印(維持其餘相對順序)。
 
 ## 列印次數浮水印(對齊雲端 OrderPrintController)
 
@@ -229,9 +252,11 @@ Host: <middleware-ip>:18080
 
 - `local` / `share` 模式下 `label_path` 為**絕對路徑**,工控機需有檔案系統讀取權限
 - `http` 模式下 `label_path` 為 URL,工控機需用 HTTP GET 取得 binary
-- 若 `label_path` 為 `null`,工控機可選擇:
-  1. 重新呼叫 `GET /api/parcel/{queryNo}`(首次未命中觸發了下載,第二次通常會命中本地快取)
-  2. 改用 `/images/{label_key}` 走 HTTP 拉取(見第 4 節)
+- 若回應**不含 `label_path` 欄位**:
+  - `direct_print` 模式 → 正常情況,面單由中介機自印,工控機不需取面單
+  - 非 `direct_print` 但欄位仍缺 → 同步下載失敗,工控機可選擇:
+    1. 重新呼叫 `GET /api/parcel/{queryNo}`(首次未命中觸發了下載,第二次通常會命中本地快取)
+    2. 改用 `/images/{label_key}` 走 HTTP 拉取(見第 4 節)
 - `response_id` 在後續 `POST /api/report` 為**必填**;若為 `null`,本次查詢不會寫 `parcel_query_log`,後續無法回報
 
 ---
@@ -310,7 +335,79 @@ Content-Type: application/json
 
 ---
 
-# 4. GET /images/* *[從 code 補]*
+# 4. POST /api/device-alert
+
+工控機回報**設備異常**（分揀機台卡包裹、USB 接口異常斷線、掃描器/印表機故障等）。桌面 App 收到後，會用**中文 + 越南語雙語**語音廣播，喊話提示現場人員到場處理，並在畫面跳 toast。
+
+**設計原則同 `POST /api/report`：不讓工控機等。** 工控機只負責「喊一聲」，Middleware 立即回 200，語音廣播全在桌面 App 背景進行，工控機不需等廣播放完。
+
+**發聲方式：預錄音檔（非系統 TTS）。** 內建分類碼的中/越雙語語音已**預先錄製內嵌進 App**（中文 `HsiaoChen`、越南語 `HoaiMy` neural 音色），每台工控機唸出來音色一致、發音標準、**離線可用、越南語免在 Windows 裝語音包**。只有傳入未錄音的自訂 `type` 時，才退回系統 TTS（此時越南語需機器自備語音包）。
+
+## Request
+
+```http
+POST /api/device-alert HTTP/1.1
+Host: <middleware-ip>:18080
+Content-Type: application/json
+```
+
+**Body**
+
+```json
+{
+  "type": "PARCEL_JAM",
+  "message": "L2 通道卡件",
+  "repeat": 2
+}
+```
+
+| 欄位 | 型別 | 必填 | 說明 |
+|---|---|---|---|
+| `type` | string | 否 | 異常分類碼（大寫，對齊雲端機器碼風格）。Middleware 會自動轉大寫，工控機傳大小寫皆可。省略或空字串時當作 `ERROR`（通用設備異常） |
+| `message` | string | 否 | 補充細節（如卡在哪個通道），顯示在 toast；語音廣播只唸固定的雙語分類文案，不唸自訂 `message` |
+| `repeat` | integer | 否 | 雙語廣播重複次數。**預設 1**，Middleware 會 clamp 到 **1～3**（上限 3，超過取 3，小於 1 取 1），避免誤帶大數洗版 |
+
+**內建分類碼**（雙語文案由 App i18n 提供，現場無須關心翻譯）：
+
+| `type` | 中文廣播 |
+|---|---|
+| `PARCEL_JAM` | 注意，分揀機台卡包裹，請現場人員立即處理 |
+| `USB_DISCONNECT` | 注意，USB 接口異常斷線，請檢查設備連線 |
+| `SCANNER_ERROR` | 注意，掃描器異常，請檢查設備 |
+| `PRINTER_ERROR` | 注意，印表機異常，請檢查設備 |
+| `ERROR` | 注意，分揀設備發生異常，請現場人員確認 |
+
+> 傳入未列於上表的 `type` 不會報錯，App 會 fallback 成 `ERROR` 通用文案。新增固定分類只需在 App 端補 i18n key（大寫），不需改工控機。
+
+## 處理流程
+
+1. 解析 `type`（轉大寫；空 → `ERROR`）、`message`、`repeat`（空 → 1，clamp 1～3）
+2. emit `device-alert` 事件 `{ alert_type, message, repeat }` 給桌面前端
+3. 寫一筆 `warn` 等級事件 log（分類 `server`，標題「設備異常」）
+4. 立即回 `200 OK`
+5. 前端 `useDeviceAlert` 收到事件 → 依 `type` 播預錄中/越雙語音檔 `repeat` 次（未錄音類型退回系統 TTS）→ 顯示 toast
+
+## Response
+
+**成功（HTTP 200）**
+
+```json
+{
+  "message": "OK"
+}
+```
+
+此端點不回業務錯誤；body 解析失敗（非合法 JSON）由 axum 回 `400 Bad Request`。
+
+## 工控機使用注意事項
+
+- 此為「通知」型端點，與 `response_id` / 查件流程無關，可在任何時機獨立呼叫
+- 同一異常**持續存在**時，工控機可自行決定重發頻率（例如每 30 秒重發一次直到排除）；App 端每次收到都會重新廣播，並會先停掉前一筆未播完的語音避免疊聲
+- **越南語廣播需要 Windows 安裝 vi 語音包**：工控機機台若未安裝越南語語音，TTS 會 fallback 成系統預設嗓音，越南語可能腔調怪或唸不出。安裝路徑：Windows「設定 → 時間與語言 → 語言 → 新增越南語 → 語音」。中文（zh-TW）語音 Windows 預設多半已內建
+
+---
+
+# 5. GET /images/* *[從 code 補]*
 
 面單圖檔的靜態檔案服務。實作於 `src-tauri/src/server/mod.rs` 的 `.nest_service("/images", ServeDir::new(cache.base_dir()))`。
 
@@ -338,7 +435,7 @@ Host: <middleware-ip>:18080
 
 ---
 
-# 5. 錯誤碼總表
+# 6. 錯誤碼總表
 
 | HTTP | 端點 | 觸發條件 |
 |---|---|---|

@@ -3,6 +3,15 @@
 本檔記錄各版本的修改與調整內容,標題版本號對應 GitHub Release tag。
 `release.yml` 會依 tag 自動抽取對應段落,寫進 Release 說明與 `latest.json`(in-app 更新提示)。
 
+## v0.5.5
+
+### 新增
+- **設備異常語音廣播 API（`POST /api/device-alert`）**：工控機回報設備異常（分揀機台卡包裹、USB 接口異常斷線、掃描器 / 印表機故障等）時，桌面 App 以**中文 + 越南語雙語語音**廣播喊話現場人員，並顯示 toast 提示。語音採**預錄音檔內嵌**（中文 `HsiaoChen`、越南語 `HoaiMy` neural 音色），每台機器音色一致、發音標準、**離線可用、越南語免在 Windows 端裝語音包**；僅未錄音的自訂 `type` 才退回系統 TTS。支援 `repeat` 控制廣播次數（預設 1、上限 3）、`message` 補充細節（顯示於 toast）。內建分類碼：`PARCEL_JAM` / `USB_DISCONNECT` / `SCANNER_ERROR` / `PRINTER_ERROR` / `ERROR`。
+- **面單預產去重快取**：面單預產頁在同一「快取日」（以 04:00 為界，對齊面單快取清理週期）內，已成功預產過的訂單編號不再重打雲端 `cloudFetchLabel`，避免大量批次重複請求、降低伺服器負擔。統計列新增「略過」筆數顯示，縮圖以綠色勾選圖示標示被略過的訂單。
+
+### 工控機整合注意
+- 新增 `POST /api/device-alert` 端點：**立即回 200**（不讓工控機等），語音廣播由桌面 App 背景處理。`type` 自動轉大寫（大小寫皆可傳），省略時當作 `ERROR`；`repeat` 自動限制在 1～3。此端點與查件 / 回報流程無關，可獨立呼叫。詳見 `docs/device-alert-api.md`（亦提供 `.docx` 給整合廠商）。
+
 ## v0.5.4
 
 ### 修正

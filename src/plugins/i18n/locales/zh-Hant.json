@@ -70,6 +70,13 @@
     "unauthorized": "雲端未登入",
     "error": "面單請求失敗"
   },
+  "deviceAlert": {
+    "PARCEL_JAM": "注意，分揀機台卡包裹，請現場人員立即處理",
+    "USB_DISCONNECT": "注意，USB 接口異常斷線，請檢查設備連線",
+    "SCANNER_ERROR": "注意，掃描器異常，請檢查設備",
+    "PRINTER_ERROR": "注意，印表機異常，請檢查設備",
+    "ERROR": "注意，分揀設備發生異常，請現場人員確認"
+  },
   "errorLabelFailed": {
     "no_printer": "錯誤面單無法列印：找不到可用印表機",
     "print_failed": "錯誤面單列印失敗",
@@ -245,6 +252,11 @@
       "statDone": "完成",
       "statSuccess": "成功",
       "statFail": "失敗",
+      "statElapsed": "耗時",
+      "statSkipped": "略過",
+      "skipped": "已預產，略過",
+      "elapsedSec": "{s} 秒",
+      "elapsedMin": "{m} 分 {s} 秒",
       "manyHint": "共 {n} 筆,大量預產不逐張顯示縮圖以維持效能;伺服器會在背景把面單圖產好快取,完成後可於掃描列印 / 自動印單 / 工控機直接取用。",
       "failReason": "原因",
       "failMore": "另有 {n} 筆失敗未列出",

@@ -33,7 +33,7 @@
 
 | 模組 | 說明 |
 |---|---|
-| **本地 HTTP API** | 給工控機呼叫的三支 endpoint(健康檢查、查包裹、回報結果)。詳見 [`docs/local-http-api.md`](docs/local-http-api.md) |
+| **本地 HTTP API** | 給工控機呼叫的四支 endpoint(健康檢查、查包裹、回報結果、設備異常通知)。詳見 [`docs/local-http-api.md`](docs/local-http-api.md) |
 | **掃描列印** | 操作員手動掃碼出單(對齊雲端 web 端 `scan-print` 體驗) |
 | **自動印單** | 掃包裹條碼 → 列訂單清單 → 逐筆呼叫 cloud-print + 浮水印 + 本機列印 |
 | **面單預產** | 批次預下載面單到本機快取 |
@@ -47,6 +47,7 @@
 | **事件記錄** | 系統各層級事件 log(category × level 篩選) |
 | **儀表板** | Middleware / 雲端 / 印單統計 三卡 + 當日 request / success / cache hit/miss + 網路狀態 |
 | **全頁印單統計**| Navbar 右上常駐 chip(今日 / 昨日),任何頁面都看得到件數,點擊跳統計頁 |
+| **設備異常廣播** | 工控機回報異常(卡包裹 / USB 斷線 …),桌面 App 用中越雙語**預錄語音**喊話現場人員 + toast。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md) |
 | **雙語切換** | 繁體中文 + Tiếng Việt(vue-i18n,介面熱切換) |
 
 ---
@@ -125,13 +126,14 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 ## 本地 HTTP API(給工控機)
 
-預設綁定 `0.0.0.0:18080`。完整規範見 [`docs/local-http-api.md`](docs/local-http-api.md)(亦提供 `.docx` 給整合廠商)。
+預設綁定 `0.0.0.0:18080`。完整規範見 [`docs/local-http-api.md`](docs/local-http-api.md)(亦提供 `.docx` 給整合廠商)。設備異常通知另有獨立整合文件 [`docs/device-alert-api.md`](docs/device-alert-api.md)(亦含 `.docx`)。
 
 | 方法 | Path | 用途 |
 |---|---|---|
 | `GET` | `/healthz` | 服務存活檢查 |
 | `GET` | `/api/parcel/{queryNo}` | 掃碼查包裹 → 通道 / 列印 profile / 面單路徑 / `response_id` |
 | `POST` | `/api/report` | 回報執行結果(只需 `response_id`) |
+| `POST` | `/api/device-alert` | 回報設備異常 → 觸發中越雙語語音廣播 |
 | `GET` | `/images/{label_key}` | 面單圖檔靜態服務 |
 
 ---
@@ -151,6 +153,16 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 ### 列印次數浮水印
 
 雲端回傳 `print_num > 1` 時,自動在面單右上角(順豐右下角)疊加 `(N)` 浮水印。字型使用 **DejaVu Sans Bold**(OFL 授權)於編譯期內嵌進 binary,**無須額外部署字型檔**。
+
+### 設備異常語音廣播
+
+工控機透過 `POST /api/device-alert` 回報設備異常(`PARCEL_JAM` 卡包裹、`USB_DISCONNECT` USB 斷線、`SCANNER_ERROR` / `PRINTER_ERROR` 故障等)。後端立即回 200(不讓工控機等),emit `device-alert` 事件,前端 `useDeviceAlert` 用**中文 + 越南語雙語語音**廣播喊話現場人員 + toast 顯示。
+
+- **預錄音檔,非即時 TTS** — 內建分類碼的中越語音已預錄內嵌(中文 `HsiaoChen`、越南語 `HoaiMy` neural,以 edge-tts 產生於 `public/sounds/alert/`)。每台機音色一致、發音標準、**離線可用、越南語免在 Windows 裝語音包**。僅未錄音的自訂 `type` 才退回系統 TTS(`useSpeech`)。
+- **次數可控** — body 的 `repeat` 控制廣播遍數,預設 1、後端 clamp 上限 3。
+- **自訂補充字** — `message` 欄位顯示於 toast(語音只唸固定雙語文案)。
+
+新增固定分類只需在 App 端補語音與 i18n,工控機端不需改動。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md)。
 
 ### 三層網路健康偵測
 

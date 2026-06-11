@@ -1,6 +1,7 @@
 <script setup>
 import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate } from '@/api/tauri'
 import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
+import { isOrderProcessed, markOrderProcessed, persistProcessed } from '@/composables/usePreGenProcessed'
 import {
   isDownloadable, statusLabel, statusIcon, errorMessageFromException,
 } from '@/composables/useLabelStatus'
@@ -24,7 +25,34 @@ const totalCount = ref(0)
 const completedCount = ref(0)
 const successCount = ref(0)
 const failCount = ref(0)
+const skippedCount = ref(0)  // 本快取日內已預產過、本批略過重打雲端的筆數
 const progressPct = computed(() => (totalCount.value ? Math.round(completedCount.value / totalCount.value * 100) : 0))
+
+// 本批執行耗時(ms):執行中由 ticker 每 200ms 即時更新,結束後定格在總耗時。
+// 用 performance.now()(單調時鐘)避免系統校時影響;前端瀏覽器環境可用。
+const elapsedMs = ref(0)
+let batchStartTs = 0
+let elapsedTimer = null
+
+const elapsedText = computed(() => {
+  const s = elapsedMs.value / 1000
+  if (s < 60) return t('page.preGenerate.elapsedSec', { s: s.toFixed(1) })
+  const m = Math.floor(s / 60)
+  return t('page.preGenerate.elapsedMin', { m, s: Math.round(s % 60) })
+})
+
+const startElapsedTimer = () => {
+  batchStartTs = performance.now()
+  elapsedMs.value = 0
+  if (elapsedTimer) clearInterval(elapsedTimer)
+  elapsedTimer = setInterval(() => { elapsedMs.value = performance.now() - batchStartTs }, 200)
+}
+const stopElapsedTimer = () => {
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+  if (batchStartTs) elapsedMs.value = performance.now() - batchStartTs // 定格總耗時
+}
+// 執行中離開頁面時清掉 ticker,避免殘留 interval
+onUnmounted(() => { if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null } })
 
 const CONCURRENCY = 20
 const FAIL_LIST_LIMIT = 300  // 失敗清單最多保留筆數
@@ -36,6 +64,7 @@ const startBatch = snList => {
   completedCount.value = 0
   successCount.value = 0
   failCount.value = 0
+  skippedCount.value = 0
   for (const sn of snList) {
     downloadList.push({ sn, code: '', message: '', shipping_no: '', shipping_provider: '', image: null })
   }
@@ -49,11 +78,19 @@ const pushFail = (sn, code, message = '') => {
 
 const processOne = async (sn, index) => {
   const thumb = downloadList.length ? downloadList[index] : null
+  // 本快取日內已成功預產過 → 略過,不重打雲端(只處理大量圖的預產才需要這層去重)
+  if (isOrderProcessed(sn)) {
+    skippedCount.value++
+    completedCount.value++
+    if (thumb) { thumb.code = 'SKIPPED'; thumb.message = t('page.preGenerate.skipped') }
+    return
+  }
   try {
     const data = await cloudFetchLabel(sn, { mode: 'download' })
     const code = data.print_view_status || ''
     if (isDownloadable(code)) {
       successCount.value++
+      markOrderProcessed(sn)  // 記住已成功,本快取日內不再重打
     } else {
       failCount.value++
       pushFail(sn, code)
@@ -78,6 +115,7 @@ const processOne = async (sn, index) => {
 const processShipments = async snList => {
   isProcessing.value = true
   abortRequested = false
+  startElapsedTimer()
   const total = snList.length
   let cursor = 0
 
@@ -89,10 +127,15 @@ const processShipments = async snList => {
     }
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()),
-  )
-  isProcessing.value = false
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()),
+    )
+  } finally {
+    stopElapsedTimer()
+    persistProcessed()  // 本批新標記的已處理訂單一次寫入 localStorage(避免逐筆寫)
+    isProcessing.value = false
+  }
 }
 
 const stopProcessing = () => { abortRequested = true }
@@ -260,6 +303,14 @@ const handleQueryByDate = async () => {
                   <div class="text-h6" :class="failCount ? 'text-error' : 'text-disabled'">{{ failCount }}</div>
                   <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statFail') }}</div>
                 </div>
+                <div v-if="skippedCount > 0">
+                  <div class="text-h6 text-medium-emphasis">{{ skippedCount }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statSkipped') }}</div>
+                </div>
+                <div>
+                  <div class="text-h6">{{ elapsedText }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statElapsed') }}</div>
+                </div>
               </div>
               <VProgressLinear :model-value="progressPct" color="primary" height="8" rounded class="mb-4" />
 
@@ -270,6 +321,11 @@ const handleQueryByDate = async () => {
                   <div class="cell__paper">
                     <img v-if="item.image" :src="item.image" :alt="item.sn" loading="lazy" />
                     <div v-else-if="!item.code" class="cell__loading"><VProgressCircular indeterminate size="32" /></div>
+                    <div v-else-if="item.code === 'SKIPPED'" class="cell__skipped">
+                      <VIcon icon="tabler-circle-check" size="40" class="cell__skipped-icon" />
+                      <div class="cell__error-sn">{{ item.sn }}</div>
+                      <div class="cell__error-msg">{{ item.message }}</div>
+                    </div>
                     <div v-else class="cell__error">
                       <VIcon :icon="statusIcon(item.code)" size="40" class="cell__error-icon" />
                       <div class="cell__error-sn">{{ item.sn }}</div>
@@ -421,5 +477,26 @@ const handleQueryByDate = async () => {
   max-inline-size: 90%;
   word-break: break-word;
   color: #ffd1c1;
+}
+
+// 已預產略過遮罩:中性綠底,與錯誤(紅)區隔 —— 共用 .cell__error-sn / -msg 的排版
+.cell__skipped {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  text-align: center;
+  background: rgba(46, 80, 60, 0.72);
+  color: #fff;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.cell__skipped-icon {
+  color: #81c784;
+  margin-block-end: 2px;
 }
 </style>

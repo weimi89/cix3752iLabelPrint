@@ -12,11 +12,13 @@ import { navItems } from '@/config/navConfig'
 import { useSkins } from '@core/composable/useSkins'
 import { useStatusStore } from '@/stores/status'
 import { useParcelAlert } from '@/composables/useParcelAlert'
+import { useDeviceAlert } from '@/composables/useDeviceAlert'
 
 const { layoutAttrs } = useSkins()
 const configStore = useLayoutConfigStore()
 const status = useStatusStore()
 const parcelAlert = useParcelAlert()
+const deviceAlert = useDeviceAlert()
 const appVersion = ref('')
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -51,12 +53,19 @@ onMounted(async () => {
   } catch (e) {
     console.warn('listen parcel-alert 失敗', e)
   }
+  // 工控機設備異常(卡包裹 / USB 斷線 …)的雙語 TTS 廣播 + toast
+  try {
+    await deviceAlert.start()
+  } catch (e) {
+    console.warn('listen device-alert 失敗', e)
+  }
 })
 
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (unlistenPrintStats) unlistenPrintStats()
   parcelAlert.stop()
+  deviceAlert.stop()
 })
 </script>
 

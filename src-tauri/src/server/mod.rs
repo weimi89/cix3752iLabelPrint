@@ -13,9 +13,10 @@ use axum::{
     Router,
 };
 use parking_lot::{Mutex, RwLock};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
@@ -119,6 +120,18 @@ struct ServerState {
     watermark: WatermarkRenderer,
     bag_check: BagCheckState,
     app: tauri::AppHandle,
+    /// DirectPrint 模式有序列印佇列:get_parcel 把工作丟進來,由單一 worker 逐筆 FIFO 處理。
+    /// 保證列印順序 = 請求順序,且同時只有一筆在送印(不並發打 spooler)。
+    direct_print_tx: mpsc::UnboundedSender<DirectPrintJob>,
+}
+
+/// DirectPrint 一筆待列印工作(下載 + 浮水印 + 送本機印表機所需的最小資料)
+struct DirectPrintJob {
+    label_key: String,
+    image_url: String,
+    provider: String,
+    print_num: u32,
+    query_no: String,
 }
 
 pub struct ServerHandle {
@@ -152,6 +165,22 @@ pub async fn start(
         .map_err(|e| AppError::Server(format!("無法解析 listen 位址: {e}")))?;
 
     let log_db = db.clone();
+
+    // DirectPrint 有序列印 worker:單一 FIFO consumer,逐筆 await(下載→浮水印→列印)。
+    // 保證列印順序 = 請求入列順序(工控機一件件刷即一件件入列),且同一時間只送印一筆,
+    // 不並發打印表機 spooler(Windows GDI 對並發 stale-state 敏感)。
+    let (direct_print_tx, mut direct_print_rx) = mpsc::unbounded_channel::<DirectPrintJob>();
+    {
+        let cache = cache.clone();
+        let watermark = watermark.clone();
+        let db = db.clone();
+        tokio::spawn(async move {
+            while let Some(job) = direct_print_rx.recv().await {
+                run_direct_print_job(&cache, &watermark, &db, job).await;
+            }
+        });
+    }
+
     let state = ServerState {
         db,
         cloud,
@@ -162,6 +191,7 @@ pub async fn start(
         watermark,
         bag_check,
         app,
+        direct_print_tx,
     };
 
     let images_service = ServeDir::new(cache.base_dir());
@@ -170,6 +200,7 @@ pub async fn start(
         .route("/healthz", get(healthz))
         .route("/api/parcel/:query_no", get(get_parcel))
         .route("/api/report", post(post_report))
+        .route("/api/device-alert", post(post_device_alert))
         .nest_service("/images", images_service)
         .with_state(state)
         .layer(CorsLayer::permissive())
@@ -369,6 +400,147 @@ fn emit_parcel_alert(app: &tauri::AppHandle, kind: &str, message: &str, query_no
     }
 }
 
+/// 工控機回報「設備異常」(卡包裹 / USB 斷線 …)時的請求 body。
+/// `type` 為機器可讀分類碼(對應前端 i18n 文案 + 語音廣播);`message` 可選,
+/// 補充現場細節(如卡在哪個通道),會接在語音/toast 後面唸出。兩者皆可省略。
+#[derive(Deserialize)]
+struct DeviceAlertReq {
+    #[serde(rename = "type")]
+    alert_type: Option<String>,
+    message: Option<String>,
+    /// 廣播次數,可省略(預設 1);後端 clamp 到 1..=3
+    repeat: Option<u32>,
+}
+
+/// 工控機設備異常推給前端的提示。前端 useDeviceAlert 依 `alert_type` 取雙語文案,
+/// 播 `repeat` 次廣播提示現場人員,並顯示 toast。
+#[derive(Serialize, Clone)]
+struct DeviceAlert {
+    alert_type: String,
+    message: String,
+    repeat: u32,
+}
+
+/// emit `device-alert` 給前端;失敗只記 warn,不影響回應工控機
+fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str, repeat: u32) {
+    use tauri::Emitter;
+    let payload = DeviceAlert {
+        alert_type: alert_type.to_string(),
+        message: message.to_string(),
+        repeat,
+    };
+    if let Err(e) = app.emit("device-alert", payload) {
+        tracing::warn!(?e, "emit device-alert 失敗");
+    }
+}
+
+/// DirectPrint 模式:把一筆面單排入有序列印佇列(不阻塞工控機回應)。
+/// 此模式下工控機拿到的回應不含 `label_path`(由中介機列印),圖檔處理全在背景 worker 進行;
+/// 入列即代表確定要印,單一 worker 會照入列順序逐筆下載+列印,保證列印順序 = 請求順序。
+fn enqueue_direct_print(
+    state: &ServerState,
+    label_key: String,
+    image_url: String,
+    provider: String,
+    print_num: u32,
+    query_no: String,
+) {
+    let job = DirectPrintJob {
+        label_key,
+        image_url,
+        provider,
+        print_num,
+        query_no,
+    };
+    if let Err(e) = state.direct_print_tx.send(job) {
+        tracing::warn!(?e, "direct_print 列印佇列已關閉,無法排入");
+    }
+}
+
+/// DirectPrint worker 逐筆執行的單元:下載面單 → 套列印次數浮水印 → 送本機印表機。
+/// **整個 await 到列印送出才回傳**,讓 worker 在處理下一筆前確保本筆已送印,保證順序且不並發打 spooler。
+async fn run_direct_print_job(
+    cache: &CacheManager,
+    watermark: &WatermarkRenderer,
+    db: &DbPool,
+    job: DirectPrintJob,
+) {
+    let DirectPrintJob {
+        label_key,
+        image_url,
+        provider,
+        print_num,
+        query_no,
+    } = job;
+    let cache_base = cache.base_dir();
+
+    // 1. 確保原圖已在本地快取
+    let original_ok = if cache.has_local(&label_key) {
+        let _ = cache.record_hit(&label_key).await;
+        true
+    } else {
+        let _ = cache.record_miss().await;
+        match cache.fetch_now(&label_key, &image_url).await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(label_key = %label_key, ?e, "direct_print 背景下載快取失敗");
+                false
+            }
+        }
+    };
+    if !original_ok {
+        return;
+    }
+
+    // 2. 列印次數浮水印(print_num > 1);失敗 fallback 回原圖
+    let effective_key = if print_num > 1 {
+        let repeat_key = derive_repeat_key(&label_key, &provider);
+        let src = cache.local_path_for_key(&label_key);
+        let dst = cache_base.join(&repeat_key);
+        match watermark.apply(&src, &dst, print_num, &provider) {
+            Ok(()) => repeat_key,
+            Err(e) => {
+                tracing::warn!(label_key = %label_key, print_num, %e, "direct_print 浮水印生成失敗,回原圖");
+                label_key.clone()
+            }
+        }
+    } else {
+        label_key.clone()
+    };
+
+    // 3. 查 dispatch_provider.printer_name → 讀圖 → 送印
+    let printer_name: Option<String> = sqlx::query(
+        "SELECT printer_name FROM dispatch_provider WHERE code = ?",
+    )
+    .bind(&provider)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten());
+
+    let Some(pname) = printer_name else {
+        tracing::warn!(shipping_provider = %provider, "direct_print 模式但物流商未設定印表機");
+        return;
+    };
+
+    let img_path = cache_base.join(&effective_key);
+    let bytes = match tokio::fs::read(&img_path).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(?e, "讀取面單圖失敗，無法列印");
+            return;
+        }
+    };
+    // await 此筆送印完成,才讓 worker 取下一筆 → 嚴格順序 + 不並發打 spooler
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Err(e) = crate::printer::print_image_bytes(&pname, &bytes) {
+            tracing::warn!(?e, query_no = %query_no, "直接列印失敗");
+        }
+    })
+    .await;
+}
+
 /// GET /api/parcel/:query_no — 工控機呼叫
 async fn get_parcel(
     State(state): State<ServerState>,
@@ -384,85 +556,71 @@ async fn get_parcel(
             let label_key = derive_label_key(&info.shipping_image);
             let cache_base = state.cache.base_dir();
 
-            let t_label = std::time::Instant::now();
-            // 第一階段:確保原圖已在本地快取
-            let original_ok = if state.cache.has_local(&label_key) {
-                let _ = state.cache.record_hit(&label_key).await;
-                true
-            } else {
-                let _ = state.cache.record_miss().await;
-                match state.cache.fetch_now(&label_key, &info.shipping_image).await {
-                    Ok(()) => true,
-                    Err(e) => {
-                        tracing::warn!(label_key = %label_key, ?e, "同步下載快取失敗");
-                        false
-                    }
-                }
-            };
-
-            // 第二階段:若 print_num > 1,套用列印次數浮水印(對齊雲端 OrderPrintController)
-            // 浮水印失敗(字型缺、寫檔失敗等)時 fallback 回原圖,不阻斷正常出單流程
             let print_num = info.print_num.unwrap_or(0);
-            let effective_key = if original_ok && print_num > 1 {
-                let repeat_key = derive_repeat_key(&label_key, &info.shipping_provider);
-                let src = state.cache.local_path_for_key(&label_key);
-                let dst = cache_base.join(&repeat_key);
-                match state.watermark.apply(&src, &dst, print_num, &info.shipping_provider) {
-                    Ok(()) => repeat_key,
-                    Err(e) => {
-                        tracing::warn!(label_key = %label_key, print_num, %e, "浮水印生成失敗,回原圖");
-                        label_key.clone()
-                    }
-                }
-            } else {
-                label_key.clone()
-            };
-            let label_ms = t_label.elapsed().as_millis() as i64;
 
-            // 第三階段:依 label_path.mode 處理路徑或直接列印
-            let label_path = if original_ok {
-                let local_abs = cache_base.join(&effective_key);
+            // DirectPrint 模式:工控機拿到 label_path=null(由中介機列印),不需要圖檔本身 ──
+            // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
+            // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
+            let (label_path, label_ms) =
                 if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
-                    // direct_print 模式:查 dispatch_provider.printer_name，背景列印，不回路徑
-                    let printer_name: Option<String> = sqlx::query(
-                        "SELECT printer_name FROM dispatch_provider WHERE code = ?",
-                    )
-                    .bind(&info.shipping_provider)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten());
-                    if let Some(pname) = printer_name {
-                        let img_path = local_abs;
-                        tokio::task::spawn_blocking(move || {
-                            match std::fs::read(&img_path) {
-                                Ok(bytes) => {
-                                    if let Err(e) = crate::printer::print_image_bytes(&pname, &bytes) {
-                                        tracing::warn!(?e, "直接列印失敗");
-                                    }
-                                }
-                                Err(e) => tracing::warn!(?e, "讀取面單圖失敗，無法列印"),
-                            }
-                        });
-                    } else {
-                        tracing::warn!(
-                            shipping_provider = %info.shipping_provider,
-                            "direct_print 模式但物流商未設定印表機"
-                        );
-                    }
-                    None
+                    enqueue_direct_print(
+                        &state,
+                        label_key.clone(),
+                        info.shipping_image.clone(),
+                        info.shipping_provider.clone(),
+                        print_num,
+                        query_no.clone(),
+                    );
+                    (None, 0i64)
                 } else {
-                    Some(state.label_resolver.resolve(
-                        &local_abs,
-                        &cache_base,
-                        &effective_key,
-                        Some(host.as_str()),
-                    ))
-                }
-            } else {
-                None
-            };
+                    let t_label = std::time::Instant::now();
+                    // 第一階段:確保原圖已在本地快取(工控機要讀,同步下載到完成)
+                    let original_ok = if state.cache.has_local(&label_key) {
+                        let _ = state.cache.record_hit(&label_key).await;
+                        true
+                    } else {
+                        let _ = state.cache.record_miss().await;
+                        match state.cache.fetch_now(&label_key, &info.shipping_image).await {
+                            Ok(()) => true,
+                            Err(e) => {
+                                tracing::warn!(label_key = %label_key, ?e, "同步下載快取失敗");
+                                false
+                            }
+                        }
+                    };
+
+                    // 第二階段:若 print_num > 1,套用列印次數浮水印(對齊雲端 OrderPrintController)
+                    // 浮水印失敗(字型缺、寫檔失敗等)時 fallback 回原圖,不阻斷正常出單流程
+                    let effective_key = if original_ok && print_num > 1 {
+                        let repeat_key = derive_repeat_key(&label_key, &info.shipping_provider);
+                        let src = state.cache.local_path_for_key(&label_key);
+                        let dst = cache_base.join(&repeat_key);
+                        match state.watermark.apply(&src, &dst, print_num, &info.shipping_provider) {
+                            Ok(()) => repeat_key,
+                            Err(e) => {
+                                tracing::warn!(label_key = %label_key, print_num, %e, "浮水印生成失敗,回原圖");
+                                label_key.clone()
+                            }
+                        }
+                    } else {
+                        label_key.clone()
+                    };
+                    let label_ms = t_label.elapsed().as_millis() as i64;
+
+                    // 第三階段:依面單路徑模式 resolve 成工控機可存取的路徑/URL
+                    let label_path = if original_ok {
+                        let local_abs = cache_base.join(&effective_key);
+                        Some(state.label_resolver.resolve(
+                            &local_abs,
+                            &cache_base,
+                            &effective_key,
+                            Some(host.as_str()),
+                        ))
+                    } else {
+                        None
+                    };
+                    (label_path, label_ms)
+                };
 
             // 依雲端回的物流商代碼 (shipping_provider) 查所有對應分揀通道
             // 同物流商可能配多個通道,用 round-robin 輪流分配
@@ -794,6 +952,44 @@ async fn post_report(
 
     event_log::log_bg(state.db.clone(), "info", "server", "收到回報",
         format!("工控機回報已排隊 tracking_no={tracking_no}"));
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "message": "OK" })),
+    )
+}
+
+/// POST /api/device-alert — 工控機回報設備異常(卡包裹 / USB 斷線 …)
+///
+/// 設計原則同 POST /api/report:**不讓工控機等** — 立即回 200,語音廣播由前端背景處理。
+/// 工控機只負責「喊一聲」,不需要等廣播放完;前端收到 `device-alert` 事件後用 TTS
+/// 雙語(中文 + 越南語)重複廣播 N 次提示現場人員,並顯示 toast。
+async fn post_device_alert(
+    State(state): State<ServerState>,
+    Json(req): Json<DeviceAlertReq>,
+) -> impl IntoResponse {
+    // type 統一正規化成大寫(工控機傳大小寫皆可,canonical 一律大寫,對齊雲端機器碼風格)。
+    // 省略或空字串 → 落入通用 "ERROR";不限制集合,前端 i18n 找不到對應碼會 fallback。
+    let alert_type = req
+        .alert_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_uppercase())
+        .unwrap_or_else(|| "ERROR".to_string());
+    let message = req.message.unwrap_or_default();
+    // 廣播次數:省略 → 1;clamp 到 1..=3(上限 3,避免工控機誤帶大數造成連續廣播洗版)
+    let repeat = req.repeat.unwrap_or(1).clamp(1, 3);
+
+    // 立刻推給前端廣播(emit 失敗只 warn,不影響回應工控機)
+    emit_device_alert(&state.app, &alert_type, &message, repeat);
+
+    let detail = if message.trim().is_empty() {
+        format!("工控機設備異常 type={alert_type} repeat={repeat}")
+    } else {
+        format!("工控機設備異常 type={alert_type} repeat={repeat} message={message}")
+    };
+    event_log::log_bg(state.db.clone(), "warn", "server", "設備異常", detail);
 
     (
         StatusCode::OK,

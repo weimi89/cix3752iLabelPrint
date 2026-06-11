@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **智配通 面單列印** 是一個跨平台 Tauri v2 桌面 App,定位為「分揀工控機 ↔ 雲端 API」之間的本地中介服務。三個世界共存於同一進程:
 
-- **本地 HTTP server**(axum, 預設 `0.0.0.0:18080`)— 工控機 PLC 透過 HTTP 呼叫,三支 endpoint:`/healthz`、`GET /api/parcel/{queryNo}`、`POST /api/report`
+- **本地 HTTP server**(axum, 預設 `0.0.0.0:18080`)— 工控機 PLC 透過 HTTP 呼叫,四支 endpoint:`/healthz`、`GET /api/parcel/{queryNo}`、`POST /api/report`、`POST /api/device-alert`(設備異常語音廣播)
 - **雲端 API client**(reqwest + Bearer Token)— 對外打雲端 Laravel API,Token 存 OS keyring
 - **桌面 GUI**(Vue 3 / Vuetify)— 操作員 UI,透過 Tauri command 跟 Rust 後端 IPC
 
@@ -86,6 +86,8 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 2. **Server Push (事件)** — Rust `app.emit('event-name', payload)` → 前端 `listen('event-name', cb)`。目前事件:
    - `print-stats-updated`(三個寫入點 emit,前端 `DefaultLayout` listen,Navbar chip + 儀表板毫秒級同步)
    - `network-status`(`HealthChecker` worker 每輪檢查結束 emit)
+   - `parcel-alert`(`GET /api/parcel` 失敗時 emit,前端 `useParcelAlert` 依雲端 code 播提示音 + toast)
+   - `device-alert`(`POST /api/device-alert` 收到設備異常時 emit,前端 `useDeviceAlert` 播中越雙語語音 + toast)
 
 **「不夠即時就 WebSocket」是錯方向** — 桌面 App 後端與前端在同一進程,Tauri IPC event 走進程內通道、毫秒級、不用 socket server。WebSocket 適合「跨網路、跨機器」,在這裡反而繞遠路。
 
@@ -122,6 +124,18 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 ### 列印次數浮水印
 
 雲端回傳 `print_num > 1` 時,自動在面單右上角(順豐右下角)疊加 `(N)`。字型 **DejaVu Sans Bold**(OFL) 透過 `include_bytes!` 編譯期內嵌進 binary,**無須額外部署字型檔**。實作:`src-tauri/src/watermark.rs`。
+
+### 設備異常雙語語音廣播(`POST /api/device-alert`)
+
+工控機回報設備異常(卡包裹 / USB 斷線 / 掃描器 / 印表機故障)時,後端 `server/mod.rs` 的 `post_device_alert` **立即回 200**(不讓工控機等),emit `device-alert` 事件 `{ alert_type, message, repeat }`,前端 `useDeviceAlert` 廣播。設計細節:
+
+- **預錄音檔,非即時 TTS** — 內建 5 種分類碼(`PARCEL_JAM` / `USB_DISCONNECT` / `SCANNER_ERROR` / `PRINTER_ERROR` / `ERROR`)的中越雙語語音**預先錄製**內嵌於 `public/sounds/alert/{type小寫}-zh.mp3` / `-vi.mp3`(中文 `HsiaoChen`、越南語 `HoaiMy` neural,以 edge-tts 產生)。**主因:Windows 工控機預設無越南語語音包**,即時 TTS 唸不出越南語且音色不可控;預錄內嵌 → 每台音色一致、離線可用、越南語免裝語音包。
+- **未知 type 才退回 TTS** — 工控機傳未錄音的自訂 `type` 時,`useDeviceAlert` 退回 `useSpeech`(瀏覽器 `speechSynthesis`),此時越南語仍需機器自備語音包。
+- **`type` 大寫正規化** — 後端 `to_uppercase()`,工控機傳大小寫皆可,canonical 一律大寫(對齊雲端機器碼風格)。
+- **`repeat` 次數控制** — 預設 1,後端 `clamp(1, 3)` 上限 3。
+- **`message` 只進 toast** — 自訂補充字無法即時合成語音,僅顯示於 toast。
+- 新增固定分類:在 `public/sounds/alert/` 補對應 mp3 + i18n `deviceAlert.{TYPE}`(zh-Hant / vi-VN)+ `useDeviceAlert` 的 `PRERECORDED` set,工控機端不需改。重產音檔用 edge-tts(venv 安裝)。
+- 廠商整合文件:`docs/device-alert-api.md`(+ `.docx`)。
 
 ### 認證 Token 儲存
 
