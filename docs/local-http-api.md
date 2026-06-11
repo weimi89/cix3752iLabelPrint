@@ -157,7 +157,7 @@ Host: <middleware-ip>:18080
 | `channel_code` | string \| null | 是 | 分揀通道代碼（本地 `sort_channels`，用雲端 `shipping_provider` 查 `dispatch_code` 後依 round-robin 取一個）。無對應通道時為 `null` |
 | `print_profile` | string \| null | 是 | 對應本機印表機設定（本地 `dispatch_provider.print_profile`，用 `shipping_provider` 查）。無對應設定時為 `null` |
 | `label_path` | string（可省略） | 省略 | 面單存取路徑;格式由「面單路徑回傳模式」設定決定(見下)。**`direct_print` 模式、或同步下載失敗時,整個欄位不回傳**(不是 `null`,是 JSON 裡根本沒有這個 key);工控機應判斷「欄位是否存在」而非「是否為 null」 |
-| `response_id` | integer \| null | 是 | 雲端列印記錄 ID，工控機需於 `POST /api/report` 帶回以利配對；雲端 debug 模式時為 `null` |
+| `response_id` | integer \| null | 是 | 列印記錄 ID，工控機需於 `POST /api/report` 帶回以利配對。正常面單為雲端產生的正數；錯誤面單為 Middleware 本地產生的**負數**；雲端 debug 模式或記錄寫入失敗時為 `null`（此時不要回報） |
 | `is_error_label` | boolean | 否 | **錯誤面單旗標**。正常面單時省略(視為 `false`);為 `true` 時代表這是一張「錯誤提示面單」(見下節) |
 | `error_code` | string | 否 | 僅錯誤面單出現:機器可讀代碼(`STORE_CLOSED` / `NOT_FOUND` / …) |
 | `message` | string | 否 | 僅錯誤面單出現:人類可讀的雲端原始錯誤敘述 |
@@ -172,7 +172,7 @@ Host: <middleware-ip>:18080
     "channel_code": "C03",
     "print_profile": "100x100",
     "label_path": "http://10.0.0.5:18080/images/@error/SF0220862051573_STORE_CLOSED.png",
-    "response_id": null,
+    "response_id": -1,
     "is_error_label": true,
     "error_code": "STORE_CLOSED",
     "message": "無法列印，訂單門市關轉"
@@ -183,12 +183,12 @@ Host: <middleware-ip>:18080
 **工控機處理規則**：
 
 1. 看到 `is_error_label: true` 時，把 `label_path` **當成一般面單印出**（讓現場人員憑這張圖把異常包裹撿出處理）。`label_path` 的格式同樣依面單路徑模式（`local` / `share` / `http`）決定。
-2. 錯誤面單**沒有 `response_id`（為 `null`）**，工控機**不要** `POST /api/report`（無回報對象）。
+2. 錯誤面單的 `response_id` 為 Middleware 本地產生的**負數** ID（與雲端正數 ID 區隔），工控機**照正常流程 `POST /api/report` 回報即可**——Middleware 對負數 ID 只記錄本機、不推雲端，回應同樣是 200。**工控機端不需要為錯誤面單做任何特殊處理，整條流程（查詢 → 分揀 → 列印 → 回報）與正常面單完全相同**。僅在 `response_id` 為 `null`（中介端記錄寫入失敗的罕見退化）時不要回報。
 3. **雲端查得到訂單的業務錯誤**（`STORE_CLOSED` / `UNCONFIRMED` / `STATUS_ABNORMAL` / `NOT_PROXY` / `NOT_FORWARD` / `LABEL_FAILED`）會帶出 `shipping_provider`，Middleware 照**正常面單的同一套流程**解析 `channel_code`（指派通道 round-robin，未指派時退回「未指派通道代碼」）與 `print_profile`——工控機把包裹分揀進該通道並列印錯誤面單即可，處理方式與正常面單一致。
 4. **查無訂單**（`NOT_FOUND` 等雲端無法判斷物流商的錯誤）時，`channel_code` 統一退回設定頁的「未指派通道代碼」（`print_profile` 為 `null`）。亦即只要 Middleware 設定頁有設未指派通道，**所有錯誤面單都保證有 `channel_code`**；僅在該設定留空時才會是 `null`，此時工控機依自身邏輯處理（建議走異常/未指派格口）。
 5. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印（優先使用該物流商在「指派物流」頁設定的印表機，無法判斷物流商時退回任一已設定印表機或系統預設），**不回傳 `label_path` 欄位**（與正常面單一致）。
 
-> *[設計演進]* 舊版實作對雲端業務錯誤一律回 `502 Bad Gateway`，導致 `http` / `local` / `share` 模式下錯誤面單無法送達工控機（錯誤面單僅在 `direct_print` 模式有效）。v0.5.4 改為取向 A：錯誤面單與正常面單走同一條 `label_path` 出口，所有模式皆可印出。v0.5.6 起錯誤回應進一步帶出 `channel_code` / `print_profile`（雲端錯誤 body 含 `shipping_provider` 時），讓分揀機能照正常流程分揀並列印錯誤面單。
+> *[設計演進]* 舊版實作對雲端業務錯誤一律回 `502 Bad Gateway`，導致 `http` / `local` / `share` 模式下錯誤面單無法送達工控機（錯誤面單僅在 `direct_print` 模式有效）。v0.5.4 改為取向 A：錯誤面單與正常面單走同一條 `label_path` 出口，所有模式皆可印出。v0.5.6 起錯誤回應進一步帶出 `channel_code` / `print_profile`（雲端錯誤 body 含 `shipping_provider` 時，查不到物流商則統一退回未指派通道代碼）與本地負數 `response_id`（錯誤查詢同步寫入查詢記錄，回報可正常配對、不推雲端），讓分揀機把錯誤面單當一般面單跑完整流程，工控機端零特殊處理。
 
 **仍回錯誤碼的情況**
 

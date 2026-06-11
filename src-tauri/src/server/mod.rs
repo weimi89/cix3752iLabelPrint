@@ -833,6 +833,7 @@ async fn get_parcel(
             ))
         }
         Err(e) => {
+            let cloud_ms = t_start.elapsed().as_millis() as i64;
             let _ = sqlx::query(
                 "INSERT INTO daily_stats (date, request_count)
                  VALUES (date('now'), 1)
@@ -869,12 +870,15 @@ async fn get_parcel(
             //   local/share/http : 寫入 cache 後回 label_path,讓工控機如同一般面單自行列印
             // 這樣 http 模式(工控機跨機、本機無印表機)也能在分揀線印出錯誤面單,
             // 不再只有 direct_print 模式能用。
+            let t_label = std::time::Instant::now();
             let label_bytes = crate::error_label::generate(
                 &query_no,
                 &err_code,
                 crate::error_label::LabelHeight::H100mm,
             );
-            let label_path = if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+            let (label_path, err_label_key) = if state.label_resolver.current_mode()
+                == LabelPathMode::DirectPrint
+            {
                 spawn_print_error_label_bytes(
                     state.db.clone(),
                     state.app.clone(),
@@ -882,7 +886,7 @@ async fn get_parcel(
                     label_bytes,
                     err_provider.clone(),
                 );
-                None
+                (None, None)
             } else {
                 let cache_base = state.cache.base_dir();
                 match write_error_label_to_cache(&cache_base, &query_no, &err_code, &label_bytes)
@@ -890,12 +894,13 @@ async fn get_parcel(
                 {
                     Some(key) => {
                         let local_abs = cache_base.join(&key);
-                        Some(state.label_resolver.resolve(
+                        let resolved = state.label_resolver.resolve(
                             &local_abs,
                             &cache_base,
                             &key,
                             Some(host.as_str()),
-                        ))
+                        );
+                        (Some(resolved), Some(key))
                     }
                     None => {
                         // 寫檔失敗 → 退回舊行為:本機嘗試列印 + 回 502,不讓工控機誤以為有面單
@@ -911,12 +916,48 @@ async fn get_parcel(
                     }
                 }
             };
+            let label_ms = t_label.elapsed().as_millis() as i64;
+
+            // 錯誤面單也寫入查詢記錄:response_id 用本地負數遞減(與雲端正數 ID 區隔),
+            // 工控機照正常流程 POST /api/report 才反查得到(負數回報只記錄、不推雲端 webhook);
+            // 查詢記錄頁同時也看得到錯誤查詢,不再是診斷盲區。
+            // 寫入失敗時退回 response_id=null(工控機不回報,同 v0.5.5 行為),不影響出單
+            let total_ms = t_start.elapsed().as_millis() as i64;
+            let response_id: Option<i64> = match sqlx::query_scalar::<_, i64>(
+                "INSERT INTO parcel_query_log
+                   (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, created_at, cloud_ms, label_ms, total_ms)
+                 VALUES (
+                   (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
+                   ?, '', ?, ?, ?, 1, ?, datetime('now','localtime'), ?, ?, ?)
+                 RETURNING response_id",
+            )
+            .bind(&query_no)
+            .bind(&err_provider)
+            .bind(&channel_code)
+            .bind(&print_profile)
+            .bind(&err_label_key)
+            .bind(cloud_ms)
+            .bind(label_ms)
+            .bind(total_ms)
+            .fetch_one(&state.db)
+            .await
+            {
+                Ok(rid) => {
+                    use tauri::Emitter;
+                    let _ = state.app.emit("parcel-query-logged", ());
+                    Some(rid)
+                }
+                Err(e) => {
+                    tracing::warn!(?e, query_no = %query_no, "錯誤面單查詢記錄寫入失敗");
+                    None
+                }
+            };
 
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
                 label_path,
-                response_id: None,
+                response_id,
                 is_error_label: true,
                 error_code: Some(err_code),
                 message: Some(msg),
@@ -927,13 +968,15 @@ async fn get_parcel(
 
 /// POST /api/report — 工控機回報
 /// 驗 response_id 存在於 parcel_query_log,通過後寫入本機 queue (status=pending);
-/// 背景 worker 會推送 logistic-cat webhook + 追蹤 status/retry/last_error
+/// 背景 worker 會推送 logistic-cat webhook + 追蹤 status/retry/last_error。
+/// 負數 response_id = 錯誤面單(本地產生,雲端無對應列印記錄):驗證通過後只記錄、不推 webhook,
+/// 讓工控機對正常/錯誤面單走完全相同的回報流程。
 async fn post_report(
     State(state): State<ServerState>,
     Json(req): Json<ReportPayload>,
 ) -> impl IntoResponse {
     let row = match sqlx::query(
-        "SELECT tracking_no, sort_channel FROM parcel_query_log WHERE response_id = ?",
+        "SELECT query_no, tracking_no, sort_channel FROM parcel_query_log WHERE response_id = ?",
     )
     .bind(req.response_id)
     .fetch_optional(&state.db)
@@ -971,6 +1014,17 @@ async fn post_report(
 
     let tracking_no: String = row.try_get("tracking_no").unwrap_or_default();
     let channel_code: Option<String> = row.try_get("sort_channel").ok();
+
+    // 錯誤面單回報:雲端沒有對應列印記錄,推 webhook 只會失敗重試 → 只記事件即回 200
+    if req.response_id < 0 {
+        let query_no: String = row.try_get("query_no").unwrap_or_default();
+        event_log::log_bg(state.db.clone(), "info", "server", "收到回報",
+            format!("工控機回報錯誤面單已處理 query_no={query_no} (本地記錄,不推雲端)"));
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "message": "OK" })),
+        );
+    }
 
     // 用 channel_code 反查通道設定上的貼標人員
     let job_sticker: Option<String> = if let Some(code) = channel_code.as_deref() {

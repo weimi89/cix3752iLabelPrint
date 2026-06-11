@@ -9,8 +9,10 @@
 - 錯誤面單回應 `channel_code` 一律為 `null`，分揀機無格口可分揀導致不列印：現改為照**正常面單同一套流程**解析分揀通道——雲端錯誤帶出 `shipping_provider` 時（門市關轉 / 未確認 / 狀態異常 / 非代寄 / 非轉寄 / 出單失敗），走指派通道 round-robin 與 `print_profile` 查詢；查不到物流商時（查無訂單 / 雲端連線失敗）統一退回「未指派通道代碼」。只要設定頁有設未指派通道，**所有錯誤面單都保證有 `channel_code`**。
 - `direct_print` 模式錯誤面單印表機選擇：可判斷物流商時優先用該物流商在「指派物流」頁設定的印表機（原為無序取任一台已設定印表機，可能印到別站）。
 
+- 錯誤面單回報 `POST /api/report` 會失敗：錯誤查詢先前不寫入查詢記錄且 `response_id` 為 `null`，工控機照正常流程回報時反查不到記錄而收到 422。現錯誤查詢**同步寫入查詢記錄**（`response_id` 用本地負數，與雲端正數 ID 區隔），回報可正常配對回 200（只記錄本機、不推雲端 webhook）；「查詢記錄」頁同時也看得到錯誤查詢（含耗時欄位），不再是診斷盲區。
+
 ### 工控機整合注意
-- 錯誤面單（`is_error_label: true`）回應的 `channel_code` / `print_profile` **不再一律為 `null`**：工控機把錯誤包裹分揀進 `channel_code` 通道並列印 `label_path` 即可，處理方式與正常面單一致（仍無 `response_id`、不需 `POST /api/report`）。詳見 `docs/local-http-api.md`。
+- 錯誤面單（`is_error_label: true`）回應的 `channel_code` / `print_profile` **不再一律為 `null`**，且帶**負數 `response_id`**：工控機把錯誤包裹當一般面單跑完整流程（分揀進 `channel_code` 通道 → 列印 `label_path` → `POST /api/report` 回報）即可，**端上零特殊處理**。詳見 `docs/local-http-api.md`。
 - 雲端 API（cix3752iWeb）需同步部署：`OrderPrintController::failResp` 在查得到訂單的業務錯誤帶出 `shipping_provider`。雲端未部署時，所有錯誤面單退回未指派通道代碼（不影響運作，但無法分到物流商對應通道）。
 
 ## v0.5.5
