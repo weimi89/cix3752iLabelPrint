@@ -3,6 +3,17 @@
 本檔記錄各版本的修改與調整內容,標題版本號對應 GitHub Release tag。
 `release.yml` 會依 tag 自動抽取對應段落,寫進 Release 說明與 `latest.json`(in-app 更新提示)。
 
+## v0.5.7
+
+### 修正
+- 「請求記錄」頁輸入關鍵字必出現 `資料庫錯誤: (code: 20) datatype mismatch`：SQL 以 `?1` 編號參數混用匿名 `?`（LIMIT/OFFSET），sqlx 位置綁定與 SQLite 參數編號規則對不上，LIKE 字串被綁進 LIMIT。改為全匿名 `?` 重複綁定，並新增回歸測試（`src-tauri/tests/parcel_query_log_keyword.rs`）防再犯。
+
+### 新增
+- 「請求記錄」進階查詢新增**耗時篩選**：可選欄位（任一 / 雲端 / 圖案 / 總花）搭配毫秒門檻，列出超過執行時間的查詢，便於定位慢請求；可與關鍵字疊加。
+
+### 調整
+- 錯誤面單版面：移除整張外框線；新增列印日期 `MM/DD`（非粗體，位於分隔線與圖示之間置中，DejaVu Sans Regular 編譯期內嵌、無須部署字型檔）；`UNCONFIRMED` 問號圖示上移對齊視覺中心。
+
 ## v0.5.6
 
 ### 修正

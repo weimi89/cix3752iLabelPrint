@@ -9,10 +9,19 @@ const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const searchKeyword = ref('')
+const msField = ref(null)
+const minMs = ref(null)
 const items = ref([])
 const total = ref(0)
 const loading = ref(false)
 const errorMsg = ref('')
+
+const MS_FIELDS = computed(() => [
+  { title: t('page.parcelQueryLog.msFieldAny'), value: null },
+  { title: t('page.parcelQueryLog.col.cloudMs'), value: 'cloud' },
+  { title: t('page.parcelQueryLog.col.labelMs'), value: 'label' },
+  { title: t('page.parcelQueryLog.col.totalMs'), value: 'total' },
+])
 
 const page = ref(1)
 const pageSize = ref(25)
@@ -21,7 +30,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.v
 
 const searchOpen = ref(0)
 
-const resetSearch = () => { searchKeyword.value = '' }
+const resetSearch = () => { searchKeyword.value = ''; msField.value = null; minMs.value = null }
 
 const load = async () => {
   loading.value = true
@@ -29,6 +38,8 @@ const load = async () => {
   try {
     const resp = await parcelQueryLogList({
       keyword: searchKeyword.value || null,
+      msField: msField.value,
+      minMs: Number(minMs.value) > 0 ? Number(minMs.value) : null,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
     })
@@ -41,7 +52,7 @@ const load = async () => {
   }
 }
 
-watch(searchKeyword, () => { page.value = 1 })
+watch([searchKeyword, msField, minMs], () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _unlisten = null
@@ -94,7 +105,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
         <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
-            <VCol cols="12" class="px-2 py-1">
+            <VCol cols="12" md="6" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.parcelQueryLog.keyword') }}</label>
                 <VTextField
@@ -103,6 +114,34 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
                   density="compact"
                   hide-details
                   variant="outlined"
+                  @keyup.enter="load"
+                />
+              </div>
+            </VCol>
+            <VCol cols="6" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.parcelQueryLog.msField') }}</label>
+                <VSelect
+                  v-model="msField"
+                  :items="MS_FIELDS"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                />
+              </div>
+            </VCol>
+            <VCol cols="6" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.parcelQueryLog.minMs') }}</label>
+                <VNumberInput
+                  v-model="minMs"
+                  :min="0"
+                  :step="100"
+                  :placeholder="$t('page.parcelQueryLog.minMsPlaceholder')"
+                  density="compact"
+                  hide-details
+                  variant="outlined"
+                  control-variant="stacked"
                   @keyup.enter="load"
                 />
               </div>

@@ -219,7 +219,7 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   label_key: `HCT/20260513/${(700000 + i).toString(16)}.png`,
   created_at: `2026-05-18T${10 - Math.floor(i / 12)}:${String(60 - i).padStart(2, '0')}:00`,
 }))
-export const parcelQueryLogList = async ({ keyword = null, limit = 25, offset = 0 } = {}) => {
+export const parcelQueryLogList = async ({ keyword = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {
     const kw = (keyword || '').toLowerCase()
     let list = MOCK_PARCEL_QUERY_LOG
@@ -230,9 +230,17 @@ export const parcelQueryLogList = async ({ keyword = null, limit = 25, offset = 
         (r.label_key || '').toLowerCase().includes(kw)
       )
     }
+    if (minMs > 0) {
+      list = list.filter(r => {
+        if (msField === 'cloud') return (r.cloud_ms ?? 0) >= minMs
+        if (msField === 'label') return (r.label_ms ?? 0) >= minMs
+        if (msField === 'total') return (r.total_ms ?? 0) >= minMs
+        return (r.cloud_ms ?? 0) >= minMs || (r.label_ms ?? 0) >= minMs || (r.total_ms ?? 0) >= minMs
+      })
+    }
     return { items: list.slice(offset, offset + limit), total: list.length }
   }
-  return await invoke('parcel_query_log_list', { req: { keyword, limit, offset } })
+  return await invoke('parcel_query_log_list', { req: { keyword, ms_field: msField, min_ms: minMs, limit, offset } })
 }
 
 // 網路健康偵測

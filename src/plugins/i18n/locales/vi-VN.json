@@ -393,6 +393,10 @@
       "subtitle": "Lịch sử máy công nghiệp gọi GET /api/parcel",
       "keyword": "Từ khoá",
       "keywordPlaceholder": "Mã truy vấn / mã vận đơn / label_key",
+      "msField": "Trường thời gian",
+      "msFieldAny": "Bất kỳ trường nào",
+      "minMs": "Vượt quá (ms)",
+      "minMsPlaceholder": "VD: 500",
       "col": {
         "createdAt": "Thời gian",
         "queryNo": "Mã truy vấn",

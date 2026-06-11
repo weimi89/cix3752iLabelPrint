@@ -32,8 +32,10 @@ const WH: Rgba<u8>   = Rgba([255u8, 255, 255, 255]);
 const GRAY: Rgba<u8> = Rgba([160u8, 160, 160, 255]);
 
 const DEJAVU_BYTES: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Bold.ttf");
+const DEJAVU_REGULAR_BYTES: &[u8] = include_bytes!("../assets/fonts/DejaVuSans.ttf");
 
 static DEJAVU: OnceLock<FontVec> = OnceLock::new();
+static DEJAVU_REGULAR: OnceLock<FontVec> = OnceLock::new();
 static CJK: OnceLock<Option<FontVec>> = OnceLock::new();
 
 // ── 字型載入 ────────────────────────────────────────────────────────────────
@@ -42,6 +44,14 @@ fn dejavu() -> &'static FontVec {
     DEJAVU.get_or_init(|| {
         FontVec::try_from_vec(DEJAVU_BYTES.to_vec())
             .expect("DejaVu 字型解析失敗")
+    })
+}
+
+/// 非粗體 DejaVu(列印日期用)
+fn dejavu_regular() -> &'static FontVec {
+    DEJAVU_REGULAR.get_or_init(|| {
+        FontVec::try_from_vec(DEJAVU_REGULAR_BYTES.to_vec())
+            .expect("DejaVu Regular 字型解析失敗")
     })
 }
 
@@ -196,7 +206,7 @@ fn icon_question(img: &mut RgbaImage, cx: i32, cy: i32, r: i32) {
     let scale = PxScale::from(r as f32 * 2.1);
     let (tw, th) = imageproc::drawing::text_size(scale, font, "?");
     let x = cx - tw as i32 / 2;
-    let y = cy - (th as f32 * 0.54) as i32;
+    let y = cy - (th as f32 * 0.72) as i32;
     imageproc::drawing::draw_text_mut(img, BK, x, y, scale, font, "?");
 }
 
@@ -362,12 +372,6 @@ pub fn generate(query_no: &str, error_code: &str, height: LabelHeight) -> Vec<u8
 
     let mut img = RgbaImage::from_pixel(W, h, WH);
 
-    // 外框（4px）
-    for i in 0..4u32 {
-        for x in 0..W { img.put_pixel(x, i, BK); img.put_pixel(x, h - 1 - i, BK); }
-        for y in 0..h { img.put_pixel(i, y, BK); img.put_pixel(W - 1 - i, y, BK); }
-    }
-
     // ── 條碼 ──
     draw_barcode(&mut img, query_no, 50, barcode_y, 700, barcode_h);
 
@@ -386,6 +390,11 @@ pub fn generate(query_no: &str, error_code: &str, height: LabelHeight) -> Vec<u8
     } else {
         draw_centered(&mut img, error_code, font, PxScale::from(sf * 44.0), zh_y as i32);
     }
+
+    // ── 列印日期(m/d,分隔線與圖示之間置中)── 現場人員辨識錯誤面單是哪天印的
+    let date_text = chrono::Local::now().format("%m/%d").to_string();
+    let date_y = pf(495.0, sf);
+    draw_centered(&mut img, &date_text, dejavu_regular(), PxScale::from(sf * 72.0), date_y as i32);
 
     // ── 越南文說明（DejaVu，置中）──
     draw_centered(&mut img, vi_text, font, vi_scale, vi_y as i32);
