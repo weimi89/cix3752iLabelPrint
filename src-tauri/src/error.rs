@@ -38,7 +38,13 @@ pub enum AppError {
     Unauthorized,
 
     #[error("雲端錯誤 [{code}]: {message}")]
-    Cloud { code: String, message: String },
+    Cloud {
+        code: String,
+        message: String,
+        /// 雲端錯誤 body 帶出的物流商代碼(查得到訂單的業務錯誤才有,如 STORE_CLOSED / UNCONFIRMED)。
+        /// 工控機錯誤面單據此解析分揀通道,讓異常包裹進對應格口列印。
+        shipping_provider: Option<String>,
+    },
 
     #[error("印表機錯誤: {0}")]
     Printer(String),

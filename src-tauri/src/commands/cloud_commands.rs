@@ -193,12 +193,13 @@ pub async fn cloud_fetch_label(
     {
         Ok(r) => r,
         Err(e) => {
-            if let AppError::Cloud { code, .. } = &e {
+            if let AppError::Cloud { code, shipping_provider, .. } = &e {
                 crate::server::spawn_error_label_print(
                     state.db.clone(),
                     app.clone(),
                     req.order_sn.clone(),
                     to_error_label_code(code).to_string(),
+                    shipping_provider.clone(),
                 );
             }
             return Err(e);

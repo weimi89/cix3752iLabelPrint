@@ -278,10 +278,92 @@ fn classify_parcel_alert(code: &str) -> &'static str {
     }
 }
 
-/// 找一個可用的列印機（優先取 dispatch_provider 中設定的第一台，否則取系統預設印表機）。
-/// 在 background task 中呼叫，失敗只 warn 不 panic。
-async fn find_any_printer(db: &DbPool) -> Option<String> {
-    // 優先：任何已設定 printer_name 的物流商設定
+/// 依物流商代碼解析分揀通道:有指派通道時 round-robin 輪流分配;
+/// 未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
+/// 回傳 `(channel_code, has_assigned)`,`has_assigned=false` 代表該物流商沒有任何指派通道。
+/// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
+async fn resolve_channel_code(
+    db: &DbPool,
+    rr: &RoundRobinState,
+    provider: &str,
+) -> (Option<String>, bool) {
+    let rows = sqlx::query(
+        "SELECT channel_code
+         FROM sort_channels
+         WHERE dispatch_code = ?
+           AND channel_code IS NOT NULL
+           AND channel_code <> ''
+         ORDER BY
+           CASE substr(position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
+           CAST(substr(position,2) AS INTEGER)",
+    )
+    .bind(provider)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let codes: Vec<String> = rows
+        .into_iter()
+        .filter_map(|r| r.try_get::<Option<String>, _>("channel_code").ok().flatten())
+        .collect();
+
+    if codes.is_empty() {
+        // 未設定指派物流時，使用 fallback 通道代碼
+        (fetch_unassigned_channel_code(db).await, false)
+    } else {
+        let mut rr = rr.lock();
+        let entry = rr.entry(provider.to_string()).or_insert(0);
+        let idx = *entry % codes.len();
+        *entry = (idx + 1) % codes.len();
+        (Some(codes[idx].clone()), true)
+    }
+}
+
+/// 取設定頁的「未指派通道代碼」(settings.unassigned_channel_code),未設定或留空回 None。
+/// 物流商無指派通道、或錯誤面單查不到物流商(NOT_FOUND / 雲端連線失敗)時的統一 fallback。
+async fn fetch_unassigned_channel_code(db: &DbPool) -> Option<String> {
+    sqlx::query("SELECT value FROM settings WHERE key = 'unassigned_channel_code'")
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<String, _>("value").ok())
+        .filter(|s| !s.is_empty())
+}
+
+/// 取物流商在「指派物流」頁設定的 print_profile
+async fn fetch_print_profile(db: &DbPool, provider: &str) -> Option<String> {
+    sqlx::query("SELECT print_profile FROM dispatch_provider WHERE code = ?")
+        .bind(provider)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<Option<String>, _>("print_profile").ok().flatten())
+}
+
+/// 找一台可用的列印機,優先序:
+/// 1. `provider` 指定的物流商在 dispatch_provider 設定的 printer_name(錯誤面單跟著該物流商的印表機出)
+/// 2. 任何已設定 printer_name 的物流商設定
+/// 3. 系統預設印表機
+/// 在 background task 中呼叫,失敗只 warn 不 panic。
+async fn find_any_printer(db: &DbPool, provider: Option<&str>) -> Option<String> {
+    if let Some(code) = provider {
+        let row = sqlx::query(
+            "SELECT printer_name FROM dispatch_provider WHERE code = ? AND printer_name IS NOT NULL AND printer_name != ''",
+        )
+        .bind(code)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten();
+        if let Some(r) = row {
+            if let Ok(Some(name)) = r.try_get::<Option<String>, _>("printer_name") {
+                return Some(name);
+            }
+        }
+    }
+
     let row = sqlx::query(
         "SELECT printer_name FROM dispatch_provider WHERE printer_name IS NOT NULL AND printer_name != '' LIMIT 1",
     )
@@ -311,9 +393,10 @@ fn spawn_print_error_label_bytes(
     app: tauri::AppHandle,
     query_no: String,
     label_bytes: Vec<u8>,
+    provider: Option<String>,
 ) {
     tokio::spawn(async move {
-        match find_any_printer(&db).await {
+        match find_any_printer(&db, provider.as_deref()).await {
             Some(printer_name) => {
                 let qn = query_no.clone();
                 tokio::task::spawn_blocking(move || {
@@ -337,13 +420,14 @@ pub(crate) fn spawn_error_label_print(
     app: tauri::AppHandle,
     query_no: String,
     error_code: String,
+    provider: Option<String>,
 ) {
     let label_bytes = crate::error_label::generate(
         &query_no,
         &error_code,
         crate::error_label::LabelHeight::H100mm,
     );
-    spawn_print_error_label_bytes(db, app, query_no, label_bytes);
+    spawn_print_error_label_bytes(db, app, query_no, label_bytes, provider);
 }
 
 /// emit `error-label-print-failed` 給桌面前端（reason: "no_printer" / "print_failed" / "cache_write_failed"）。
@@ -622,58 +706,16 @@ async fn get_parcel(
                     (label_path, label_ms)
                 };
 
-            // 依雲端回的物流商代碼 (shipping_provider) 查所有對應分揀通道
-            // 同物流商可能配多個通道,用 round-robin 輪流分配
-            let rows = sqlx::query(
-                "SELECT channel_code
-                 FROM sort_channels
-                 WHERE dispatch_code = ?
-                   AND channel_code IS NOT NULL
-                   AND channel_code <> ''
-                 ORDER BY
-                   CASE substr(position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
-                   CAST(substr(position,2) AS INTEGER)",
-            )
-            .bind(&info.shipping_provider)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
-
-            let codes: Vec<String> = rows
-                .into_iter()
-                .filter_map(|r| r.try_get::<Option<String>, _>("channel_code").ok().flatten())
-                .collect();
-
-            let channel_code: Option<String> = if codes.is_empty() {
-                // 未設定指派物流時，使用 fallback 通道代碼
-                sqlx::query("SELECT value FROM settings WHERE key = 'unassigned_channel_code'")
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|r| r.try_get::<String, _>("value").ok())
-                    .filter(|s| !s.is_empty())
-            } else {
-                let mut rr = state.rr.lock();
-                let entry = rr.entry(info.shipping_provider.clone()).or_insert(0);
-                let idx = *entry % codes.len();
-                *entry = (idx + 1) % codes.len();
-                Some(codes[idx].clone())
-            };
+            // 依雲端回的物流商代碼 (shipping_provider) 解析分揀通道
+            // 同物流商可能配多個通道,round-robin 輪流分配;未指派時退回 fallback 通道代碼
+            let (channel_code, has_assigned) =
+                resolve_channel_code(&state.db, &state.rr, &info.shipping_provider).await;
 
             // 無指派物流通道時，面單路徑不回傳（工控機無通道可分揀，不需要面單）
-            let label_path = if codes.is_empty() { None } else { label_path };
+            let label_path = if has_assigned { label_path } else { None };
 
             // 從 dispatch_provider 取 print_profile (使用者在「指派物流」頁面設定)
-            let print_profile: Option<String> = sqlx::query(
-                "SELECT print_profile FROM dispatch_provider WHERE code = ?",
-            )
-            .bind(&info.shipping_provider)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|r| r.try_get::<Option<String>, _>("print_profile").ok().flatten());
+            let print_profile = fetch_print_profile(&state.db, &info.shipping_provider).await;
 
             // 紀錄這次查詢,POST /api/report 用 response_id 反查
             if let Some(rid) = info.response_id {
@@ -799,13 +841,28 @@ async fn get_parcel(
             .execute(&state.db)
             .await;
             // 依雲端錯誤訊息分類,讓桌面前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
-            let (kind, msg, err_code) = match &e {
-                AppError::Cloud { code, message } => {
-                    (classify_parcel_alert(code), message.clone(), code.clone())
-                }
-                other => ("error", other.to_string(), "ERROR".to_string()),
+            let (kind, msg, err_code, err_provider) = match &e {
+                AppError::Cloud { code, message, shipping_provider } => (
+                    classify_parcel_alert(code),
+                    message.clone(),
+                    code.clone(),
+                    shipping_provider.clone(),
+                ),
+                other => ("error", other.to_string(), "ERROR".to_string(), None),
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
+
+            // 雲端帶出物流商代碼時(查得到訂單的業務錯誤,如 STORE_CLOSED / UNCONFIRMED),
+            // 錯誤面單照正常面單流程解析分揀通道與 print_profile;
+            // 查不到物流商時(NOT_FOUND / 雲端連線失敗)統一退回「未指派通道代碼」,
+            // 讓所有錯誤面單只要有設 fallback 就一定有格口可分揀
+            let (channel_code, print_profile) = match err_provider.as_deref() {
+                Some(p) => {
+                    let (cc, _) = resolve_channel_code(&state.db, &state.rr, p).await;
+                    (cc, fetch_print_profile(&state.db, p).await)
+                }
+                None => (fetch_unassigned_channel_code(&state.db).await, None),
+            };
 
             // 錯誤面單(取向 A):產生提示圖,依面單路徑模式決定出口 —
             //   direct_print : 中介 PC 本機直接列印(label_path 回 null)
@@ -823,6 +880,7 @@ async fn get_parcel(
                     state.app.clone(),
                     query_no.clone(),
                     label_bytes,
+                    err_provider.clone(),
                 );
                 None
             } else {
@@ -847,6 +905,7 @@ async fn get_parcel(
                             state.app.clone(),
                             query_no.clone(),
                             label_bytes,
+                            err_provider.clone(),
                         );
                         return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
                     }
@@ -854,8 +913,8 @@ async fn get_parcel(
             };
 
             Ok(Json(DataEnvelope::new(ParcelData {
-                channel_code: None,
-                print_profile: None,
+                channel_code,
+                print_profile,
                 label_path,
                 response_id: None,
                 is_error_label: true,

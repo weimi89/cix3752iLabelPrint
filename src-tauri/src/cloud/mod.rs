@@ -201,7 +201,10 @@ impl CloudClient {
                 .map(|s| s.to_string())
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
-            return Err(AppError::Cloud { code, message });
+            // 查得到訂單的業務錯誤(STORE_CLOSED / UNCONFIRMED …)雲端會帶物流商代碼,
+            // 供錯誤面單照正常流程解析分揀通道;NOT_FOUND 等查無訂單時為 None
+            let shipping_provider = parse_error_shipping_provider(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider });
         }
 
         let envelope: CloudOrderResponse = resp.json().await?;
@@ -291,7 +294,8 @@ impl CloudClient {
                 .map(|s| s.to_string())
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
-            return Err(AppError::Cloud { code, message });
+            let shipping_provider = parse_error_shipping_provider(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider });
         }
 
         let mut result: PrintViewResult = resp.json().await?;
@@ -547,6 +551,22 @@ fn build_http_client(timeout_secs: u64, allow_invalid_certs: bool) -> Client {
 
 fn trim_base(s: &str) -> String {
     s.trim().trim_end_matches('/').to_string()
+}
+
+/// 從雲端錯誤 body 解析 `shipping_provider`(失敗回應的 failResp 欄位,查得到訂單才有)。
+/// 數字型代碼也容忍(雲端常數可能是 int),統一轉成字串。
+fn parse_error_shipping_provider(json: Option<&serde_json::Value>) -> Option<String> {
+    let v = json?.get("shipping_provider")?;
+    let s = match v {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 /// 將 `base`（已 trim 過尾 `/`）與 `path`（可能含或不含開頭 `/`）拼成完整 URL
