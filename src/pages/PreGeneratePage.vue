@@ -1,5 +1,5 @@
 <script setup>
-import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate } from '@/api/tauri'
+import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate, getConfig, updateConfig } from '@/api/tauri'
 import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
 import { isOrderProcessed, markOrderProcessed, persistProcessed } from '@/composables/usePreGenProcessed'
 import {
@@ -212,11 +212,185 @@ const handleQueryByDate = async () => {
     dateLoading.value = false
   }
 }
+
+// === 自動排程設定(寫入 config.pre_gen_schedule,後端常駐 worker 依此每天到點執行)===
+const scheduleDialog = ref(false)
+const scheduleSaving = ref(false)
+const scheduleError = ref('')
+const sched = reactive({ enabled: false, times: [], sources: [] })
+let _fullConfig = null // 保存完整 config,存檔只覆寫 pre_gen_schedule,不動其他設定
+
+const openSchedule = async () => {
+  scheduleError.value = ''
+  try {
+    _fullConfig = await getConfig()
+    const s = _fullConfig.pre_gen_schedule || {}
+    sched.enabled = !!s.enabled
+    sched.times = Array.isArray(s.times) ? [...s.times] : []
+    sched.sources = Array.isArray(s.sources) ? [...s.sources] : ['clearance', 'transfer']
+  } catch (e) {
+    scheduleError.value = errorMessageFromException(e)
+  }
+  scheduleDialog.value = true
+}
+
+// 新增一列(預設 09:00),使用者再就地調整;永遠可點,不需先輸入
+const addTimeRow = () => { sched.times.push('09:00') }
+const removeTimeAt = i => { sched.times.splice(i, 1) }
+const setTimeAt = (i, v) => { sched.times[i] = v }
+
+// 有效時間點(去重、排序)
+const validTimes = computed(() =>
+  [...new Set(sched.times.filter(tt => /^\d{2}:\d{2}$/.test(tt)))].sort(),
+)
+// 已啟用但缺時間或來源 → 防呆(存檔禁用 + 提示)
+const scheduleIncomplete = computed(
+  () => sched.enabled && (validTimes.value.length === 0 || sched.sources.length === 0),
+)
+// 下次執行預覽:從今天當下找最近的時間點,沒有則明天第一個
+const nextRunText = computed(() => {
+  if (!sched.enabled || !validTimes.value.length) return ''
+  const now = new Date()
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  for (const tt of validTimes.value) {
+    const [h, m] = tt.split(':').map(Number)
+    if (h * 60 + m > nowMin) return `${t('page.preGenerate.scheduleToday')} ${tt}`
+  }
+  return `${t('page.preGenerate.scheduleTomorrow')} ${validTimes.value[0]}`
+})
+const toggleSource = src => {
+  if (sched.sources.includes(src)) sched.sources = sched.sources.filter(s => s !== src)
+  else sched.sources.push(src)
+}
+
+const saveSchedule = async () => {
+  scheduleError.value = ''
+  scheduleSaving.value = true
+  try {
+    const cfg = _fullConfig ? { ..._fullConfig } : await getConfig()
+    // 過濾有效 HH:MM、去重、排序
+    const cleanTimes = [...new Set(sched.times.filter(t => /^\d{2}:\d{2}$/.test(t)))].sort()
+    cfg.pre_gen_schedule = {
+      ...(cfg.pre_gen_schedule || {}),
+      enabled: sched.enabled,
+      times: cleanTimes,
+      sources: [...sched.sources],
+    }
+    await updateConfig(cfg)
+    scheduleDialog.value = false
+  } catch (e) {
+    scheduleError.value = errorMessageFromException(e)
+  } finally {
+    scheduleSaving.value = false
+  }
+}
 </script>
 
 <template>
   <div>
-    <AppHeader :title="$t('page.preGenerate.title')" :subtitle="$t('page.preGenerate.subtitle')" icon="tabler-photo-down" />
+    <AppHeader :title="$t('page.preGenerate.title')" :subtitle="$t('page.preGenerate.subtitle')" icon="tabler-photo-down">
+      <template #actions>
+        <VBtn color="default" variant="tonal" prepend-icon="tabler-clock-cog" @click="openSchedule">
+          {{ $t('page.preGenerate.scheduleBtn') }}
+        </VBtn>
+      </template>
+    </AppHeader>
+
+    <!-- 自動排程設定對話框(persistent:點遮罩 / ESC 不關,避免誤觸丟失編輯,對齊其他編輯對話框) -->
+    <VDialog v-model="scheduleDialog" max-width="460" persistent>
+      <VCard class="sched-card">
+        <VCardItem>
+          <template #prepend>
+            <VAvatar color="primary" variant="tonal" rounded>
+              <VIcon icon="tabler-clock-cog" />
+            </VAvatar>
+          </template>
+          <VCardTitle>{{ $t('page.preGenerate.scheduleTitle') }}</VCardTitle>
+          <VCardSubtitle class="text-wrap">{{ $t('page.preGenerate.scheduleHint') }}</VCardSubtitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText>
+          <VAlert v-if="scheduleError" type="error" variant="tonal" density="compact" class="mb-4">{{ scheduleError }}</VAlert>
+
+          <!-- 主開關:醒目列,顯示啟用 / 關閉狀態 -->
+          <div class="sched-switch" :class="{ 'sched-switch--on': sched.enabled }">
+            <div>
+              <div class="text-body-1 font-weight-medium">{{ $t('page.preGenerate.scheduleEnabled') }}</div>
+              <div class="text-caption text-medium-emphasis">
+                {{ sched.enabled ? $t('page.preGenerate.scheduleOn') : $t('page.preGenerate.scheduleOff') }}
+              </div>
+            </div>
+            <VSwitch v-model="sched.enabled" color="primary" hide-details density="compact" inset />
+          </div>
+
+          <!-- 下次執行預覽 -->
+          <div v-if="nextRunText" class="sched-next">
+            <VIcon icon="tabler-player-play" size="16" color="primary" />
+            <span class="text-caption">{{ $t('page.preGenerate.scheduleNextRun') }}：<strong class="text-primary">{{ nextRunText }}</strong></span>
+          </div>
+
+          <!-- 時間點 -->
+          <div class="text-body-2 font-weight-medium mt-4 mb-2">{{ $t('page.preGenerate.scheduleTimes') }}</div>
+          <div v-for="(tt, i) in sched.times" :key="i" class="d-flex align-center ga-1 mb-2">
+            <VTextField
+              :model-value="tt"
+              type="time"
+              variant="outlined"
+              density="compact"
+              hide-details
+              prepend-inner-icon="tabler-clock"
+              style="max-inline-size: 180px;"
+              @update:model-value="v => setTimeAt(i, v)"
+            />
+            <VBtn icon variant="text" size="small" color="medium-emphasis" @click="removeTimeAt(i)">
+              <VIcon icon="tabler-trash" size="18" />
+            </VBtn>
+          </div>
+          <div v-if="!sched.times.length" class="text-caption text-disabled mb-2 d-flex align-center ga-1">
+            <VIcon icon="tabler-clock-off" size="16" />{{ $t('page.preGenerate.scheduleNoTimes') }}
+          </div>
+          <VBtn variant="tonal" color="primary" size="small" prepend-icon="tabler-plus" @click="addTimeRow">
+            {{ $t('page.preGenerate.scheduleAddTime') }}
+          </VBtn>
+
+          <!-- 預產來源:chip 切換 -->
+          <div class="text-body-2 font-weight-medium mt-5 mb-2">{{ $t('page.preGenerate.scheduleSources') }}</div>
+          <div class="d-flex ga-2">
+            <VChip
+              :color="sched.sources.includes('clearance') ? 'primary' : 'default'"
+              :variant="sched.sources.includes('clearance') ? 'flat' : 'tonal'"
+              @click="toggleSource('clearance')"
+            >
+              <VIcon v-if="sched.sources.includes('clearance')" icon="tabler-check" size="16" start />
+              {{ $t('page.preGenerate.sourceClearance') }}
+            </VChip>
+            <VChip
+              :color="sched.sources.includes('transfer') ? 'primary' : 'default'"
+              :variant="sched.sources.includes('transfer') ? 'flat' : 'tonal'"
+              @click="toggleSource('transfer')"
+            >
+              <VIcon v-if="sched.sources.includes('transfer')" icon="tabler-check" size="16" start />
+              {{ $t('page.preGenerate.sourceTransfer') }}
+            </VChip>
+          </div>
+
+          <div class="text-caption text-medium-emphasis mt-4 d-flex align-center ga-1">
+            <VIcon icon="tabler-info-circle" size="15" />{{ $t('page.preGenerate.scheduleDateNote') }}
+          </div>
+          <div v-if="scheduleIncomplete" class="text-caption text-warning mt-2 d-flex align-center ga-1">
+            <VIcon icon="tabler-alert-triangle" size="15" />{{ $t('page.preGenerate.scheduleIncomplete') }}
+          </div>
+        </VCardText>
+        <VDivider />
+        <VCardActions class="px-4 pb-3">
+          <VSpacer />
+          <VBtn variant="text" @click="scheduleDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="primary" variant="flat" :loading="scheduleSaving" :disabled="scheduleIncomplete" @click="saveSchedule">
+            {{ $t('common.save') }}
+          </VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
 
     <VRow>
       <VCol cols="12" lg="5">
@@ -374,6 +548,28 @@ const handleQueryByDate = async () => {
   position: sticky;
   inset-block-start: 5rem;
   z-index: 1;
+}
+
+/* 自動排程對話框 */
+.sched-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background-color: rgba(var(--v-theme-on-surface), 0.04);
+  transition: background-color 0.2s ease;
+
+  &--on { background-color: rgba(var(--v-theme-primary), 0.1); }
+}
+.sched-next {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-block-start: 10px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background-color: rgba(var(--v-theme-primary), 0.08);
 }
 
 /* 書籤式分頁:平均寬、上圓角,選中頁籤白底高亮並與下方卡片連成一體 */

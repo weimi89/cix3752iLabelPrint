@@ -48,6 +48,12 @@ const MOCK_CONFIG = {
     mode: 'local',
     share_root: '',
   },
+  pre_gen_schedule: {
+    enabled: false,
+    times: ['06:00', '13:00'],
+    sources: ['clearance', 'transfer'],
+    date_offset_days: 0,
+  },
 }
 export const getConfig = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CONFIG))
@@ -339,6 +345,12 @@ const MOCK_STATS_SCANNERS = [
   { scanner_user: '阿仁', count: 92 },
   { scanner_user: '小婷', count: 48 },
 ]
+const MOCK_STATS_CHANNELS = [
+  { channel_code: 'A01', position: 'L1', dispatch_code: 'H', count: 64 },
+  { channel_code: 'A02', position: 'R2', dispatch_code: 'C', count: 41 },
+  { channel_code: 'A03', position: 'L3', dispatch_code: '7', count: 23 },
+  { channel_code: 'B99', position: null, dispatch_code: null, count: 9 },
+]
 const MOCK_STATS_HEATMAP = Array.from({ length: 7 }, (_, w) =>
   Array.from({ length: 24 }, (_, h) => ({ weekday: w, hour: h, count: Math.floor(Math.random() * 30) })),
 ).flat()
@@ -372,6 +384,10 @@ export const printStatsByScanner = async ({ startDate = '', endDate = '' } = {})
   if (!isTauri) return MOCK_STATS_SCANNERS
   return await invoke('print_stats_by_scanner', { req: { start_date: startDate, end_date: endDate } })
 }
+export const printStatsByChannel = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_CHANNELS
+  return await invoke('print_stats_by_channel', { req: { start_date: startDate, end_date: endDate } })
+}
 export const printStatsHeatmap = async ({ startDate = '', endDate = '' } = {}) => {
   if (!isTauri) return MOCK_STATS_HEATMAP
   return await invoke('print_stats_heatmap', { req: { start_date: startDate, end_date: endDate } })
@@ -399,11 +415,52 @@ export const workSessionReset = async () => {
 
 // 分揀袋件核對 — 後端常駐記憶體狀態(由工控機 GET /api/parcel 事件驅動更新,
 // 並 emit 'bag-check-updated' 推播)。前端只讀快照(切頁保留)與清除。
+// 假資料設計成新保留邏輯的「prune 後快照」:未印件袋(missing>0)全部保留(超過舊 3 上限)、
+// 已完成袋(missing==0)只留最新一個。front = 最新。
 const MOCK_BAG_CHECK = [
   {
+    package_sn: 'BAG20260606-006',
+    total: 6,
+    printed: 3,
+    missing: 3,
+    last_request_at: '2026-06-06 22:41:12',
+    orders: [
+      { shipping_no: '7108158660', order_sn: 'SO2606060061', shipping_provider: 'H', last_print_time: '2026-06-06 22:40:30' },
+      { shipping_no: '7108158661', order_sn: 'SO2606060062', shipping_provider: 'H', last_print_time: '2026-06-06 22:40:48' },
+      { shipping_no: '7108158662', order_sn: 'SO2606060063', shipping_provider: 'H', last_print_time: '2026-06-06 22:41:12' },
+      { shipping_no: '7108158663', order_sn: 'SO2606060064', shipping_provider: 'C', last_print_time: null },
+      { shipping_no: '7108158664', order_sn: 'SO2606060065', shipping_provider: 'C', last_print_time: null },
+      { shipping_no: '7108158665', order_sn: 'SO2606060066', shipping_provider: 'E', last_print_time: null },
+    ],
+  },
+  {
+    package_sn: 'BAG20260606-005',
+    total: 3,
+    printed: 2,
+    missing: 1,
+    last_request_at: '2026-06-06 22:38:40',
+    orders: [
+      { shipping_no: '7108158650', order_sn: 'SO2606060051', shipping_provider: 'F', last_print_time: '2026-06-06 22:38:05' },
+      { shipping_no: '7108158651', order_sn: 'SO2606060052', shipping_provider: 'F', last_print_time: '2026-06-06 22:38:40' },
+      { shipping_no: '7108158652', order_sn: 'SO2606060053', shipping_provider: 'O', last_print_time: null },
+    ],
+  },
+  {
+    package_sn: 'BAG20260606-003',
+    total: 5,
+    printed: 3,
+    missing: 2,
+    last_request_at: '2026-06-06 22:34:50',
+    orders: [
+      { shipping_no: '7108158630', order_sn: 'SO2606060031', shipping_provider: '7', last_print_time: '2026-06-06 22:34:10' },
+      { shipping_no: '7108158631', order_sn: 'SO2606060032', shipping_provider: '7', last_print_time: '2026-06-06 22:34:32' },
+      { shipping_no: '7108158632', order_sn: 'SO2606060033', shipping_provider: '7', last_print_time: '2026-06-06 22:34:50' },
+      { shipping_no: '7108158633', order_sn: 'SO2606060034', shipping_provider: 'S', last_print_time: null },
+      { shipping_no: '7108158634', order_sn: 'SO2606060035', shipping_provider: 'S', last_print_time: null },
+    ],
+  },
+  {
     package_sn: 'BAG20260606-002',
-    status: 'ok',
-    message: null,
     total: 4,
     printed: 2,
     missing: 2,
@@ -417,8 +474,6 @@ const MOCK_BAG_CHECK = [
   },
   {
     package_sn: 'BAG20260606-001',
-    status: 'ok',
-    message: null,
     total: 5,
     printed: 5,
     missing: 0,

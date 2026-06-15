@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "智配通 面單列印",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "identifier": "com.weiminet.cix3752i.labelprint",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:11420",
     "frontendDist": "../dist"
   },
   "app": {

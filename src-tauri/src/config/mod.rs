@@ -19,6 +19,40 @@ pub struct AppConfig {
     pub network: NetworkConfig,
     #[serde(default)]
     pub label_path: LabelPathConfig,
+    #[serde(default)]
+    pub pre_gen_schedule: PreGenScheduleConfig,
+}
+
+/// 面單預產自動排程設定 — 每天到指定時間點自動反查當日整批訂單並預下載快取(headless)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreGenScheduleConfig {
+    /// 總開關(預設關;設好時間並開啟後才運作)
+    #[serde(default)]
+    pub enabled: bool,
+    /// 每天執行的時間點清單,格式 "HH:MM"(24 小時制),可多個
+    #[serde(default)]
+    pub times: Vec<String>,
+    /// 預產來源:"clearance"(清關日期) / "transfer"(轉寄出貨),可多選
+    #[serde(default = "default_pregen_sources")]
+    pub sources: Vec<String>,
+    /// 預產「哪一天」的訂單:相對執行日的天數位移。0 = 當天、+1 = 隔天、-1 = 前一天
+    #[serde(default)]
+    pub date_offset_days: i64,
+}
+
+impl Default for PreGenScheduleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            times: Vec::new(),
+            sources: default_pregen_sources(),
+            date_offset_days: 0,
+        }
+    }
+}
+
+fn default_pregen_sources() -> Vec<String> {
+    vec!["clearance".to_string(), "transfer".to_string()]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +245,7 @@ impl Default for AppConfig {
             cache: CacheConfig::default(),
             network: NetworkConfig::default(),
             label_path: LabelPathConfig::default(),
+            pre_gen_schedule: PreGenScheduleConfig::default(),
         }
     }
 }

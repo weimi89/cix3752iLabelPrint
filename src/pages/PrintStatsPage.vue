@@ -15,6 +15,7 @@ import {
   printStatsByProvider,
   printStatsBySticker,
   printStatsByScanner,
+  printStatsByChannel,
   printStatsHeatmap,
   printStatsReprint,
   printStatsProviderSource,
@@ -141,6 +142,7 @@ const hourly = ref([])
 const providers = ref([])
 const stickers = ref([])
 const scanners = ref([])
+const channels = ref([])
 const heatmap = ref([])
 const reprint = ref([])
 const providerSource = ref([])
@@ -158,6 +160,9 @@ const avgOrdersPerPackage = computed(() => {
 
 const scannersTotal = computed(() => scanners.value.reduce((a, b) => a + b.count, 0))
 const scannersMax = computed(() => scanners.value.reduce((a, b) => Math.max(a, b.count), 0) || 1)
+
+const channelsTotal = computed(() => channels.value.reduce((a, b) => a + b.count, 0))
+const channelsMax = computed(() => channels.value.reduce((a, b) => Math.max(a, b.count), 0) || 1)
 
 // 物流商 × 來源:轉成「provider → { scan, auto, ipc, total }」便於 table 呈現
 const providerSourceTable = computed(() => {
@@ -302,13 +307,14 @@ const reload = async () => {
   errorMsg.value = ''
   try {
     const args = { startDate: startDate.value, endDate: endDate.value }
-    const [s, d, h, p, st, sc, hm, rp, ps, fl, cmp] = await Promise.all([
+    const [s, d, h, p, st, sc, ch, hm, rp, ps, fl, cmp] = await Promise.all([
       printStatsSummary(args),
       printStatsDaily(args),
       printStatsHourly(),
       printStatsByProvider(args),
       printStatsBySticker(args),
       printStatsByScanner(args),
+      printStatsByChannel(args),
       printStatsHeatmap(args),
       printStatsReprint(args),
       printStatsProviderSource(args),
@@ -321,6 +327,7 @@ const reload = async () => {
     providers.value = p
     stickers.value = st
     scanners.value = sc
+    channels.value = ch
     heatmap.value = hm
     reprint.value = rp
     providerSource.value = ps
@@ -730,6 +737,42 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
                 <div class="stat-row__value">
                   {{ p.count }}
                   <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(p.count, stickersTotal) }}%)</span>
+                </div>
+              </div>
+            </div>
+          </VCardText>
+        </VCard>
+      </VCol>
+    </VRow>
+
+    <!-- 分揀通道排行(工控機分揀機出口,只統計 ipc 來源) -->
+    <VRow dense class="mt-3">
+      <VCol cols="12">
+        <VCard class="card-shadow h-100">
+          <VCardItem>
+            <template #prepend>
+              <VAvatar color="info" variant="tonal">
+                <VIcon icon="tabler-arrows-split-2" />
+              </VAvatar>
+            </template>
+            <VCardTitle>{{ $t('page.printStats.byChannel') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.byChannelHint') }}</VCardSubtitle>
+          </VCardItem>
+          <VDivider />
+          <VCardText>
+            <div v-if="channels.length === 0" class="empty-state">
+              <VIcon icon="tabler-route-off" size="40" class="empty-state__icon" />
+              <div class="empty-state__text">{{ $t('page.printStats.noChannelData') }}</div>
+            </div>
+            <div v-else class="stat-rows">
+              <div v-for="c in channels" :key="c.channel_code" class="stat-row">
+                <div class="stat-row__label stat-row__label--wide">{{ c.channel_code }}</div>
+                <div class="stat-row__bar">
+                  <div class="stat-row__fill stat-row__fill--info" :style="{ inlineSize: pct(c.count, channelsMax) + '%' }" />
+                </div>
+                <div class="stat-row__value">
+                  {{ c.count }}
+                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(c.count, channelsTotal) }}%)</span>
                 </div>
               </div>
             </div>

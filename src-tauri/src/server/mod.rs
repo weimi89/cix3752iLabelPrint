@@ -779,12 +779,13 @@ async fn get_parcel(
                 None
             };
             let insert_res = sqlx::query(
-                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user)
-                 VALUES ('ipc', ?, ?, ?)",
+                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code)
+                 VALUES ('ipc', ?, ?, ?, ?)",
             )
             .bind(&info.shipping_no)
             .bind(&info.shipping_provider)
             .bind(&sticker_user)
+            .bind(&channel_code)
             .execute(&state.db)
             .await;
             if insert_res.is_ok() {

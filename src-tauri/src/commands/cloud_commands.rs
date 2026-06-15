@@ -68,6 +68,30 @@ async fn process_label_for_ui(
     format!("http://127.0.0.1:{port}/images/{effective_key}")
 }
 
+/// 面單預產(背景排程用):Download 模式抓單張面單並下載快取,
+/// 不記印單事件、不產錯誤面單(純預熱快取)。
+/// 回傳 Ok(true)=成功快取 / Ok(false)=雲端回成功但無檔路徑(略過) / Err=連線或業務錯誤。
+pub(crate) async fn pregen_label_to_cache(state: &SharedState, order_sn: &str) -> AppResult<bool> {
+    let result = state
+        .cloud
+        .fetch_label_for_print(
+            order_sn,
+            &["ALL".to_string()],
+            false,
+            LabelFetchMode::Download,
+            None,
+            None,
+        )
+        .await?;
+    if let Some(url) = result.print_file_path.clone() {
+        let provider = result.print_shipping_provider.as_deref();
+        process_label_for_ui(state, &url, result.print_num, provider).await;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 /// 產生錯誤面單、寫入 cache,回傳本機 middleware URL(`http://127.0.0.1:{port}/images/@error/...`)。
 /// 給 GUI 掃描 / 自動印單用:前端拿到後以「該物流商在印表機設定的同一台印表機」印出,
 /// 與正常面單同出口 —— 避免後端 find_any_printer(dispatch_provider DB / 系統預設)與

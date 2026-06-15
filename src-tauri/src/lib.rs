@@ -10,6 +10,7 @@ pub mod event_log;
 mod health;
 mod log;
 mod models;
+mod pregen;
 mod printer;
 mod queue;
 mod server;
@@ -113,6 +114,7 @@ pub fn run() {
             commands::print_stats_commands::print_stats_by_provider,
             commands::print_stats_commands::print_stats_by_sticker,
             commands::print_stats_commands::print_stats_by_scanner,
+            commands::print_stats_commands::print_stats_by_channel,
             commands::print_stats_commands::print_stats_heatmap,
             commands::print_stats_commands::print_stats_reprint,
             commands::print_stats_commands::print_stats_provider_source,
@@ -161,7 +163,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
     );
     health.start_worker();
 
-    Ok(Arc::new(AppState {
+    let state = Arc::new(AppState {
         config: RwLock::new(app_config),
         db: db_pool,
         cloud,
@@ -172,5 +174,10 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         label_resolver,
         watermark,
         bag_check,
-    }))
+    });
+
+    // 面單預產自動排程 worker(需完整 AppState,故在此啟動)
+    pregen::start_scheduler(state.clone());
+
+    Ok(state)
 }

@@ -454,6 +454,57 @@ pub async fn print_stats_by_scanner(
 }
 
 // =====================================================================
+// 分揀通道分組(只有 source='ipc' 工控機分揀機出單帶 channel_code)
+// =====================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ChannelCount {
+    /// 分揀通道代碼(print_event.channel_code,工控機分揀機出口)
+    pub channel_code: String,
+    /// 該通道當前對應的物理位置(L1-L4 / R1-R4),通道代碼已被改派則為 None
+    pub position: Option<String>,
+    /// 該通道當前指派的物流商代碼(對齊 dispatch_provider.code),未設定則為 None
+    pub dispatch_code: Option<String>,
+    pub count: i64,
+}
+
+/// 依分揀通道分組(指定區間內,只統計工控機 ipc 來源、channel_code 非空者)
+/// LEFT JOIN sort_channels 帶出當前位置與指派物流(一對一,channel_code 有 unique index)。
+/// 通道代碼事後被改派時,position/dispatch_code 反映「當前」設定,歷史印單數仍以當時 channel_code 歸戶。
+#[tauri::command]
+pub async fn print_stats_by_channel(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<ChannelCount>> {
+    let (s, e) = req.resolve();
+    let rows = sqlx::query(
+        "SELECT pe.channel_code AS code,
+                sc.position      AS position,
+                sc.dispatch_code AS dispatch_code,
+                COUNT(DISTINCT pe.shipping_no) AS n
+         FROM print_event pe
+         LEFT JOIN sort_channels sc ON sc.channel_code = pe.channel_code
+         WHERE pe.created_at >= ? AND pe.created_at < ?
+           AND pe.channel_code IS NOT NULL AND pe.channel_code <> ''
+         GROUP BY pe.channel_code
+         ORDER BY n DESC, code",
+    )
+    .bind(&s)
+    .bind(&e)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ChannelCount {
+            channel_code: r.try_get("code").unwrap_or_default(),
+            position: r.try_get::<Option<String>, _>("position").ok().flatten(),
+            dispatch_code: r.try_get::<Option<String>, _>("dispatch_code").ok().flatten(),
+            count: r.try_get("n").unwrap_or(0),
+        })
+        .collect())
+}
+
+// =====================================================================
 // 階段 3:熱力圖 / 重印分布 / 物流×來源 cross-tab
 // =====================================================================
 
