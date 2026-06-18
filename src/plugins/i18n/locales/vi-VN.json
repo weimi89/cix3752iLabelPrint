@@ -27,6 +27,7 @@
     "submit": "Gửi",
     "retry": "Thử lại",
     "copy": "Sao chép",
+    "copied": "Đã sao chép",
     "refresh": "Làm mới",
     "stop": "Dừng",
     "all": "Tất cả",
@@ -60,6 +61,7 @@
     "eventLog": "Nhật ký sự kiện",
     "queueLog": "Lịch sử hàng đợi",
     "parcelQueryLog": "Lịch sử yêu cầu",
+    "alertLog": "Cảnh báo tra cứu",
     "printStats": "Thống kê in nhãn"
   },
   "parcelAlert": {
@@ -429,6 +431,18 @@
         "unprinted": "Chưa in"
       }
     },
+    "alertLog": {
+      "title": "Cảnh báo tra cứu",
+      "subtitle": "Các bất thường khi tra cứu trên đám mây (cửa hàng đóng/chuyển, chưa xác nhận, không tìm thấy …)",
+      "empty": "Hiện chưa có cảnh báo",
+      "col": {
+        "time": "Thời gian",
+        "kind": "Trạng thái",
+        "queryNo": "Mã tra cứu",
+        "channel": "Kênh",
+        "message": "Thông báo"
+      }
+    },
     "parcelQueryLog": {
       "title": "Lịch sử yêu cầu",
       "subtitle": "Lịch sử máy công nghiệp gọi GET /api/parcel",
@@ -482,6 +496,12 @@
         "pausedFlash": "Đã tạm dừng {pos}, kênh này tạm thời không phân loại",
         "resumedFlash": "Đã kích hoạt {pos}",
         "failed": "Chuyển đổi trạng thái tạm dừng thất bại"
+      },
+      "remote": {
+        "btn": "Điều khiển từ điện thoại",
+        "title": "Dùng điện thoại điều khiển tạm dừng kênh",
+        "hint": "Điện thoại kết nối cùng mạng LAN, quét mã QR bên dưới hoặc nhập địa chỉ để tạm dừng / khôi phục bất kỳ kênh nào (rất tiện khi thay giấy).",
+        "noIp": "Không tìm thấy IP mạng LAN, vui lòng kiểm tra máy đã kết nối mạng LAN"
       },
       "unassigned": {
         "label": "Chưa chỉ định vận chuyển — Mã kênh mặc định",

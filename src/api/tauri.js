@@ -120,6 +120,17 @@ export const serverStatus = async () => {
 }
 export const serverRestart = () => invoke('server_restart')
 
+// 雲端查件異常記錄(門市關轉 等)
+export const recentParcelAlerts = async () => {
+  if (!isTauri) {
+    return [
+      { id: 2, kind: 'store_closed', code: 'STORE_CLOSED', query_no: 'SF1398806613', message: '門市關轉,請改投其他門市', channel_code: 'L3', created_at: '2026-06-18 14:24:02' },
+      { id: 1, kind: 'not_found', code: 'NOT_FOUND', query_no: 'SF0000000001', message: '查無此件', channel_code: null, created_at: '2026-06-18 13:10:55' },
+    ]
+  }
+  return await invoke('recent_parcel_alerts')
+}
+
 // 本機 LAN IP 清單(工控機連線位址)
 export const localLanIps = async () => {
   if (!isTauri) {

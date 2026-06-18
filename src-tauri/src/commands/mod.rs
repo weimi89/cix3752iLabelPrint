@@ -5,6 +5,7 @@ pub mod config_commands;
 pub mod dispatch_commands;
 pub mod health_commands;
 pub mod log_commands;
+pub mod parcel_alert_commands;
 pub mod parcel_query_log_commands;
 pub mod print_stats_commands;
 pub mod printer_commands;

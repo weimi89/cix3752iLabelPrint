@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#1f2937" />
+<title>分揀通道遙控</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0f172a; --card: #1e293b; --card2: #243044;
+    --on: #22c55e; --off: #f59e0b; --muted: #94a3b8; --text: #f1f5f9; --line: #334155;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+  header {
+    position: sticky; top: 0; z-index: 5; background: rgba(15,23,42,.95);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+    padding: 14px 16px; display: flex; align-items: center; gap: 10px;
+  }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  #conn { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #334155; color: var(--muted); }
+  #conn.ok { background: rgba(34,197,94,.15); color: var(--on); }
+  #conn.err { background: rgba(244,63,94,.15); color: #fb7185; }
+  .lang { display: flex; gap: 4px; }
+  .lang button { background: var(--card2); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: 4px 8px; font-size: 12px; }
+  .lang button.active { background: var(--on); color: #06210f; border-color: var(--on); font-weight: 700; }
+  main { padding: 12px 12px 32px; display: grid; gap: 10px; max-width: 640px; margin: 0 auto; }
+  .hint { color: var(--muted); font-size: 13px; text-align: center; margin: 4px 0 2px; }
+  .sticker { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .track { margin-top: 5px; display: flex; align-items: baseline; gap: 3px; font-variant-numeric: tabular-nums; }
+  .track .t-head { font-size: 13px; color: var(--muted); }
+  .track .t-tail { font-size: 20px; font-weight: 800; color: #38bdf8; letter-spacing: .5px; }
+  /* 跳過本輪控制 */
+  .skip-ctl { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 auto; }
+  .skip-btn { background: rgba(245,158,11,.14); border: 1px solid rgba(245,158,11,.45);
+    color: var(--off); border-radius: 10px; padding: 8px 10px; font-size: 12px; font-weight: 700;
+    display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 56px; }
+  .skip-btn .big { font-size: 17px; line-height: 1; }
+  .skip-count { font-size: 11px; color: var(--off); font-weight: 700; }
+  .skip-clear { font-size: 11px; color: var(--muted); text-decoration: underline; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; display: flex; align-items: center; gap: 14px;
+  }
+  .card.paused { background: repeating-linear-gradient(135deg,
+    rgba(245,158,11,.08), rgba(245,158,11,.08) 10px, rgba(245,158,11,.15) 10px, rgba(245,158,11,.15) 20px);
+    border-color: rgba(245,158,11,.5); }
+  .card.unset { opacity: .55; }
+  .info { flex: 1; min-width: 0; }
+  .pos { font-size: 17px; font-weight: 700; }
+  .code { font-size: 15px; color: var(--muted); margin-top: 2px; }
+  .disp { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: 11px; background: var(--card2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 8px; color: var(--muted); }
+  .state { font-size: 12px; font-weight: 700; margin-top: 6px; }
+  .state.on { color: var(--on); }
+  .state.off { color: var(--off); }
+  /* 大型開關,方便現場觸控 */
+  .toggle { flex: 0 0 auto; width: 78px; height: 44px; border-radius: 999px;
+    background: #475569; position: relative; transition: background .18s; cursor: pointer; border: none; }
+  .toggle.on { background: var(--on); }
+  .toggle .knob { position: absolute; top: 4px; left: 4px; width: 36px; height: 36px;
+    border-radius: 50%; background: #fff; transition: left .18s; box-shadow: 0 2px 5px rgba(0,0,0,.35); }
+  .toggle.on .knob { left: 38px; }
+  .toggle:disabled { opacity: .5; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 8px 16px 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="t-title">分揀通道遙控</h1>
+  <span id="conn">…</span>
+  <div class="lang">
+    <button id="lang-zh" class="active" onclick="setLang('zh')">中</button>
+    <button id="lang-vi" onclick="setLang('vi')">VI</button>
+  </div>
+</header>
+<p class="hint" id="t-hint">換紙等臨時暫停某通道,其他通道照常分揀</p>
+<main id="list"></main>
+<footer id="t-foot">狀態每 3 秒自動同步</footer>
+
+<script>
+const I18N = {
+  zh: { title: '分揀通道遙控', hint: '換紙等臨時暫停某通道,其他通道照常分揀',
+    foot: '狀態每 3 秒自動同步', on: '分揀中', off: '已暫停', unset: '未設定通道代碼',
+    connOk: '已連線', connErr: '連線中斷', noDispatch: '未指派物流', sticker: '貼標',
+    skip: '跳過下次', skipN: '待跳過', skipClear: '清除' },
+  vi: { title: 'Điều khiển kênh phân loại', hint: 'Tạm dừng một kênh khi thay giấy, các kênh khác vẫn phân loại',
+    foot: 'Trạng thái tự đồng bộ mỗi 3 giây', on: 'Đang phân loại', off: 'Đã tạm dừng',
+    unset: 'Chưa đặt mã kênh', connOk: 'Đã kết nối', connErr: 'Mất kết nối', noDispatch: 'Chưa gán vận chuyển',
+    sticker: 'Dán nhãn', skip: 'Bỏ qua lượt', skipN: 'Chờ bỏ qua', skipClear: 'Xóa' },
+};
+let lang = localStorage.getItem('ctrl_lang') || 'zh';
+let channels = [];
+let busy = {};        // position -> true 時不被輪詢覆蓋
+let pollTimer = null;
+
+function tr(k) { return (I18N[lang] || I18N.zh)[k]; }
+
+// 從回應抽後端錯誤訊息({error:...}),沒有則回 HTTP 狀態
+async function errMsg(res) {
+  try { const j = await res.json(); if (j && j.error) return j.error; } catch (_) {}
+  return 'HTTP ' + res.status;
+}
+
+function setLang(l) {
+  lang = l; localStorage.setItem('ctrl_lang', l);
+  document.getElementById('lang-zh').classList.toggle('active', l === 'zh');
+  document.getElementById('lang-vi').classList.toggle('active', l === 'vi');
+  document.documentElement.lang = l === 'vi' ? 'vi' : 'zh-Hant';
+  document.getElementById('t-title').textContent = tr('title');
+  document.getElementById('t-hint').textContent = tr('hint');
+  document.getElementById('t-foot').textContent = tr('foot');
+  document.title = tr('title');
+  render();
+}
+
+function setConn(ok) {
+  const el = document.getElementById('conn');
+  el.textContent = ok ? tr('connOk') : tr('connErr');
+  el.className = ok ? 'ok' : 'err';
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/channels', { cache: 'no-store' });
+    if (!res.ok) throw new Error('http ' + res.status);
+    const data = await res.json();
+    // 不覆蓋使用者正在操作中的那一筆
+    channels = data.map(c => busy[c.position] ? (channels.find(x => x.position === c.position) || c) : c);
+    setConn(true);
+    render();
+  } catch (e) {
+    setConn(false);
+  }
+}
+
+async function toggle(pos) {
+  const ch = channels.find(c => c.position === pos);
+  if (!ch) return;
+  const next = !ch.enabled;
+  ch.enabled = next; busy[pos] = true; render();
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    if (!res.ok) throw new Error(await errMsg(res));
+  } catch (e) {
+    ch.enabled = !next; // 失敗還原
+    alert('操作失敗 / Thao tác thất bại\n' + e.message);
+  } finally {
+    setTimeout(() => { delete busy[pos]; }, 600);
+    render();
+  }
+}
+
+async function skip(pos, clear) {
+  const ch = channels.find(c => c.position === pos);
+  if (!ch) return;
+  busy[pos] = true;
+  ch.skip_count = clear ? 0 : Math.min((ch.skip_count || 0) + 1, 20); // 樂觀
+  render();
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos) + '/skip', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear: !!clear }),
+    });
+    if (!res.ok) throw new Error(await errMsg(res));
+    const data = await res.json();
+    ch.skip_count = data.skip_count;
+  } catch (e) {
+    alert('操作失敗 / Thao tác thất bại\n' + e.message);
+  } finally {
+    setTimeout(() => { delete busy[pos]; }, 400);
+    render();
+  }
+}
+
+function render() {
+  const main = document.getElementById('list');
+  main.innerHTML = '';
+  for (const c of channels) {
+    const configured = !!(c.channel_code && c.channel_code.trim());
+    const card = document.createElement('div');
+    card.className = 'card' + (!configured ? ' unset' : (c.enabled ? '' : ' paused'));
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    const disp = (c.dispatch_codes && c.dispatch_codes.length)
+      ? c.dispatch_codes.map(d => '<span class="chip">' + d + '</span>').join('')
+      : '<span class="chip">' + tr('noDispatch') + '</span>';
+    const sticker = (c.job_sticker && c.job_sticker.trim())
+      ? '<div class="sticker">👤 ' + tr('sticker') + ': ' + c.job_sticker + '</div>' : '';
+    const lt = (c.last_tracking && c.last_tracking.trim()) ? c.last_tracking.trim() : '';
+    const track = lt
+      ? '<div class="track">🏷️ ' +
+          (lt.length > 4 ? '<span class="t-head">' + lt.slice(0, -4) + '</span>' : '') +
+          '<span class="t-tail">' + (lt.length > 4 ? lt.slice(-4) : lt) + '</span></div>'
+      : '';
+    info.innerHTML =
+      '<div class="pos">' + c.position + '</div>' +
+      '<div class="code">' + (configured ? c.channel_code : tr('unset')) + '</div>' +
+      '<div class="disp">' + disp + '</div>' +
+      sticker +
+      track +
+      '<div class="state ' + (c.enabled ? 'on' : 'off') + '">' +
+        (c.enabled ? '● ' + tr('on') : '⏸ ' + tr('off')) + '</div>';
+
+    card.appendChild(info);
+
+    // 跳過本輪控制(僅已設定通道)
+    if (configured) {
+      const skipCtl = document.createElement('div');
+      skipCtl.className = 'skip-ctl';
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'skip-btn';
+      skipBtn.innerHTML = '<span class="big">⏭️</span>' + tr('skip');
+      skipBtn.onclick = () => skip(c.position, false);
+      skipCtl.appendChild(skipBtn);
+      if (c.skip_count > 0) {
+        const cnt = document.createElement('div');
+        cnt.className = 'skip-count';
+        cnt.textContent = tr('skipN') + ' ' + c.skip_count;
+        const clr = document.createElement('a');
+        clr.className = 'skip-clear';
+        clr.textContent = tr('skipClear');
+        clr.onclick = () => skip(c.position, true);
+        skipCtl.appendChild(cnt);
+        skipCtl.appendChild(clr);
+      }
+      card.appendChild(skipCtl);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'toggle' + (c.enabled ? ' on' : '');
+    btn.innerHTML = '<span class="knob"></span>';
+    btn.onclick = () => toggle(c.position);
+
+    card.appendChild(btn);
+    main.appendChild(card);
+  }
+}
+
+setLang(lang);
+load();
+pollTimer = setInterval(load, 3000);
+</script>
+</body>
+</html>

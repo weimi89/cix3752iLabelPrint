@@ -11,3 +11,12 @@
 
 [target.'cfg(target_os = "macos")']
 runner = "scripts/dev-codesign-run.sh"
+
+# 關閉增量編譯快取
+#
+# target/debug/incremental/ 是 cargo 的增量編譯 fingerprint 快取,每次
+# build/check 只增不減,會單向雪球(實測幾天就漲到 8G+)。關掉後該目錄
+# 永遠不再生成,代價是小改動的重編略慢(整體重編時間相近,差在 dirty 段)。
+# 開發機磁碟換編譯穩定性,值得。
+[build]
+incremental = false

@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "cix3752i-label-print"
-version = "0.5.8"
+version = "0.6.0"
 dependencies = [
  "ab_glyph",
  "anyhow",

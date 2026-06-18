@@ -12,6 +12,7 @@ import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
+import { listen } from '@tauri-apps/api/event'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -83,7 +84,23 @@ const saveUnassigned = async () => {
     savingUnassigned.value = false
   }
 }
-onMounted(load)
+// 手機遙控(同區網手機開 /control 暫停通道)→ 後端廣播 sort-channel-updated,桌面即時同步開關
+let unlistenChannel = null
+onMounted(async () => {
+  await load()
+  try {
+    unlistenChannel = await listen('sort-channel-updated', evt => {
+      const { position, enabled } = evt.payload || {}
+      const ch = position && findChannel(position)
+      if (ch && typeof enabled === 'boolean') ch.enabled = enabled
+    })
+  } catch (e) {
+    console.warn('listen sort-channel-updated 失敗', e)
+  }
+})
+onUnmounted(() => {
+  if (unlistenChannel) { unlistenChannel(); unlistenChannel = null }
+})
 
 const markDirty = pos => dirty.value.add(pos)
 

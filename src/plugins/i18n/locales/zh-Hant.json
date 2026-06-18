@@ -27,6 +27,7 @@
     "submit": "送出",
     "retry": "重試",
     "copy": "複製",
+    "copied": "已複製",
     "refresh": "重新整理",
     "stop": "停止",
     "all": "全部",
@@ -60,6 +61,7 @@
     "eventLog": "事件記錄",
     "queueLog": "佇列歷史",
     "parcelQueryLog": "請求記錄",
+    "alertLog": "查件異常",
     "printStats": "印單統計"
   },
   "parcelAlert": {
@@ -429,6 +431,18 @@
         "unprinted": "未列印"
       }
     },
+    "alertLog": {
+      "title": "查件異常",
+      "subtitle": "雲端查件回報的異常(門市關轉、未確認、查無此件 …)",
+      "empty": "目前沒有異常記錄",
+      "col": {
+        "time": "時間",
+        "kind": "狀態",
+        "queryNo": "查詢單號",
+        "channel": "通道",
+        "message": "訊息"
+      }
+    },
     "parcelQueryLog": {
       "title": "請求記錄",
       "subtitle": "工控機呼叫 GET /api/parcel 的查詢歷史",
@@ -482,6 +496,12 @@
         "pausedFlash": "已暫停 {pos}，此通道暫不分揀",
         "resumedFlash": "已啟用 {pos}",
         "failed": "切換暫停狀態失敗"
+      },
+      "remote": {
+        "btn": "手機遙控",
+        "title": "用手機遙控暫停通道",
+        "hint": "手機連到同一個區網,用相機掃描下方 QR 或輸入網址,即可暫停 / 恢復任一通道(換紙時很方便)。",
+        "noIp": "找不到區網 IP,請確認本機已連上區網"
       },
       "unassigned": {
         "label": "未設定指派物流 — 預設通道代碼",

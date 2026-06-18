@@ -48,3 +48,7 @@ backups/
 
 # === 測試產物(tests/docker-ubuntu-build.sh build 出的 tarball,40MB+ 不入 git)===
 /tests/tarballs/
+
+# === 程式碼圖譜索引產物(本地分析用,不入 git)===
+# .gitnexus 已自帶內層 .gitignore;graphify-out 為 graphify 產出(graph.html/json 約 3MB)
+graphify-out/

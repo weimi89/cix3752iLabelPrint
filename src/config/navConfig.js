@@ -19,6 +19,7 @@ export const navItems = [
   { heading: 'nav.section.logs' },
   { title: 'nav.printStats', icon: { icon: 'tabler-chart-bar' }, to: { name: 'print-stats' } },
   { title: 'nav.parcelQueryLog', icon: { icon: 'tabler-history' }, to: { name: 'parcel-query-log' } },
+  { title: 'nav.alertLog', icon: { icon: 'tabler-alert-triangle' }, to: { name: 'parcel-alert-log' } },
   { title: 'nav.queueLog', icon: { icon: 'tabler-truck-loading' }, to: { name: 'queue-log' } },
   { title: 'nav.eventLog', icon: { icon: 'tabler-bell-ringing' }, to: { name: 'event-log' } },
 

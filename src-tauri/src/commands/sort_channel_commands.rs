@@ -183,9 +183,11 @@ pub async fn sort_channel_save(
 #[tauri::command]
 pub async fn sort_channel_set_enabled(
     state: State<'_, SharedState>,
+    app: tauri::AppHandle,
     position: String,
     enabled: bool,
 ) -> AppResult<()> {
+    use tauri::Emitter;
     if !POSITIONS.contains(&position.as_str()) {
         return Err(AppError::Server(format!("無效的通道位置: {position}")));
     }
@@ -198,6 +200,11 @@ pub async fn sort_channel_set_enabled(
     .bind(&position)
     .execute(&state.db)
     .await?;
+    // 廣播給所有視窗(及讓手機輪詢一致):桌面與手機任一端切換,兩邊都同步
+    let _ = app.emit(
+        "sort-channel-updated",
+        serde_json::json!({ "position": position, "enabled": enabled }),
+    );
     Ok(())
 }
 

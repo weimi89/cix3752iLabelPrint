@@ -12,6 +12,7 @@ import CloudSettingsPage from '@/pages/CloudSettingsPage.vue'
 import EventLogPage from '@/pages/EventLogPage.vue'
 import QueueLogPage from '@/pages/QueueLogPage.vue'
 import ParcelQueryLogPage from '@/pages/ParcelQueryLogPage.vue'
+import ParcelAlertLogPage from '@/pages/ParcelAlertLogPage.vue'
 import PrintStatsPage from '@/pages/PrintStatsPage.vue'
 import SortChannelsPage from '@/pages/SortChannelsPage.vue'
 import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
@@ -45,6 +46,8 @@ const routes = [
     meta: { title: 'nav.queueLog', icon: 'tabler-truck-loading', group: 'nav.section.settings' } },
   { path: '/parcel-query-log', name: 'parcel-query-log', component: ParcelQueryLogPage,
     meta: { title: 'nav.parcelQueryLog', icon: 'tabler-history', group: 'nav.section.logs' } },
+  { path: '/parcel-alert-log', name: 'parcel-alert-log', component: ParcelAlertLogPage,
+    meta: { title: 'nav.alertLog', icon: 'tabler-alert-triangle', group: 'nav.section.logs' } },
   { path: '/print-stats', name: 'print-stats', component: PrintStatsPage,
     meta: { title: 'nav.printStats', icon: 'tabler-chart-bar', group: 'nav.section.logs' } },
 ]
