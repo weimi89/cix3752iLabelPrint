@@ -393,6 +393,19 @@
         "message": "訊息"
       }
     },
+    "display": {
+      "open": "開啟看板",
+      "pickScreen": "選擇要開啟看板的螢幕",
+      "screen": "螢幕 {n}",
+      "current": "目前",
+      "fullscreenKanban": "全螢幕看板",
+      "windowMode": "視窗模式(可移動)",
+      "windowModeHint": "開成可移動視窗,方便拖到想要的螢幕",
+      "opened": "已在 {screen} 開啟看板",
+      "focused": "看板已開啟,已切換到該視窗",
+      "failed": "開啟看板失敗",
+      "exit": "關閉看板"
+    },
     "bagCheck": {
       "title": "件數核對",
       "subtitle": "設備跑單後自動核對各袋件數,有未印件的袋持續保留、已完成的保留最新一袋",

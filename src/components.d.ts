@@ -12,6 +12,8 @@ declare module 'vue' {
     AppHeader: typeof import('./components/AppHeader.vue')['default']
     AppLogo: typeof import('./components/AppLogo.vue')['default']
     AppNavbar: typeof import('./components/AppNavbar.vue')['default']
+    DisplayLauncher: typeof import('./components/DisplayLauncher.vue')['default']
+    KioskShell: typeof import('./components/KioskShell.vue')['default']
     LocaleSwitcher: typeof import('./components/LocaleSwitcher.vue')['default']
     NetworkStatusIndicator: typeof import('./components/NetworkStatusIndicator.vue')['default']
     PersonnelCombobox: typeof import('./components/PersonnelCombobox.vue')['default']

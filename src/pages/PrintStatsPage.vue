@@ -25,6 +25,7 @@ import {
 } from '@/api/tauri'
 import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
+import DisplayLauncher from '@/components/DisplayLauncher.vue'
 
 // echarts 按需引入 — 用到 line + heatmap + grid + tooltip + visualMap
 use([CanvasRenderer, LineChart, HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent])
@@ -403,6 +404,11 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
     >
       <template #actions>
         <div class="d-none d-md-flex ga-2">
+          <DisplayLauncher
+            route="/print-stats"
+            window-label="display-stats"
+            :title="$t('page.printStats.title')"
+          />
           <VBtn
             color="warning"
             variant="tonal"

@@ -1,6 +1,7 @@
 <script setup>
 import { bagCheckSnapshot, bagCheckClear } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import { useI18n } from 'vue-i18n'
 import { listen } from '@tauri-apps/api/event'
 import Masonry from 'masonry-layout'
@@ -185,6 +186,11 @@ onUnmounted(() => {
     <AppHeader :title="$t('page.bagCheck.title')" :subtitle="$t('page.bagCheck.subtitle')" icon="tabler-packages">
       <template #actions>
         <div class="d-flex ga-2">
+          <DisplayLauncher
+            route="/bag-check"
+            window-label="display-bagcheck"
+            :title="$t('page.bagCheck.title')"
+          />
           <VBtn color="default" variant="tonal" :disabled="!bags.length" @click="clearList">
             <VIcon icon="tabler-eraser" size="16" class="me-1" />{{ $t('page.bagCheck.clearList') }}
           </VBtn>

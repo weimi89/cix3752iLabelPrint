@@ -393,6 +393,19 @@
         "message": "Tin nhắn"
       }
     },
+    "display": {
+      "open": "Mở bảng hiển thị",
+      "pickScreen": "Chọn màn hình để mở bảng hiển thị",
+      "screen": "Màn hình {n}",
+      "current": "Hiện tại",
+      "fullscreenKanban": "Bảng toàn màn hình",
+      "windowMode": "Chế độ cửa sổ (di chuyển được)",
+      "windowModeHint": "Mở dạng cửa sổ di chuyển được, tiện kéo sang màn hình mong muốn",
+      "opened": "Đã mở bảng hiển thị trên {screen}",
+      "focused": "Bảng hiển thị đã mở, đã chuyển sang cửa sổ đó",
+      "failed": "Mở bảng hiển thị thất bại",
+      "exit": "Đóng bảng hiển thị"
+    },
     "bagCheck": {
       "title": "Đối chiếu kiện theo túi",
       "subtitle": "Tự động đối chiếu số kiện mỗi túi sau khi thiết bị chạy đơn; giữ lại mọi túi còn kiện chưa in, túi đã hoàn tất chỉ giữ túi mới nhất",
