@@ -35,6 +35,8 @@ pub struct AppState {
     pub label_resolver: server::LabelPathResolver,
     pub watermark: watermark::WatermarkRenderer,
     pub bag_check: bag_check::BagCheckState,
+    /// 面單預產自動排程的可觀測狀態(啟動 / 上次執行),供前端 get_pregen_status 查詢
+    pub pregen_status: RwLock<pregen::PregenStatus>,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -73,6 +75,7 @@ pub fn run() {
             commands::ping,
             commands::config_commands::get_config,
             commands::config_commands::update_config,
+            commands::config_commands::get_pregen_status,
             commands::printer_commands::list_printers,
             commands::printer_commands::print_image,
             commands::server_commands::server_status,
@@ -174,6 +177,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         label_resolver,
         watermark,
         bag_check,
+        pregen_status: RwLock::new(pregen::PregenStatus::default()),
     });
 
     // 面單預產自動排程 worker(需完整 AppState,故在此啟動)

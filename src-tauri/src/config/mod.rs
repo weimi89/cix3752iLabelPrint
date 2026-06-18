@@ -38,6 +38,10 @@ pub struct PreGenScheduleConfig {
     /// 預產「哪一天」的訂單:相對執行日的天數位移。0 = 當天、+1 = 隔天、-1 = 前一天
     #[serde(default)]
     pub date_offset_days: i64,
+    /// App 啟動時,若今日已過的排程時間點尚未跑過,是否補跑一次(預設關)。
+    /// 因排程為進程內常駐 task,只有 App 開著才會到點觸發;開啟此項可在開機/重啟後補上錯過的時段。
+    #[serde(default)]
+    pub catch_up_on_start: bool,
 }
 
 impl Default for PreGenScheduleConfig {
@@ -47,6 +51,7 @@ impl Default for PreGenScheduleConfig {
             times: Vec::new(),
             sources: default_pregen_sources(),
             date_offset_days: 0,
+            catch_up_on_start: false,
         }
     }
 }

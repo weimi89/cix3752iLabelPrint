@@ -262,6 +262,17 @@
       "scheduleSources": "預產來源",
       "scheduleDateNote": "每次自動執行皆預產「當天」的訂單",
       "scheduleIncomplete": "已啟用但尚未設定時間點或來源,請補齊後再儲存",
+      "scheduleCatchUp": "開機補跑錯過的時段",
+      "scheduleCatchUpHint": "排程只在 App 開著時到點觸發。開啟後,App 啟動時會把今日已過、尚未跑過的時間點補跑一次(以事件記錄防止重啟重跑)。",
+      "scheduleStatusTitle": "排程狀態",
+      "scheduleStatusStarted": "排程啟動",
+      "scheduleStatusLastRun": "上次執行",
+      "scheduleStatusNeverRun": "本次開啟後尚未執行",
+      "scheduleStatusResult": "成功 {ok}・略過 {skipped}・失敗 {fail}・無檔 {empty}",
+      "scheduleStatusHadError": "上次執行有失敗,請查事件記錄",
+      "scheduleStatusDisabled": "自動排程未啟用",
+      "scheduleStatusTrigger": "觸發",
+      "scheduleOpenLog": "查看排程記錄",
       "progress": "面單載入進度",
       "successCount": "成功 {n}",
       "statTotal": "總數",
@@ -371,7 +382,8 @@
         "cloud": "雲端",
         "cache": "快取",
         "queue": "佇列",
-        "printer": "印表機"
+        "printer": "印表機",
+        "pregen": "面單預產"
       },
       "col": {
         "time": "時間",

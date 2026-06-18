@@ -1,5 +1,6 @@
 <script setup>
-import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate, getConfig, updateConfig } from '@/api/tauri'
+import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate, getConfig, updateConfig, getPregenStatus } from '@/api/tauri'
+import { useRouter } from 'vue-router'
 import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
 import { isOrderProcessed, markOrderProcessed, persistProcessed } from '@/composables/usePreGenProcessed'
 import {
@@ -11,6 +12,7 @@ import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const orderSnList = ref([])
 // 縮圖 cells:僅少量(<= THUMBNAIL_LIMIT)時建立並渲染;大量批次不建,避免上萬 DOM/img 把 webview 撐爆
@@ -51,8 +53,11 @@ const stopElapsedTimer = () => {
   if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
   if (batchStartTs) elapsedMs.value = performance.now() - batchStartTs // 定格總耗時
 }
-// 執行中離開頁面時清掉 ticker,避免殘留 interval
-onUnmounted(() => { if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null } })
+// 執行中離開頁面時清掉 ticker / 狀態輪詢,避免殘留 interval
+onUnmounted(() => {
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+  if (_statusTimer) { clearInterval(_statusTimer); _statusTimer = null }
+})
 
 const CONCURRENCY = 20
 const FAIL_LIST_LIMIT = 300  // 失敗清單最多保留筆數
@@ -217,8 +222,46 @@ const handleQueryByDate = async () => {
 const scheduleDialog = ref(false)
 const scheduleSaving = ref(false)
 const scheduleError = ref('')
-const sched = reactive({ enabled: false, times: [], sources: [] })
+const sched = reactive({ enabled: false, times: [], sources: [], catchUp: false })
 let _fullConfig = null // 保存完整 config,存檔只覆寫 pre_gen_schedule,不動其他設定
+
+// 頁面常駐狀態(不需開對話框即可看):目前排程設定快照 + 後端執行狀態
+const pageSched = reactive({ enabled: false, times: [], catchUp: false, loaded: false })
+const pregenStatus = ref(null)
+let _statusTimer = null
+
+const applyConfigSnapshot = cfg => {
+  const s = (cfg && cfg.pre_gen_schedule) || {}
+  pageSched.enabled = !!s.enabled
+  pageSched.times = [...new Set((Array.isArray(s.times) ? s.times : []).filter(tt => /^\d{2}:\d{2}$/.test(tt)))].sort()
+  pageSched.catchUp = !!s.catch_up_on_start
+  pageSched.loaded = true
+}
+
+const refreshPregenStatus = async () => {
+  try { pregenStatus.value = await getPregenStatus() } catch { /* 靜默:狀態查詢失敗不阻塞頁面 */ }
+}
+
+// 常駐「下次執行」:從頁面快照(非對話框暫存)計算,關掉對話框仍可見
+const pageNextRunText = computed(() => {
+  if (!pageSched.enabled || !pageSched.times.length) return ''
+  const now = new Date()
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  for (const tt of pageSched.times) {
+    const [h, m] = tt.split(':').map(Number)
+    if (h * 60 + m > nowMin) return `${t('page.preGenerate.scheduleToday')} ${tt}`
+  }
+  return `${t('page.preGenerate.scheduleTomorrow')} ${pageSched.times[0]}`
+})
+
+const goPregenLog = () => router.push({ name: 'event-log', query: { category: 'pregen' } })
+
+onMounted(async () => {
+  try { applyConfigSnapshot(await getConfig()) } catch { /* 頁面首載失敗不致命 */ }
+  await refreshPregenStatus()
+  // 狀態每 30s 刷新一次,讓「上次執行」在背景到點後自動更新
+  _statusTimer = setInterval(refreshPregenStatus, 30000)
+})
 
 const openSchedule = async () => {
   scheduleError.value = ''
@@ -228,6 +271,8 @@ const openSchedule = async () => {
     sched.enabled = !!s.enabled
     sched.times = Array.isArray(s.times) ? [...s.times] : []
     sched.sources = Array.isArray(s.sources) ? [...s.sources] : ['clearance', 'transfer']
+    sched.catchUp = !!s.catch_up_on_start
+    applyConfigSnapshot(_fullConfig)
   } catch (e) {
     scheduleError.value = errorMessageFromException(e)
   }
@@ -275,8 +320,10 @@ const saveSchedule = async () => {
       enabled: sched.enabled,
       times: cleanTimes,
       sources: [...sched.sources],
+      catch_up_on_start: sched.catchUp,
     }
     await updateConfig(cfg)
+    applyConfigSnapshot(cfg) // 立即更新頁面常駐狀態(下次執行等)
     scheduleDialog.value = false
   } catch (e) {
     scheduleError.value = errorMessageFromException(e)
@@ -295,6 +342,38 @@ const saveSchedule = async () => {
         </VBtn>
       </template>
     </AppHeader>
+
+    <!-- 排程常駐狀態:不必開對話框即可確認「排程是否啟用 / 下次何時跑 / 上次跑得如何」 -->
+    <VCard v-if="pageSched.loaded" variant="tonal" class="mb-4 sched-status-card" :color="pageSched.enabled ? 'primary' : undefined">
+      <VCardText class="py-3 d-flex flex-wrap align-center gc-6 gr-2">
+        <div class="d-flex align-center ga-2">
+          <VIcon :icon="pageSched.enabled ? 'tabler-clock-check' : 'tabler-clock-off'" size="20" :color="pageSched.enabled ? 'primary' : 'medium-emphasis'" />
+          <span class="text-body-2 font-weight-medium">
+            {{ pageSched.enabled ? $t('page.preGenerate.scheduleTitle') : $t('page.preGenerate.scheduleStatusDisabled') }}
+          </span>
+        </div>
+
+        <div v-if="pageSched.enabled && pageNextRunText" class="text-caption d-flex align-center ga-1">
+          <VIcon icon="tabler-player-play" size="15" color="primary" />
+          {{ $t('page.preGenerate.scheduleNextRun') }}：<strong class="text-primary">{{ pageNextRunText }}</strong>
+        </div>
+
+        <div v-if="pregenStatus && pregenStatus.last_run_at" class="text-caption d-flex align-center ga-1 flex-wrap">
+          <VIcon :icon="pregenStatus.last_had_error ? 'tabler-alert-triangle' : 'tabler-circle-check'" size="15" :color="pregenStatus.last_had_error ? 'warning' : 'success'" />
+          {{ $t('page.preGenerate.scheduleStatusLastRun') }}：<strong>{{ pregenStatus.last_run_at }}</strong>
+          <span class="text-medium-emphasis">({{ $t('page.preGenerate.scheduleStatusTrigger') }} {{ pregenStatus.last_trigger }})</span>
+          <span class="text-medium-emphasis">{{ $t('page.preGenerate.scheduleStatusResult', { ok: pregenStatus.last_ok, skipped: pregenStatus.last_skipped, fail: pregenStatus.last_fail, empty: pregenStatus.last_empty }) }}</span>
+        </div>
+        <div v-else-if="pageSched.enabled" class="text-caption text-medium-emphasis d-flex align-center ga-1">
+          <VIcon icon="tabler-hourglass" size="15" />{{ $t('page.preGenerate.scheduleStatusNeverRun') }}
+        </div>
+
+        <VSpacer />
+        <VBtn variant="text" size="small" color="default" prepend-icon="tabler-list-search" @click="goPregenLog">
+          {{ $t('page.preGenerate.scheduleOpenLog') }}
+        </VBtn>
+      </VCardText>
+    </VCard>
 
     <!-- 自動排程設定對話框(persistent:點遮罩 / ESC 不關,避免誤觸丟失編輯,對齊其他編輯對話框) -->
     <VDialog v-model="scheduleDialog" max-width="460" persistent>
@@ -372,6 +451,15 @@ const saveSchedule = async () => {
               <VIcon v-if="sched.sources.includes('transfer')" icon="tabler-check" size="16" start />
               {{ $t('page.preGenerate.sourceTransfer') }}
             </VChip>
+          </div>
+
+          <!-- 開機補跑開關 -->
+          <div class="sched-switch mt-5" :class="{ 'sched-switch--on': sched.catchUp }">
+            <div>
+              <div class="text-body-2 font-weight-medium">{{ $t('page.preGenerate.scheduleCatchUp') }}</div>
+              <div class="text-caption text-medium-emphasis text-wrap">{{ $t('page.preGenerate.scheduleCatchUpHint') }}</div>
+            </div>
+            <VSwitch v-model="sched.catchUp" color="primary" hide-details density="compact" inset />
           </div>
 
           <div class="text-caption text-medium-emphasis mt-4 d-flex align-center ga-1">

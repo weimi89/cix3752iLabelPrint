@@ -3,8 +3,10 @@ import { eventLogList } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+const route = useRoute()
 
 const eventLevel = ref(null)
 const eventCategory = ref(null)
@@ -40,6 +42,7 @@ const CATEGORIES = computed(() => [
   { title: t('page.eventLog.categoryOption.cache'), value: 'cache' },
   { title: t('page.eventLog.categoryOption.queue'), value: 'queue' },
   { title: t('page.eventLog.categoryOption.printer'), value: 'printer' },
+  { title: t('page.eventLog.categoryOption.pregen'), value: 'pregen' },
 ])
 
 const levelLabel = v => v ? t(`page.eventLog.levelOption.${v}`, v) : ''
@@ -111,7 +114,13 @@ watch([eventLevel, eventCategory, searchKeyword], () => { page.value = 1; load()
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _timer = null
-onMounted(() => { load(); if (isTauriRuntime) _timer = setInterval(load, 10000) })
+onMounted(() => {
+  // 支援由其他頁(如面單預產)帶 ?category=pregen 深連結,自動套用類別篩選
+  const q = route.query?.category
+  if (typeof q === 'string' && CATEGORIES.value.some(c => c.value === q)) eventCategory.value = q
+  load()
+  if (isTauriRuntime) _timer = setInterval(load, 10000)
+})
 onUnmounted(() => { clearInterval(_timer); _timer = null })
 
 const levelColor = level => ({ info: 'info', warn: 'warning', error: 'error' }[level] || 'grey')

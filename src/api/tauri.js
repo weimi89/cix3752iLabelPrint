@@ -53,6 +53,7 @@ const MOCK_CONFIG = {
     times: ['06:00', '13:00'],
     sources: ['clearance', 'transfer'],
     date_offset_days: 0,
+    catch_up_on_start: false,
   },
 }
 export const getConfig = async () => {
@@ -62,6 +63,19 @@ export const getConfig = async () => {
 export const updateConfig = async newConfig => {
   if (!isTauri) return JSON.parse(JSON.stringify(newConfig))
   return await invoke('update_config', { newConfig })
+}
+// 面單預產自動排程的可觀測狀態(排程啟動 / 上次執行),供前端顯示確認排程是否運作
+export const getPregenStatus = async () => {
+  if (!isTauri) {
+    return {
+      scheduler_started_at: '2026-06-17 09:00:00',
+      last_run_at: '2026-06-17 13:00:12',
+      last_trigger: '13:00',
+      last_ok: 128, last_fail: 0, last_skipped: 4, last_empty: 0,
+      last_had_error: false,
+    }
+  }
+  return await invoke('get_pregen_status')
 }
 
 // 雲端

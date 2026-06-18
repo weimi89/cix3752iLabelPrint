@@ -26,3 +26,12 @@ pub async fn update_config(
     *state.config.write().await = new_config.clone();
     Ok(new_config)
 }
+
+/// 取得面單預產自動排程的可觀測狀態(排程啟動時間、上次執行結果)。
+/// 前端據此顯示「上次執行 / 排程啟動」常駐狀態,確認排程是否正常運作。
+#[tauri::command]
+pub async fn get_pregen_status(
+    state: State<'_, SharedState>,
+) -> AppResult<crate::pregen::PregenStatus> {
+    Ok(state.pregen_status.read().await.clone())
+}

@@ -262,6 +262,17 @@
       "scheduleSources": "Nguồn tạo trước",
       "scheduleDateNote": "Mỗi lần chạy tự động đều tạo trước đơn của \"ngày hôm nay\"",
       "scheduleIncomplete": "Đã bật nhưng chưa đặt mốc giờ hoặc nguồn, vui lòng bổ sung trước khi lưu",
+      "scheduleCatchUp": "Chạy bù mốc giờ đã lỡ khi khởi động",
+      "scheduleCatchUpHint": "Lịch chỉ kích hoạt khi App đang mở. Khi bật, lúc khởi động App sẽ chạy bù một lần các mốc giờ trong ngày đã qua mà chưa chạy (dùng nhật ký sự kiện để tránh chạy lại khi khởi động lại).",
+      "scheduleStatusTitle": "Trạng thái lịch",
+      "scheduleStatusStarted": "Lịch khởi động",
+      "scheduleStatusLastRun": "Lần chạy gần nhất",
+      "scheduleStatusNeverRun": "Chưa chạy kể từ khi mở lần này",
+      "scheduleStatusResult": "Thành công {ok}・Bỏ qua {skipped}・Thất bại {fail}・Không có tệp {empty}",
+      "scheduleStatusHadError": "Lần chạy gần nhất có lỗi, vui lòng xem nhật ký sự kiện",
+      "scheduleStatusDisabled": "Lịch tự động chưa bật",
+      "scheduleStatusTrigger": "Kích hoạt",
+      "scheduleOpenLog": "Xem nhật ký lịch",
       "progress": "Tiến độ tải nhãn",
       "successCount": "Thành công {n}",
       "statTotal": "Tổng",
@@ -371,7 +382,8 @@
         "cloud": "Đám mây",
         "cache": "Cache",
         "queue": "Hàng đợi",
-        "printer": "Máy in"
+        "printer": "Máy in",
+        "pregen": "Tạo trước nhãn"
       },
       "col": {
         "time": "Thời gian",
