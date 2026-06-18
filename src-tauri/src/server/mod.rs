@@ -287,15 +287,18 @@ async fn resolve_channel_code(
     rr: &RoundRobinState,
     provider: &str,
 ) -> (Option<String>, bool) {
+    // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)
     let rows = sqlx::query(
-        "SELECT channel_code
-         FROM sort_channels
-         WHERE dispatch_code = ?
-           AND channel_code IS NOT NULL
-           AND channel_code <> ''
+        "SELECT sc.channel_code
+         FROM sort_channel_dispatch scd
+         JOIN sort_channels sc ON sc.position = scd.position
+         WHERE scd.dispatch_code = ?
+           AND sc.enabled = 1
+           AND sc.channel_code IS NOT NULL
+           AND sc.channel_code <> ''
          ORDER BY
-           CASE substr(position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
-           CAST(substr(position,2) AS INTEGER)",
+           CASE substr(sc.position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
+           CAST(substr(sc.position,2) AS INTEGER)",
     )
     .bind(provider)
     .fetch_all(db)

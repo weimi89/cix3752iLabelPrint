@@ -188,23 +188,28 @@ const POSITIONS = ['L1', 'L2', 'L3', 'L4', 'R1', 'R2', 'R3', 'R4']
 const MOCK_CHANNELS = POSITIONS.map(p => ({
   position: p,
   channel_code: null,
-  dispatch_code: null,
+  dispatch_codes: [],
   job_sticker: null,
+  enabled: true,
 }))
 export const sortChannelList = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CHANNELS))
   return await invoke('sort_channel_list')
 }
-export const sortChannelSave = ({ position, channelCode, dispatchCode, jobSticker }) => {
+export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobSticker }) => {
   if (!isTauri) return Promise.resolve()
   return invoke('sort_channel_save', {
     req: {
       position,
       channel_code: channelCode || null,
-      dispatch_code: dispatchCode || null,
+      dispatch_codes: Array.isArray(dispatchCodes) ? dispatchCodes : [],
       job_sticker: jobSticker || null,
     },
   })
+}
+export const sortChannelSetEnabled = (position, enabled) => {
+  if (!isTauri) return Promise.resolve()
+  return invoke('sort_channel_set_enabled', { position, enabled })
 }
 export const sortChannelUnassignedGet = async () => {
   if (!isTauri) return null

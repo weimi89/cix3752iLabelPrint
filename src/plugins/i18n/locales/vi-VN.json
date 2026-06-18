@@ -461,7 +461,14 @@
       "status": {
         "unsaved": "Chưa lưu",
         "enabled": "Đã kích hoạt",
-        "unset": "Chưa thiết lập"
+        "unset": "Chưa thiết lập",
+        "paused": "Đang tạm dừng"
+      },
+      "pause": {
+        "label": "Kích hoạt phân loại",
+        "pausedFlash": "Đã tạm dừng {pos}, kênh này tạm thời không phân loại",
+        "resumedFlash": "Đã kích hoạt {pos}",
+        "failed": "Chuyển đổi trạng thái tạm dừng thất bại"
       },
       "unassigned": {
         "label": "Chưa chỉ định vận chuyển — Mã kênh mặc định",

@@ -86,8 +86,8 @@ pub async fn dispatch_provider_delete(
     state: State<'_, SharedState>,
     code: String,
 ) -> AppResult<u64> {
-    // 若仍被通道引用，先解除引用（不刪通道，只清空 dispatch_code）
-    sqlx::query("UPDATE sort_channels SET dispatch_code = NULL WHERE dispatch_code = ?")
+    // 若仍被通道引用，先解除引用（不刪通道，只移除多對多指派關聯）
+    sqlx::query("DELETE FROM sort_channel_dispatch WHERE dispatch_code = ?")
         .bind(&code)
         .execute(&state.db)
         .await?;

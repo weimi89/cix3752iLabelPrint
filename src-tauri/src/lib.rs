@@ -103,6 +103,7 @@ pub fn run() {
             commands::dispatch_commands::dispatch_provider_delete,
             commands::sort_channel_commands::sort_channel_list,
             commands::sort_channel_commands::sort_channel_save,
+            commands::sort_channel_commands::sort_channel_set_enabled,
             commands::sort_channel_commands::sort_channel_unassigned_get,
             commands::sort_channel_commands::sort_channel_unassigned_save,
             commands::sort_channel_commands::sticker_history_list,

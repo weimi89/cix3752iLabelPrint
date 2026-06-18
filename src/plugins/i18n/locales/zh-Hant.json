@@ -461,7 +461,14 @@
       "status": {
         "unsaved": "未儲存",
         "enabled": "已啟用",
-        "unset": "未設定"
+        "unset": "未設定",
+        "paused": "暫停中"
+      },
+      "pause": {
+        "label": "啟用分揀",
+        "pausedFlash": "已暫停 {pos}，此通道暫不分揀",
+        "resumedFlash": "已啟用 {pos}",
+        "failed": "切換暫停狀態失敗"
       },
       "unassigned": {
         "label": "未設定指派物流 — 預設通道代碼",

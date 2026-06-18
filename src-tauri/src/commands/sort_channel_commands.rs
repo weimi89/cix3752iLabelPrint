@@ -27,15 +27,24 @@ pub async fn upsert_sticker_history(db: &DbPool, name: &str) -> AppResult<()> {
 pub struct SortChannel {
     pub position: String,
     pub channel_code: Option<String>,
-    pub dispatch_code: Option<String>,
+    /// 指派物流(1 對多):一個通道可指派多個物流商,對應 dispatch_provider.code
+    #[serde(default)]
+    pub dispatch_codes: Vec<String>,
     pub job_sticker: Option<String>,
+    /// 是否啟用。false=暫停,暫停的通道不參與路由分配
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[tauri::command]
 pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<SortChannel>> {
     // 用 CASE 排序保證 L1..L4, R1..R4 順序
     let rows = sqlx::query(
-        "SELECT position, channel_code, dispatch_code, job_sticker
+        "SELECT position, channel_code, job_sticker, enabled
          FROM sort_channels
          ORDER BY
            CASE substr(position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
@@ -44,13 +53,35 @@ pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<S
     .fetch_all(&state.db)
     .await?;
 
+    // 一次撈出全部通道→物流指派,在記憶體分組(避免 N+1 查詢)
+    let dispatch_rows = sqlx::query(
+        "SELECT position, dispatch_code FROM sort_channel_dispatch
+         ORDER BY position, dispatch_code",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let mut dispatch_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for r in dispatch_rows {
+        let pos: String = r.try_get("position").unwrap_or_default();
+        let code: String = r.try_get("dispatch_code").unwrap_or_default();
+        if !pos.is_empty() && !code.is_empty() {
+            dispatch_map.entry(pos).or_default().push(code);
+        }
+    }
+
     Ok(rows
         .into_iter()
-        .map(|r| SortChannel {
-            position: r.try_get("position").unwrap_or_default(),
-            channel_code: r.try_get("channel_code").ok(),
-            dispatch_code: r.try_get("dispatch_code").ok(),
-            job_sticker: r.try_get("job_sticker").ok(),
+        .map(|r| {
+            let position: String = r.try_get("position").unwrap_or_default();
+            let dispatch_codes = dispatch_map.remove(&position).unwrap_or_default();
+            SortChannel {
+                channel_code: r.try_get("channel_code").ok(),
+                job_sticker: r.try_get("job_sticker").ok(),
+                enabled: r.try_get::<i64, _>("enabled").unwrap_or(1) != 0,
+                dispatch_codes,
+                position,
+            }
         })
         .collect())
 }
@@ -60,8 +91,9 @@ pub struct SortChannelSaveReq {
     pub position: String,
     #[serde(default)]
     pub channel_code: Option<String>,
+    /// 指派物流(1 對多):空陣列代表未指派
     #[serde(default)]
-    pub dispatch_code: Option<String>,
+    pub dispatch_codes: Vec<String>,
     #[serde(default)]
     pub job_sticker: Option<String>,
 }
@@ -80,8 +112,15 @@ pub async fn sort_channel_save(
     }
 
     let channel_code = normalize(req.channel_code);
-    let dispatch_code = normalize(req.dispatch_code);
     let job_sticker = normalize(req.job_sticker);
+    // 指派物流去重 + 去空白,保持原始順序
+    let mut dispatch_codes: Vec<String> = Vec::new();
+    for code in req.dispatch_codes {
+        let code = code.trim().to_string();
+        if !code.is_empty() && !dispatch_codes.contains(&code) {
+            dispatch_codes.push(code);
+        }
+    }
 
     // channel_code 若有值，檢查是否被其他 position 佔用
     if let Some(code) = channel_code.as_deref() {
@@ -100,23 +139,65 @@ pub async fn sort_channel_save(
         }
     }
 
+    // 通道本身與多對多指派一起寫入,用交易保證原子性(避免刪了舊指派卻沒寫入新指派)
+    let mut tx = state.db.begin().await?;
+
     sqlx::query(
         "UPDATE sort_channels
-         SET channel_code = ?, dispatch_code = ?, job_sticker = ?, updated_at = datetime('now','localtime')
+         SET channel_code = ?, job_sticker = ?, updated_at = datetime('now','localtime')
          WHERE position = ?",
     )
     .bind(&channel_code)
-    .bind(&dispatch_code)
     .bind(&job_sticker)
     .bind(&req.position)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+
+    // 重設此通道的指派物流:先清空再寫入(整列覆蓋語意,與前端「儲存整列」一致)
+    sqlx::query("DELETE FROM sort_channel_dispatch WHERE position = ?")
+        .bind(&req.position)
+        .execute(&mut *tx)
+        .await?;
+    for code in &dispatch_codes {
+        sqlx::query(
+            "INSERT OR IGNORE INTO sort_channel_dispatch (position, dispatch_code) VALUES (?, ?)",
+        )
+        .bind(&req.position)
+        .bind(code)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
 
     // 寫入 sticker 歷史（給 autocomplete）
     if let Some(name) = job_sticker.as_deref() {
         upsert_sticker_history(&state.db, name).await?;
     }
 
+    Ok(())
+}
+
+/// 快速暫停 / 啟用某通道(分揀進行中即時生效,不需整列儲存)。
+/// 只動 enabled 欄位,不影響使用者尚未儲存的通道代碼 / 指派物流編輯。
+#[tauri::command]
+pub async fn sort_channel_set_enabled(
+    state: State<'_, SharedState>,
+    position: String,
+    enabled: bool,
+) -> AppResult<()> {
+    if !POSITIONS.contains(&position.as_str()) {
+        return Err(AppError::Server(format!("無效的通道位置: {position}")));
+    }
+    sqlx::query(
+        "UPDATE sort_channels
+         SET enabled = ?, updated_at = datetime('now','localtime')
+         WHERE position = ?",
+    )
+    .bind(if enabled { 1 } else { 0 })
+    .bind(&position)
+    .execute(&state.db)
+    .await?;
     Ok(())
 }
 

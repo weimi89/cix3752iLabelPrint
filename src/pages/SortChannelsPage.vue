@@ -2,6 +2,7 @@
 import {
   sortChannelList,
   sortChannelSave,
+  sortChannelSetEnabled,
   sortChannelUnassignedGet,
   sortChannelUnassignedSave,
   dispatchProviderList,
@@ -10,6 +11,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue3-toastify'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -102,7 +104,7 @@ const saveAll = async () => {
       await sortChannelSave({
         position: ch.position,
         channelCode: ch.channel_code,
-        dispatchCode: ch.dispatch_code,
+        dispatchCodes: ch.dispatch_codes,
         jobSticker: ch.job_sticker,
       })
       dirty.value.delete(pos)
@@ -113,6 +115,28 @@ const saveAll = async () => {
     errorMsg.value = String(e?.message || e)
   } finally {
     savingAll.value = false
+  }
+}
+
+// 分揀進行中的快速暫停 / 啟用(即時生效,獨立於整列儲存)
+const pausing = ref(new Set())
+const togglePause = async (pos, val) => {
+  const ch = findChannel(pos)
+  if (!ch) return
+  const prev = ch.enabled
+  ch.enabled = val // 樂觀更新,失敗再還原
+  pausing.value.add(pos)
+  try {
+    await sortChannelSetEnabled(pos, val)
+    toast(
+      t(val ? 'page.sort.pause.resumedFlash' : 'page.sort.pause.pausedFlash', { pos: POSITION_LABELS.value[pos] }),
+      { type: val ? 'success' : 'warning' },
+    )
+  } catch (e) {
+    ch.enabled = prev
+    toast(`${t('page.sort.pause.failed')}: ${String(e?.message || e)}`, { type: 'error' })
+  } finally {
+    pausing.value.delete(pos)
   }
 }
 
@@ -154,6 +178,21 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     box-shadow: 0 0 0 1px rgb(var(--v-theme-warning) / 0.25);
   }
 
+  // 暫停中:整張卡淡化 + 斜紋底,一眼看出此通道暫不分揀(欄位本身仍可編輯)
+  &--paused {
+    background: repeating-linear-gradient(
+      135deg,
+      rgb(var(--v-theme-warning) / 0.05),
+      rgb(var(--v-theme-warning) / 0.05) 8px,
+      rgb(var(--v-theme-warning) / 0.1) 8px,
+      rgb(var(--v-theme-warning) / 0.1) 16px
+    );
+
+    .channel-card__title {
+      opacity: 0.6;
+    }
+  }
+
   &__head {
     display: flex;
     align-items: center;
@@ -187,6 +226,37 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     label {
       font-size: 12px;
     }
+  }
+}
+
+.pause-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgb(var(--v-theme-on-surface) / 0.08);
+
+  &__text {
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  &__switch {
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+
+  &--on {
+    .pause-row__text { color: rgb(var(--v-theme-success)); }
+  }
+
+  &--off {
+    border-color: rgb(var(--v-theme-warning) / 0.5);
+    background: rgb(var(--v-theme-warning) / 0.08);
+
+    .pause-row__text { color: rgb(var(--v-theme-warning)); }
   }
 }
 
@@ -333,13 +403,17 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             v-for="pos in LEFT_POSITIONS"
             :key="pos"
             class="channel-card channel-card--left"
-            :class="{ 'channel-card--dirty': dirty.has(pos) }"
+            :class="{
+              'channel-card--dirty': dirty.has(pos),
+              'channel-card--paused': findChannel(pos) && findChannel(pos).channel_code && !findChannel(pos).enabled,
+            }"
           >
             <template v-if="findChannel(pos)">
               <div class="channel-card__head">
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-left" size="18" color="primary" />
                 <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
                 <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip">{{ $t('page.sort.status.unsaved') }}</VChip>
+                <VChip v-else-if="findChannel(pos).channel_code && !findChannel(pos).enabled" size="x-small" color="warning" variant="flat" class="channel-card__chip">{{ $t('page.sort.status.paused') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.enabled') }}</VChip>
                 <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.unset') }}</VChip>
               </div>
@@ -358,11 +432,14 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
               <div class="search-field">
                 <label>{{ $t('page.sort.dispatch') }}</label>
                 <VSelect
-                  v-model="findChannel(pos).dispatch_code"
+                  v-model="findChannel(pos).dispatch_codes"
                   :items="dispatchSelectItems"
                   :placeholder="$t('page.sort.dispatchUnassigned')"
                   density="compact"
                   variant="outlined"
+                  multiple
+                  chips
+                  closable-chips
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
@@ -383,6 +460,31 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   @remove="removeStickerFromHistory"
                 />
               </div>
+              <!-- 快速暫停開關:分揀進行中即時生效,僅已設定通道代碼者顯示 -->
+              <div
+                v-if="findChannel(pos).channel_code"
+                class="pause-row"
+                :class="findChannel(pos).enabled ? 'pause-row--on' : 'pause-row--off'"
+              >
+                <VIcon
+                  :icon="findChannel(pos).enabled ? 'tabler-player-play-filled' : 'tabler-player-pause-filled'"
+                  size="16"
+                  :color="findChannel(pos).enabled ? 'success' : 'warning'"
+                />
+                <span class="pause-row__text">
+                  {{ findChannel(pos).enabled ? $t('page.sort.status.enabled') : $t('page.sort.status.paused') }}
+                </span>
+                <VSwitch
+                  :model-value="findChannel(pos).enabled"
+                  color="success"
+                  density="compact"
+                  hide-details
+                  inset
+                  :loading="pausing.has(pos)"
+                  class="pause-row__switch"
+                  @update:model-value="togglePause(pos, $event)"
+                />
+              </div>
             </template>
           </div>
         </div>
@@ -399,12 +501,16 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             v-for="pos in RIGHT_POSITIONS"
             :key="pos"
             class="channel-card channel-card--right"
-            :class="{ 'channel-card--dirty': dirty.has(pos) }"
+            :class="{
+              'channel-card--dirty': dirty.has(pos),
+              'channel-card--paused': findChannel(pos) && findChannel(pos).channel_code && !findChannel(pos).enabled,
+            }"
           >
             <template v-if="findChannel(pos)">
               <div class="channel-card__head">
                 <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
                 <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.unsaved') }}</VChip>
+                <VChip v-else-if="findChannel(pos).channel_code && !findChannel(pos).enabled" size="x-small" color="warning" variant="flat" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.paused') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.enabled') }}</VChip>
                 <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.unset') }}</VChip>
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-right" size="18" color="warning" />
@@ -424,11 +530,14 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
               <div class="search-field">
                 <label>{{ $t('page.sort.dispatch') }}</label>
                 <VSelect
-                  v-model="findChannel(pos).dispatch_code"
+                  v-model="findChannel(pos).dispatch_codes"
                   :items="dispatchSelectItems"
                   :placeholder="$t('page.sort.dispatchUnassigned')"
                   density="compact"
                   variant="outlined"
+                  multiple
+                  chips
+                  closable-chips
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
@@ -447,6 +556,31 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   @update:model-value="markDirty(pos)"
                   @remember="rememberUser"
                   @remove="removeStickerFromHistory"
+                />
+              </div>
+              <!-- 快速暫停開關:分揀進行中即時生效,僅已設定通道代碼者顯示 -->
+              <div
+                v-if="findChannel(pos).channel_code"
+                class="pause-row"
+                :class="findChannel(pos).enabled ? 'pause-row--on' : 'pause-row--off'"
+              >
+                <VIcon
+                  :icon="findChannel(pos).enabled ? 'tabler-player-play-filled' : 'tabler-player-pause-filled'"
+                  size="16"
+                  :color="findChannel(pos).enabled ? 'success' : 'warning'"
+                />
+                <span class="pause-row__text">
+                  {{ findChannel(pos).enabled ? $t('page.sort.status.enabled') : $t('page.sort.status.paused') }}
+                </span>
+                <VSwitch
+                  :model-value="findChannel(pos).enabled"
+                  color="success"
+                  density="compact"
+                  hide-details
+                  inset
+                  :loading="pausing.has(pos)"
+                  class="pause-row__switch"
+                  @update:model-value="togglePause(pos, $event)"
                 />
               </div>
             </template>

@@ -463,13 +463,13 @@ pub struct ChannelCount {
     pub channel_code: String,
     /// 該通道當前對應的物理位置(L1-L4 / R1-R4),通道代碼已被改派則為 None
     pub position: Option<String>,
-    /// 該通道當前指派的物流商代碼(對齊 dispatch_provider.code),未設定則為 None
+    /// 該通道當前指派的物流商代碼(對齊 dispatch_provider.code,可多個,以逗號分隔),未設定則為 None
     pub dispatch_code: Option<String>,
     pub count: i64,
 }
 
 /// 依分揀通道分組(指定區間內,只統計工控機 ipc 來源、channel_code 非空者)
-/// LEFT JOIN sort_channels 帶出當前位置與指派物流(一對一,channel_code 有 unique index)。
+/// LEFT JOIN sort_channels 帶出當前位置;指派物流為多對多(sort_channel_dispatch),以子查詢逗號彙整。
 /// 通道代碼事後被改派時,position/dispatch_code 反映「當前」設定,歷史印單數仍以當時 channel_code 歸戶。
 #[tauri::command]
 pub async fn print_stats_by_channel(
@@ -480,7 +480,9 @@ pub async fn print_stats_by_channel(
     let rows = sqlx::query(
         "SELECT pe.channel_code AS code,
                 sc.position      AS position,
-                sc.dispatch_code AS dispatch_code,
+                (SELECT GROUP_CONCAT(scd.dispatch_code, ',')
+                   FROM sort_channel_dispatch scd
+                  WHERE scd.position = sc.position) AS dispatch_code,
                 COUNT(DISTINCT pe.shipping_no) AS n
          FROM print_event pe
          LEFT JOIN sort_channels sc ON sc.channel_code = pe.channel_code
