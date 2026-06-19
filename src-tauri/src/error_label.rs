@@ -401,7 +401,11 @@ pub fn generate(query_no: &str, error_code: &str, height: LabelHeight) -> Vec<u8
 
     // ── 輸出 PNG ──
     let mut buf = Vec::new();
-    let _ = img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png);
+    if let Err(e) = img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png) {
+        // RGBA 記憶體影像寫 PNG 幾乎不會失敗;真失敗時 buf 為空,
+        // 呼叫端(cache 寫入 / 列印)會因 0 bytes 各自失敗並記錄,這裡至少留痕不靜默
+        tracing::error!(?e, "錯誤面單 PNG 編碼失敗,回傳空緩衝");
+    }
     buf
 }
 

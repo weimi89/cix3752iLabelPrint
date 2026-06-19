@@ -223,7 +223,16 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
     // 2. 容量上限
     if max_size_mb > 0 {
         let limit_bytes = (max_size_mb * 1024 * 1024) as i64;
-        let mut total = total_size(base).await?;
+        // target 以 cache_meta 的 size_bytes 加總為準(= 本流程可淘汰的「受管快取」總量)。
+        // 不掃磁碟總量:磁碟另含 @repeat 浮水印 / @error 錯誤面單等非 cache_meta 孤兒檔
+        //(由上方 keep_days expiry 依齡清理)。若以磁碟總量為目標,會因孤兒檔扣不到而把
+        // 合法快取整批刪光、容量卻仍超標(原 bug)。
+        let mut total: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM cache_meta",
+        )
+        .fetch_one(db)
+        .await
+        .unwrap_or(0);
         if total > limit_bytes {
             // 依最少 hit + 最舊 last_hit 取出要刪的
             let victims = sqlx::query_as::<_, (String, String, i64)>(
@@ -239,13 +248,24 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
                 if total <= limit_bytes {
                     break;
                 }
-                let _ = fs::remove_file(&path).await;
-                let _ = sqlx::query("DELETE FROM cache_meta WHERE label_key = ?")
+                if let Err(e) = fs::remove_file(&path).await {
+                    // 檔案可能已被 expiry 先刪;非致命,仍續刪 DB 列保持帳實一致
+                    tracing::debug!(path = %path, ?e, "刪快取檔失敗(可能已不存在)");
+                }
+                // 只有 DELETE 成功才扣 total(避免吞錯後帳實不符、下輪又重選同一筆)
+                match sqlx::query("DELETE FROM cache_meta WHERE label_key = ?")
                     .bind(&key)
                     .execute(db)
-                    .await;
-                total -= size;
-                evict_count += 1;
+                    .await
+                {
+                    Ok(_) => {
+                        total -= size;
+                        evict_count += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!(label_key = %key, ?e, "刪 cache_meta 失敗,略過此筆");
+                    }
+                }
             }
             if evict_count > 0 {
                 event_log::log_bg(db.clone(), "info", "cache", "快取清理",
@@ -278,24 +298,4 @@ async fn clean_expired(base: &Path, threshold: std::time::SystemTime) -> AppResu
         }
     }
     Ok(())
-}
-
-async fn total_size(base: &Path) -> AppResult<i64> {
-    let mut total: i64 = 0;
-    let mut stack = vec![base.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let mut entries = match fs::read_dir(&dir).await {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        while let Some(entry) = entries.next_entry().await? {
-            let meta = entry.metadata().await?;
-            if meta.is_dir() {
-                stack.push(entry.path());
-            } else {
-                total += meta.len() as i64;
-            }
-        }
-    }
-    Ok(total)
 }

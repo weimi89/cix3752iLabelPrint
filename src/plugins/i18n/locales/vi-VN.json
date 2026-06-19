@@ -439,6 +439,7 @@
         "time": "Thời gian",
         "kind": "Trạng thái",
         "queryNo": "Mã tra cứu",
+        "shippingNo": "Mã vận đơn",
         "channel": "Kênh",
         "message": "Thông báo"
       }

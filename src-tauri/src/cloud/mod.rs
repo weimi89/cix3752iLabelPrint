@@ -176,7 +176,21 @@ impl CloudClient {
         let url = format!("{}/{}", join_url(&base, &path), query_no);
 
         let http = self.inner.http.read().clone();
-        let resp = http.get(&url).send().await?;
+        // 工控機同步熱路徑:只重試「連線層」瞬時錯誤(連線被拒/重置,near-instant),
+        // 不重試 timeout(避免雲端 hang 時把工控機等待放大 retry 倍)。retry 取自設定(預設 3)。
+        let retry = self.inner.state.read().retry;
+        let mut attempt = 0u32;
+        let resp = loop {
+            match http.get(&url).send().await {
+                Ok(r) => break r,
+                Err(e) if e.is_connect() && attempt < retry => {
+                    attempt += 1;
+                    tracing::warn!(%url, attempt, ?e, "雲端 parcel 查詢連線失敗,重試");
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
         let status = resp.status();
         if !status.is_success() {
             // 401 維持既有語意(未登入);其餘解析雲端 dingo 錯誤 body 的 message
@@ -204,7 +218,8 @@ impl CloudClient {
             // 查得到訂單的業務錯誤(STORE_CLOSED / UNCONFIRMED …)雲端會帶物流商代碼,
             // 供錯誤面單照正常流程解析分揀通道;NOT_FOUND 等查無訂單時為 None
             let shipping_provider = parse_error_shipping_provider(json.as_ref());
-            return Err(AppError::Cloud { code, message, shipping_provider });
+            let shipping_no = parse_error_shipping_no(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
         }
 
         let envelope: CloudOrderResponse = resp.json().await?;
@@ -295,7 +310,8 @@ impl CloudClient {
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
             let shipping_provider = parse_error_shipping_provider(json.as_ref());
-            return Err(AppError::Cloud { code, message, shipping_provider });
+            let shipping_no = parse_error_shipping_no(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
         }
 
         let mut result: PrintViewResult = resp.json().await?;
@@ -556,7 +572,17 @@ fn trim_base(s: &str) -> String {
 /// 從雲端錯誤 body 解析 `shipping_provider`(失敗回應的 failResp 欄位,查得到訂單才有)。
 /// 數字型代碼也容忍(雲端常數可能是 int),統一轉成字串。
 fn parse_error_shipping_provider(json: Option<&serde_json::Value>) -> Option<String> {
-    let v = json?.get("shipping_provider")?;
+    parse_error_str_field(json, "shipping_provider")
+}
+
+/// 從雲端錯誤 body 解析 `shipping_no`(failResp 在 400 帶出,查得到訂單才有)。
+fn parse_error_shipping_no(json: Option<&serde_json::Value>) -> Option<String> {
+    parse_error_str_field(json, "shipping_no")
+}
+
+/// 從錯誤 body 取指定欄位並轉成非空字串;數字型也容忍(雲端常數可能是 int)。
+fn parse_error_str_field(json: Option<&serde_json::Value>, key: &str) -> Option<String> {
+    let v = json?.get(key)?;
     let s = match v {
         serde_json::Value::String(s) => s.trim().to_string(),
         serde_json::Value::Number(n) => n.to_string(),

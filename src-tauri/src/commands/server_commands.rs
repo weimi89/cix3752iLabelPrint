@@ -1,8 +1,37 @@
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::config::AppConfig;
 use crate::server;
 use crate::{AppResult, SharedState};
+
+/// 用指定設定重啟 server(先 start 新的綁定、成功才 swap 並關舊的)。
+/// start 失敗(例:埠被占用、IP 無效)會回 Err 且不動既有 server,呼叫端據此判定套用失敗。
+/// 供 `server_restart` 與 `update_config`(listen_ip/port 變更時自動重綁)共用。
+pub async fn restart_server(
+    state: &SharedState,
+    config: &AppConfig,
+    app: AppHandle,
+) -> AppResult<()> {
+    let new_handle = {
+        let mut guard = state.server.write().await;
+        let new = server::start(
+            config,
+            state.db.clone(),
+            state.cloud.clone(),
+            state.cache.clone(),
+            state.queue.clone(),
+            state.label_resolver.clone(),
+            state.watermark.clone(),
+            state.bag_check.clone(),
+            app,
+        )
+        .await?;
+        std::mem::replace(&mut *guard, new)
+    };
+    new_handle.shutdown().await;
+    Ok(())
+}
 
 #[derive(Debug, Serialize)]
 pub struct ServerStatus {
@@ -26,29 +55,7 @@ pub async fn server_restart(
     app: AppHandle,
 ) -> AppResult<ServerStatus> {
     let config = state.config.read().await.clone();
-
-    // 先取出舊 handle 並關閉
-    let new_handle = {
-        let mut guard = state.server.write().await;
-        // 直接用 take pattern：先換一個 placeholder 也行；簡化做法是先 shutdown 再 start
-        // 因為 ServerHandle 沒實作 Default，我們用 swap 不便；改成「先 start 新的、再關舊的」
-        let new = server::start(
-            &config,
-            state.db.clone(),
-            state.cloud.clone(),
-            state.cache.clone(),
-            state.queue.clone(),
-            state.label_resolver.clone(),
-            state.watermark.clone(),
-            state.bag_check.clone(),
-            app,
-        )
-        .await?;
-        let old = std::mem::replace(&mut *guard, new);
-        old
-    };
-
-    new_handle.shutdown().await;
+    restart_server(state.inner(), &config, app).await?;
 
     let guard = state.server.read().await;
     Ok(ServerStatus {

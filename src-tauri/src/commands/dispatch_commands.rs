@@ -86,14 +86,16 @@ pub async fn dispatch_provider_delete(
     state: State<'_, SharedState>,
     code: String,
 ) -> AppResult<u64> {
-    // 若仍被通道引用，先解除引用（不刪通道，只移除多對多指派關聯）
+    // 解除引用 + 刪物流商同一交易:中途失敗整批回滾,避免「指派關聯刪了、物流商還在」的半完成狀態
+    let mut tx = state.db.begin().await?;
     sqlx::query("DELETE FROM sort_channel_dispatch WHERE dispatch_code = ?")
         .bind(&code)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     let result = sqlx::query("DELETE FROM dispatch_provider WHERE code = ?")
         .bind(&code)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     Ok(result.rows_affected())
 }

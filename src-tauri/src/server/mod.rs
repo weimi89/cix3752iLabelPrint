@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -106,8 +106,10 @@ fn join_share(root: &str, relative: &str) -> String {
     format!("{}{}{}", root_trimmed, sep, rel_trimmed)
 }
 
-/// 每個物流商代碼下一次該分配的 channel 索引（round-robin）
-type RoundRobinState = Arc<Mutex<HashMap<String, usize>>>;
+/// 每個物流商代碼下一次該分配的 channel 索引（round-robin）。
+/// 用 tokio async Mutex(非 parking_lot):resolve_channel_code 需在持鎖期間 await DB
+/// 做原子 skip 消耗,把「讀-判定-扣減」全序列化,杜絕並發 double-skip 競態。
+type RoundRobinState = Arc<tokio::sync::Mutex<HashMap<String, usize>>>;
 
 #[derive(Clone)]
 struct ServerState {
@@ -186,7 +188,7 @@ pub async fn start(
         cloud,
         cache: cache.clone(),
         queue,
-        rr: Arc::new(Mutex::new(HashMap::new())),
+        rr: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         label_resolver,
         watermark,
         bag_check,
@@ -306,14 +308,14 @@ async fn list_channels(State(state): State<ServerState>) -> impl IntoResponse {
     )
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, "list_channels 讀 sort_channels 失敗,回空清單"); Vec::new() });
 
     let disp_rows = sqlx::query(
         "SELECT position, dispatch_code FROM sort_channel_dispatch ORDER BY position, dispatch_code",
     )
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, "list_channels 讀 sort_channel_dispatch 失敗"); Vec::new() });
     let mut disp_map: HashMap<String, Vec<String>> = HashMap::new();
     for r in disp_rows {
         let p: String = r.try_get("position").unwrap_or_default();
@@ -327,7 +329,7 @@ async fn list_channels(State(state): State<ServerState>) -> impl IntoResponse {
     let provider_rows = sqlx::query("SELECT code, name FROM dispatch_provider")
         .fetch_all(&state.db)
         .await
-        .unwrap_or_default();
+        .unwrap_or_else(|e| { tracing::warn!(?e, "list_channels 讀 dispatch_provider 失敗"); Vec::new() });
     let mut name_map: HashMap<String, String> = HashMap::new();
     for r in provider_rows {
         let code: String = r.try_get("code").unwrap_or_default();
@@ -347,7 +349,7 @@ async fn list_channels(State(state): State<ServerState>) -> impl IntoResponse {
     )
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, "list_channels 讀最近單號失敗"); Vec::new() });
     let mut track_map: HashMap<String, String> = HashMap::new();
     for r in track_rows {
         let cc: String = r.try_get("channel_code").unwrap_or_default();
@@ -496,19 +498,21 @@ struct AlertView {
     query_no: Option<String>,
     message: Option<String>,
     channel_code: Option<String>,
+    /// 雲端帶出的精確物流單號(查得到訂單才有),供清單對單;與工控機掃的 query_no 區分
+    shipping_no: Option<String>,
     created_at: String,
 }
 
 /// 共用查詢:最近 N 筆雲端查件異常(手機 endpoint 與桌面 command 共用)
 pub async fn fetch_recent_alerts(db: &DbPool, limit: i64) -> Vec<serde_json::Value> {
     let rows = sqlx::query(
-        "SELECT id, kind, code, query_no, message, channel_code, created_at
+        "SELECT id, kind, code, query_no, message, channel_code, shipping_no, created_at
          FROM parcel_alert ORDER BY id DESC LIMIT ?",
     )
     .bind(limit)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, "fetch_recent_alerts 讀 parcel_alert 失敗"); Vec::new() });
     rows.into_iter()
         .map(|r| {
             serde_json::to_value(AlertView {
@@ -518,6 +522,7 @@ pub async fn fetch_recent_alerts(db: &DbPool, limit: i64) -> Vec<serde_json::Val
                 query_no: r.try_get("query_no").ok(),
                 message: r.try_get("message").ok(),
                 channel_code: r.try_get("channel_code").ok(),
+                shipping_no: r.try_get("shipping_no").ok().flatten(),
                 created_at: r.try_get("created_at").unwrap_or_default(),
             })
             .unwrap_or(serde_json::Value::Null)
@@ -565,9 +570,10 @@ async fn channel_recent(
            FROM print_event
           WHERE channel_code = ? AND shipping_no IS NOT NULL AND shipping_no <> ''
          UNION ALL
-         SELECT created_at, query_no AS num, kind
+         SELECT created_at, COALESCE(NULLIF(shipping_no, ''), query_no) AS num, kind
            FROM parcel_alert
-          WHERE channel_code = ? AND query_no IS NOT NULL AND query_no <> ''
+          WHERE channel_code = ? AND COALESCE(NULLIF(shipping_no, ''), query_no) IS NOT NULL
+            AND COALESCE(NULLIF(shipping_no, ''), query_no) <> ''
          ORDER BY created_at DESC, num DESC
          LIMIT 3",
     )
@@ -575,7 +581,7 @@ async fn channel_recent(
     .bind(&cc)
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, "channel_recent 讀最近活動失敗"); Vec::new() });
 
     let items: Vec<ChannelRecentItem> = rows
         .into_iter()
@@ -614,9 +620,8 @@ async fn resolve_channel_code(
     provider: &str,
 ) -> (Option<String>, bool) {
     // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)
-    // 同時帶出 position / skip_count,輪到「待跳過」的通道時消耗一次並改派下一個。
     let rows = sqlx::query(
-        "SELECT sc.position, sc.channel_code, sc.skip_count
+        "SELECT sc.position, sc.channel_code
          FROM sort_channel_dispatch scd
          JOIN sort_channels sc ON sc.position = scd.position
          WHERE scd.dispatch_code = ?
@@ -630,16 +635,15 @@ async fn resolve_channel_code(
     .bind(provider)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| { tracing::warn!(?e, provider, "resolve_channel_code 讀通道指派失敗,退回 fallback"); Vec::new() });
 
-    // (position, channel_code, skip_count)
-    let candidates: Vec<(String, String, i64)> = rows
+    // (position, channel_code)
+    let candidates: Vec<(String, String)> = rows
         .into_iter()
         .filter_map(|r| {
             let pos: String = r.try_get("position").ok()?;
             let code: Option<String> = r.try_get("channel_code").ok().flatten();
-            let skip: i64 = r.try_get("skip_count").unwrap_or(0);
-            code.filter(|c| !c.is_empty()).map(|c| (pos, c, skip))
+            code.filter(|c| !c.is_empty()).map(|c| (pos, c))
         })
         .collect();
 
@@ -649,41 +653,39 @@ async fn resolve_channel_code(
     }
 
     let n = candidates.len();
-    // 鎖內只做純記憶體計算(不可 await):決定選哪個通道、哪些通道要扣 skip
-    let (chosen, to_decrement) = {
-        let mut rr = rr.lock();
+    // 全程持 async 鎖跨 await:把「輪轉選位 + skip 原子消耗」序列化,杜絕並發 double-skip。
+    // skip 消耗用條件 UPDATE(WHERE skip_count > 0)+ rows_affected 判定:
+    // 真的扣到一次才視為「跳過此通道」,扣不到(額度已被其他請求用盡)就選它 —— 不依賴鎖外快照。
+    let chosen: Option<String> = {
+        let mut rr = rr.lock().await;
         let entry = rr.entry(provider.to_string()).or_insert(0);
-        let mut idx = *entry % n;
-        let mut to_dec: Vec<String> = Vec::new();
+        let start = *entry % n;
         let mut picked: Option<String> = None;
-        for _ in 0..n {
-            let (pos, code, skip) = &candidates[idx];
-            if *skip > 0 {
-                // 該通道待跳過:消耗一次,改看下一個
-                to_dec.push(pos.clone());
-                idx = (idx + 1) % n;
-            } else {
-                picked = Some(code.clone());
-                *entry = (idx + 1) % n;
-                break;
+        for step in 0..n {
+            let idx = (start + step) % n;
+            let (pos, code) = &candidates[idx];
+            let consumed = sqlx::query(
+                "UPDATE sort_channels SET skip_count = skip_count - 1 WHERE position = ? AND skip_count > 0",
+            )
+            .bind(pos)
+            .execute(db)
+            .await
+            .map(|r| r.rows_affected() > 0)
+            .unwrap_or(false);
+            if consumed {
+                // 該通道本輪待跳過:已原子消耗一次,改看下一個
+                continue;
             }
+            picked = Some(code.clone());
+            *entry = (idx + 1) % n;
+            break;
         }
         if picked.is_none() {
-            // 全部通道都被跳過:這一輪不分配,仍前進指標避免卡同一位置
-            *entry = (idx + 1) % n;
+            // 全部通道本輪都被跳過:不分配,前進指標避免卡同一位置
+            *entry = (start + 1) % n;
         }
-        (picked, to_dec)
+        picked
     };
-
-    // 鎖外再扣 skip_count(避免在 parking_lot Mutex 內 await)
-    for pos in &to_decrement {
-        let _ = sqlx::query(
-            "UPDATE sort_channels SET skip_count = MAX(skip_count - 1, 0) WHERE position = ?",
-        )
-        .bind(pos)
-        .execute(db)
-        .await;
-    }
 
     match chosen {
         Some(c) => (Some(c), true),
@@ -1216,14 +1218,15 @@ async fn get_parcel(
             .execute(&state.db)
             .await;
             // 依雲端錯誤訊息分類,讓桌面前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
-            let (kind, msg, err_code, err_provider) = match &e {
-                AppError::Cloud { code, message, shipping_provider } => (
+            let (kind, msg, err_code, err_provider, err_shipping_no) = match &e {
+                AppError::Cloud { code, message, shipping_provider, shipping_no } => (
                     classify_parcel_alert(code),
                     message.clone(),
                     code.clone(),
                     shipping_provider.clone(),
+                    shipping_no.clone(),
                 ),
-                other => ("error", other.to_string(), "ERROR".to_string(), None),
+                other => ("error", other.to_string(), "ERROR".to_string(), None, None),
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
 
@@ -1240,15 +1243,17 @@ async fn get_parcel(
             };
 
             // 記錄雲端查件異常(門市關轉等),供手機 / 桌面回看清單
+            // shipping_no 為雲端帶出的精確物流單號(查得到訂單才有),與工控機掃的 query_no 區分
             let _ = sqlx::query(
-                "INSERT INTO parcel_alert (kind, code, query_no, message, channel_code, created_at)
-                 VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))",
+                "INSERT INTO parcel_alert (kind, code, query_no, message, channel_code, shipping_no, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'))",
             )
             .bind(kind)
             .bind(&err_code)
             .bind(&query_no)
             .bind(&msg)
             .bind(&channel_code)
+            .bind(&err_shipping_no)
             .execute(&state.db)
             .await;
 

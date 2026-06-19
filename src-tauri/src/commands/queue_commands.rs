@@ -108,13 +108,13 @@ pub async fn queue_list(
         .collect())
 }
 
-/// 把 failed 全部重設為 pending,讓 worker 下一輪重試
+/// 把 failed(與殘留 sending)全部重設為 pending,清退避讓 worker 下一輪立即重試
 #[tauri::command]
 pub async fn queue_retry_failed(state: State<'_, SharedState>) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE report_queue
-         SET status='pending', retry_count=0, updated_at=datetime('now','localtime')
-         WHERE status='failed'",
+         SET status='pending', retry_count=0, next_attempt_at=NULL, updated_at=datetime('now','localtime')
+         WHERE status IN ('failed', 'sending')",
     )
     .execute(&state.db)
     .await?;
@@ -144,10 +144,11 @@ pub async fn queue_purge(
 ) -> AppResult<u64> {
     let days = req.older_than_days.max(0);
     let cutoff = format!("-{days} days");
+    // created_at 以 localtime 寫入,比對基準也要 localtime,否則 +8 時區會有 8 小時偏差
     let result = sqlx::query(
         "DELETE FROM report_queue
          WHERE status = ?
-           AND created_at < datetime('now', ?)",
+           AND created_at < datetime('now','localtime', ?)",
     )
     .bind(&req.status)
     .bind(&cutoff)

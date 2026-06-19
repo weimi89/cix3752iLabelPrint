@@ -16,6 +16,19 @@ pub async fn update_config(
     state: State<'_, SharedState>,
     new_config: AppConfig,
 ) -> AppResult<AppConfig> {
+    // server.listen_ip / port 不是熱套用欄位(要重綁 socket)。先比對是否變更,
+    // 變更則用新設定重啟 server —— start 會驗證新 addr 可綁,失敗就整個 update 中止、
+    // 不持久化也不動其他設定,避免「設定存了卻沒生效」的斷鏈(舊版這裡完全沒處理 server)。
+    let server_changed = {
+        let cur = state.config.read().await;
+        cur.server.listen_ip != new_config.server.listen_ip
+            || cur.server.port != new_config.server.port
+    };
+    if server_changed {
+        crate::commands::server_commands::restart_server(state.inner(), &new_config, handle.clone())
+            .await?;
+    }
+
     new_config.save(&handle).await?;
 
     state.cloud.apply_config(&new_config);

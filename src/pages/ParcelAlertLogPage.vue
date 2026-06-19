@@ -11,17 +11,9 @@ const loading = ref(false)
 const errorMsg = ref('')
 let unlisten = null
 
-// 雲端查件異常類別名稱
-const KIND_LABEL = {
-  store_closed: '門市關轉',
-  unconfirmed: '未確認',
-  not_found: '查無此件',
-  not_proxy: '非代收件',
-  not_forward: '非轉寄件',
-  unauthorized: '雲端未登入',
-  error: '查件異常',
-}
-const kindLabel = k => KIND_LABEL[k] || t(`parcelAlert.${k}`, k) || k
+// 雲端查件異常類別名稱:單一來源走 i18n parcelAlert.*(雙語 + 與 Flutter / 雲端 canonical 一致),
+// 不再用 inline 常數(會寫死中文且易與 i18n 漂移,曾導致 not_proxy 顯示「非代收件」語意錯誤)
+const kindLabel = k => t(`parcelAlert.${k}`)
 const kindColor = k =>
   k === 'store_closed' || k === 'unconfirmed' ? 'warning'
     : k === 'not_found' ? 'secondary' : 'error'
@@ -73,6 +65,7 @@ const empty = computed(() => !loading.value && alerts.value.length === 0)
             <th>{{ $t('page.alertLog.col.time') }}</th>
             <th>{{ $t('page.alertLog.col.kind') }}</th>
             <th>{{ $t('page.alertLog.col.queryNo') }}</th>
+            <th>{{ $t('page.alertLog.col.shippingNo') }}</th>
             <th>{{ $t('page.alertLog.col.channel') }}</th>
             <th>{{ $t('page.alertLog.col.message') }}</th>
           </tr>
@@ -82,6 +75,7 @@ const empty = computed(() => !loading.value && alerts.value.length === 0)
             <td class="text-no-wrap text-medium-emphasis">{{ a.created_at }}</td>
             <td><VChip :color="kindColor(a.kind)" size="small" variant="tonal">{{ kindLabel(a.kind) }}</VChip></td>
             <td class="font-weight-medium">{{ a.query_no || '—' }}</td>
+            <td class="font-weight-medium">{{ a.shipping_no || '—' }}</td>
             <td class="text-center">{{ a.channel_code || '—' }}</td>
             <td class="text-medium-emphasis">{{ a.message || '—' }}</td>
           </tr>

@@ -134,6 +134,7 @@ mod windows_gdi {
         fn DeleteDC(hdc: HDC) -> c_int;
         fn StartDocW(hdc: HDC, lpdi: *const DOCINFOW) -> c_int;
         fn EndDoc(hdc: HDC) -> c_int;
+        fn AbortDoc(hdc: HDC) -> c_int;
         fn StartPage(hdc: HDC) -> c_int;
         fn EndPage(hdc: HDC) -> c_int;
         fn GetDeviceCaps(hdc: HDC, index: c_int) -> c_int;
@@ -296,13 +297,18 @@ mod windows_gdi {
             );
             let stretch_failed = scanlines == 0 || (scanlines as u32) == GDI_ERROR;
 
+            // 影像沒成功畫上就不能提交:AbortDoc 丟棄整份文件(不送空白頁進 spooler),
+            // 而非 EndPage/EndDoc(那會把半張/空白頁 commit 給印表機)
+            if stretch_failed {
+                AbortDoc(hdc);
+                DeleteDC(hdc);
+                return Err(AppError::Printer("StretchDIBits 失敗".into()));
+            }
+
             let end_page_ok = EndPage(hdc) > 0;
             let end_doc_ok = EndDoc(hdc) > 0;
             DeleteDC(hdc);
 
-            if stretch_failed {
-                return Err(AppError::Printer("StretchDIBits 失敗".into()));
-            }
             if !end_page_ok {
                 return Err(AppError::Printer("EndPage 失敗".into()));
             }

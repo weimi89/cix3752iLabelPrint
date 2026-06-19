@@ -439,6 +439,7 @@
         "time": "時間",
         "kind": "狀態",
         "queryNo": "查詢單號",
+        "shippingNo": "物流單號",
         "channel": "通道",
         "message": "訊息"
       }

@@ -44,6 +44,9 @@ pub enum AppError {
         /// 雲端錯誤 body 帶出的物流商代碼(查得到訂單的業務錯誤才有,如 STORE_CLOSED / UNCONFIRMED)。
         /// 工控機錯誤面單據此解析分揀通道,讓異常包裹進對應格口列印。
         shipping_provider: Option<String>,
+        /// 雲端錯誤 body 帶出的物流單號(查得到訂單的業務錯誤才有)。
+        /// 工控機掃的 query_no 是條碼原值(可能經正規化),這裡記錄雲端精確的物流單號供異常清單對單。
+        shipping_no: Option<String>,
     },
 
     #[error("印表機錯誤: {0}")]

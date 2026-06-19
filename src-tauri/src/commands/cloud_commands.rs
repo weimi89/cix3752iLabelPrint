@@ -70,7 +70,7 @@ async fn process_label_for_ui(
 
 /// 面單預產(背景排程用):Download 模式抓單張面單並下載快取,
 /// 不記印單事件、不產錯誤面單(純預熱快取)。
-/// 回傳 Ok(true)=成功快取 / Ok(false)=雲端回成功但無檔路徑(略過) / Err=連線或業務錯誤。
+/// 回傳 Ok(true)=成功快取 / Ok(false)=雲端回成功但無檔路徑(略過) / Err=連線或下載失敗。
 pub(crate) async fn pregen_label_to_cache(state: &SharedState, order_sn: &str) -> AppResult<bool> {
     let result = state
         .cloud
@@ -83,13 +83,17 @@ pub(crate) async fn pregen_label_to_cache(state: &SharedState, order_sn: &str) -
             None,
         )
         .await?;
-    if let Some(url) = result.print_file_path.clone() {
-        let provider = result.print_shipping_provider.as_deref();
-        process_label_for_ui(state, &url, result.print_num, provider).await;
-        Ok(true)
-    } else {
-        Ok(false)
+    let Some(url) = result.print_file_path.clone() else {
+        return Ok(false); // 雲端回成功但無檔路徑
+    };
+    let label_key = derive_label_key(&url);
+    if state.cache.has_local(&label_key) {
+        return Ok(true); // 已在 cache,免重抓
     }
+    // 直接下載到 cache 並傳播真實成敗:不經 process_label_for_ui(那是 UI 路徑,
+    // 下載失敗會「退回原雲端 URL」回 String,會讓 pregen 把沒快取成功的也算成功)
+    state.cache.fetch_now(&label_key, &url).await?;
+    Ok(true)
 }
 
 /// 產生錯誤面單、寫入 cache,回傳本機 middleware URL(`http://127.0.0.1:{port}/images/@error/...`)。

@@ -32,16 +32,20 @@ const MOCK_CONFIG = {
     session_path: '/api/v1/local-middleware/session',
     scan_print_path: '/api/v1/local-middleware/label/scan-print',
     pre_generate_path: '/api/v1/local-middleware/label/pre-generate',
+    package_orders_path: '/api/v1/local-middleware/label/package-orders',
+    orders_by_date_path: '/api/v1/local-middleware/label/orders-by-date',
     cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
+    examine_package_path: '/api/v1/local-middleware/label/examine-package',
     webhook_path: '/webhook/logistic-cat',
   },
-  cache: { dir: '', keep_days: 14, max_size_mb: 0 },
+  cache: { dir: '', keep_days: 5, max_size_mb: 0 },
   network: {
     interval_secs: 15,
     degrade_interval_secs: 60,
     anchor_addr: '1.1.1.1:443',
     anchor_timeout_ms: 1500,
     cloud_timeout_secs: 3,
+    cloud_interval_secs: 180,
     fail_threshold: 2,
   },
   label_path: {
@@ -124,8 +128,8 @@ export const serverRestart = () => invoke('server_restart')
 export const recentParcelAlerts = async () => {
   if (!isTauri) {
     return [
-      { id: 2, kind: 'store_closed', code: 'STORE_CLOSED', query_no: 'SF1398806613', message: '門市關轉,請改投其他門市', channel_code: 'L3', created_at: '2026-06-18 14:24:02' },
-      { id: 1, kind: 'not_found', code: 'NOT_FOUND', query_no: 'SF0000000001', message: '查無此件', channel_code: null, created_at: '2026-06-18 13:10:55' },
+      { id: 2, kind: 'store_closed', code: 'STORE_CLOSED', query_no: 'SF1398806613', shipping_no: 'SF1398806613', message: '門市關轉,請改投其他門市', channel_code: 'L3', created_at: '2026-06-18 14:24:02' },
+      { id: 1, kind: 'not_found', code: 'NOT_FOUND', query_no: 'SF0000000001', shipping_no: null, message: '查無此件', channel_code: null, created_at: '2026-06-18 13:10:55' },
     ]
   }
   return await invoke('recent_parcel_alerts')
