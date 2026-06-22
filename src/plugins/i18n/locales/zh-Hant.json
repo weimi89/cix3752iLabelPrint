@@ -627,6 +627,7 @@
       "toast": {
         "errPrintTypeRequired": "請至少選擇一個列印類型",
         "packageLoaded": "已載入袋號 {sn}:{n} 筆",
+        "duplicateScan": "已忽略重複刷碼(5 秒內):{sn}",
         "unknownRespond": "未知回應 ({code}):{msg}",
         "noPrinterForProvider": "未設定 {code} 印表機,請至「印表機設定」",
         "printed": "列印包裹貼標:{sn}",

@@ -300,6 +300,7 @@ declare global {
   const useResponsiveLeftSidebar: typeof import('./@core/composable/useResponsiveSidebar.js')['useResponsiveLeftSidebar']
   const useRoute: typeof import('vue-router')['useRoute']
   const useRouter: typeof import('vue-router')['useRouter']
+  const useScanDedup: typeof import('./composables/useScanDedup.js')['useScanDedup']
   const useScreenOrientation: typeof import('@vueuse/core')['useScreenOrientation']
   const useScreenSafeArea: typeof import('@vueuse/core')['useScreenSafeArea']
   const useScriptTag: typeof import('@vueuse/core')['useScriptTag']
@@ -681,6 +682,7 @@ declare module 'vue' {
     readonly useResponsiveLeftSidebar: UnwrapRef<typeof import('./@core/composable/useResponsiveSidebar.js')['useResponsiveLeftSidebar']>
     readonly useRoute: UnwrapRef<typeof import('vue-router')['useRoute']>
     readonly useRouter: UnwrapRef<typeof import('vue-router')['useRouter']>
+    readonly useScanDedup: UnwrapRef<typeof import('./composables/useScanDedup.js')['useScanDedup']>
     readonly useScreenOrientation: UnwrapRef<typeof import('@vueuse/core')['useScreenOrientation']>
     readonly useScreenSafeArea: UnwrapRef<typeof import('@vueuse/core')['useScreenSafeArea']>
     readonly useScriptTag: UnwrapRef<typeof import('@vueuse/core')['useScriptTag']>

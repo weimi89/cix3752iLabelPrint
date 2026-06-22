@@ -3,6 +3,7 @@ import { toast } from 'vue3-toastify'
 import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
 import { printErrorLabel } from '@/composables/useErrorLabelPrint'
 import { playSound } from '@/composables/useSoundEffects'
+import { useScanDedup } from '@/composables/useScanDedup'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppHeader from '@/components/AppHeader.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
@@ -137,6 +138,11 @@ const allPrinted = computed(() => packageOrders.value.length > 0 && unprintedCou
 const shipmentNoRef = ref(null)
 const orderSnRef = ref(null)
 
+// 掃描槍連刷防呆:同一條碼 5 秒內重複刷入 → 略過,避免「刷太快出兩筆」。
+// 兩個入口各自獨立(袋號欄載清單/自動印、訂單編號欄逐筆列印),不互相干擾
+const packageScanDedup = useScanDedup(5000)
+const orderScanDedup = useScanDedup(5000)
+
 const formatNow = () => {
   const pad = n => String(n).padStart(2, '0')
   const d = new Date()
@@ -246,6 +252,15 @@ const handleExaminePackage = () => {
   // 只有「ON 反查 + 會自動印」時才前置驗證(焦點連刷停在本欄,失敗就不清欄位、不排隊,讓操作員補資料後重刷)。
   // 關閉自動列印 = 純查件/查漏,不該被人員未填卡住;OFF 模式以「查清單」為主,人員未填時由 performPrintOrder 內部提示
   if (examineByOrderSn.value && autoPrintOnScan.value && !validatePrintForm()) return
+  // 掃描槍連刷防呆:同一條碼 5 秒內重複 → 略過。避免刷太快造成
+  // 自動列印模式下重印一筆,或查件模式下重載清單清掉本場已刷標記
+  if (packageScanDedup.isDuplicate(value)) {
+    form.shipment_no = ''
+    // 不播音效:現場連刷頻繁,每筆被擋都響會很吵 — 僅以 toast 靜默提示
+    toast(t('page.auto.toast.duplicateScan', { sn: value }), { type: 'info' })
+    nextTick(() => shipmentNoRef.value?.focus())
+    return
+  }
   // 同步清空條碼欄(value 已快照),焦點仍在本欄 → 操作員可在往返期間連刷下一筆;
   // 實際查詢/列印進佇列逐筆執行避免並發。回應後一律不再清空,避免清掉等待期間已刷入的下一筆
   form.shipment_no = ''
@@ -325,6 +340,14 @@ const handlePrintSubmit = () => {
   const orderSn = form.order_sn.trim()
   if (!orderSn) return
   if (!validatePrintForm()) return // 驗證失敗:不清欄位、不排隊,讓操作員補資料後重刷
+  // 掃描槍連刷防呆:同一訂單編號 5 秒內重複刷入 → 略過,避免刷太快出兩筆
+  if (orderScanDedup.isDuplicate(orderSn)) {
+    form.order_sn = ''
+    // 不播音效:現場連刷頻繁,每筆被擋都響會很吵 — 僅以 toast 靜默提示
+    toast(t('page.auto.toast.duplicateScan', { sn: orderSn }), { type: 'info' })
+    nextTick(() => orderSnRef.value?.focus())
+    return
+  }
   const packageSn = form.package_sn || '' // 掃描當下快照,避免佇列延後執行時袋號已被下一袋覆蓋
   // 同步清空訂單欄並聚焦 → 立刻可刷下一筆;實際列印進佇列逐筆執行,回應後一律不再清(以免清掉那筆下一個條碼)
   form.order_sn = ''

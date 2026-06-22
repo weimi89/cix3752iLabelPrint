@@ -627,6 +627,7 @@
       "toast": {
         "errPrintTypeRequired": "Vui lòng chọn ít nhất một loại in",
         "packageLoaded": "Đã tải túi {sn}: {n} mục",
+        "duplicateScan": "Đã bỏ qua quét trùng (trong 5 giây): {sn}",
         "unknownRespond": "Phản hồi không xác định ({code}): {msg}",
         "noPrinterForProvider": "Chưa thiết lập máy in {code}, vui lòng vào \"Cài đặt máy in\"",
         "printed": "In nhãn kiện hàng: {sn}",
