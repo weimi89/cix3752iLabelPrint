@@ -90,6 +90,15 @@ jobs:
           # Updater signing — Tauri 內建,只要 env 有設就會 sign 並產 latest.json
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS codesign + notarize — 讓 .app/.dmg 過 Gatekeeper,別台 Mac 下載即開(不再「已損毀」)
+          # 這 6 個 secret 沒設時注入空字串,tauri-action 自動跳過簽章、退回 ad-hoc(等同現狀,不會 fail)
+          # Windows runner 也會拿到這些 env,但 APPLE_* 對 Windows build 無作用,無害
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: '智配通 面單列印 ${{ github.event.inputs.tag || github.ref_name }}'
