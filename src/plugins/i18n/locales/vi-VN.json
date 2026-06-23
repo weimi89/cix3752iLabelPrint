@@ -43,6 +43,7 @@
   "nav": {
     "section": {
       "main": "Chức năng chính",
+      "clearance": "Thông quan",
       "print": "In đơn hàng",
       "settings": "Cài đặt",
       "logs": "Nhật ký"
@@ -53,6 +54,8 @@
     "scanPrint": "Quét và in",
     "autoPrint": "Tự động in",
     "sortChannels": "Kênh phân loại",
+    "clearanceAdd": "Kiện hàng nhập kho",
+    "clearanceDispatch": "Điều phối tài xế",
     "cacheSettings": "Bộ nhớ đệm ảnh",
     "dispatchProviders": "Chỉ định hãng vận chuyển",
     "serverSettings": "Cài đặt dịch vụ",
@@ -216,6 +219,42 @@
     }
   },
   "page": {
+    "clearanceAdd": {
+      "title": "Kiện hàng nhập kho",
+      "subtitle": "Quét mã túi kiện hàng, thêm vào danh sách thông quan",
+      "settingsTitle": "Cài đặt thông quan",
+      "scanTitle": "Quét kiện hàng",
+      "clearanceDate": "Ngày thông quan",
+      "clearanceCompany": "Công ty thông quan",
+      "clearanceCompanyPlaceholder": "Chọn hoặc nhập công ty thông quan",
+      "storageCode": "Mã kho",
+      "scanLabel": "Nhập từ máy quét",
+      "scanPlaceholder": "Quét hoặc nhập mã túi rồi nhấn Enter (có thể dán nhiều mã)",
+      "submitBtn": "Xác nhận thêm",
+      "errNoPackage": "Vui lòng quét ít nhất một mã túi kiện hàng",
+      "errNoCompany": "Vui lòng nhập công ty thông quan",
+      "submitOk": "Đã thêm {n} kiện hàng",
+      "submitError": "Thêm thất bại: {msg}",
+      "optionsError": "Tải tùy chọn thất bại, có thể nhập công ty thủ công: {msg}"
+    },
+    "clearanceDispatch": {
+      "title": "Điều phối tài xế",
+      "subtitle": "Quét mã túi kiện hàng, chỉ định tài xế xuất hàng",
+      "settingsTitle": "Cài đặt điều phối",
+      "scanTitle": "Quét kiện hàng",
+      "shippingDate": "Ngày xuất hàng",
+      "driverName": "Tên tài xế",
+      "driverNamePlaceholder": "Chọn hoặc nhập tên tài xế",
+      "storageCode": "Mã kho",
+      "scanLabel": "Nhập từ máy quét",
+      "scanPlaceholder": "Quét hoặc nhập mã túi rồi nhấn Enter (có thể dán nhiều mã)",
+      "submitBtn": "Xác nhận điều phối",
+      "errNoPackage": "Vui lòng quét ít nhất một mã túi kiện hàng",
+      "errNoDriver": "Vui lòng nhập tên tài xế",
+      "submitOk": "Đã điều phối {n} kiện hàng",
+      "submitError": "Điều phối thất bại: {msg}",
+      "optionsError": "Tải tùy chọn thất bại, có thể nhập tài xế thủ công: {msg}"
+    },
     "dashboard": {
       "title": "Bảng điều khiển",
       "subtitle": "Trạng thái thời gian thực của dịch vụ trung gian phân loại cục bộ",

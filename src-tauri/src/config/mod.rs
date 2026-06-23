@@ -120,6 +120,15 @@ pub struct CloudConfig {
     /// 自動印單包裹查詢 (examine-package) path
     #[serde(default = "default_examine_package_path")]
     pub examine_package_path: String,
+    /// 清關作業 — 取得選項 (倉庫 / 清關公司 / 司機 歷史清單) path
+    #[serde(default = "default_clearance_options_path")]
+    pub clearance_options_path: String,
+    /// 清關作業 — 新增清關包裹 path
+    #[serde(default = "default_clearance_store_path")]
+    pub clearance_store_path: String,
+    /// 清關作業 — 司機派工 path
+    #[serde(default = "default_clearance_dispatch_path")]
+    pub clearance_dispatch_path: String,
     /// 分揀完成 webhook path
     #[serde(default = "default_webhook_path")]
     pub webhook_path: String,
@@ -143,6 +152,9 @@ impl Default for CloudConfig {
             orders_by_date_path: default_orders_by_date_path(),
             cloud_print_path: default_cloud_print_path(),
             examine_package_path: default_examine_package_path(),
+            clearance_options_path: default_clearance_options_path(),
+            clearance_store_path: default_clearance_store_path(),
+            clearance_dispatch_path: default_clearance_dispatch_path(),
             webhook_path: default_webhook_path(),
         }
     }
@@ -292,6 +304,9 @@ fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-
 fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/examine-package".to_string() }
 fn default_package_orders_path() -> String { "/api/v1/local-middleware/label/package-orders".to_string() }
 fn default_orders_by_date_path() -> String { "/api/v1/local-middleware/label/orders-by-date".to_string() }
+fn default_clearance_options_path() -> String { "/api/v1/local-middleware/clearance/options".to_string() }
+fn default_clearance_store_path() -> String { "/api/v1/local-middleware/clearance/store".to_string() }
+fn default_clearance_dispatch_path() -> String { "/api/v1/local-middleware/clearance/dispatch".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 fn default_net_interval() -> u64 { 15 }
 fn default_net_degrade_interval() -> u64 { 60 }

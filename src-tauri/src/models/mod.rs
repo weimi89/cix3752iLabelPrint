@@ -180,6 +180,52 @@ pub struct CloudPrintResult {
     pub error_label_path: Option<String>,
 }
 
+/// 清關作業 — 下拉選項(倉庫 / 清關公司 / 司機 歷史清單),對齊雲端 clearance/options
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearanceOptions {
+    #[serde(default)]
+    pub storages: Vec<ClearanceOption>,
+    #[serde(default)]
+    pub clearance_companies: Vec<ClearanceOption>,
+    #[serde(default)]
+    pub drivers: Vec<ClearanceOption>,
+}
+
+/// 清關作業單一選項(value / title 對齊雲端 selectbox 格式)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearanceOption {
+    pub value: String,
+    pub title: String,
+}
+
+/// 清關作業 — 新增包裹結果,對齊雲端 clearance/store
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearanceStoreResult {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub upserted: i64,
+    #[serde(default)]
+    pub confirm_success: i64,
+    #[serde(default)]
+    pub confirm_failed: i64,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// 清關作業 — 司機派工結果,對齊雲端 clearance/dispatch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearanceDispatchResult {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub dispatched: i64,
+    #[serde(default)]
+    pub driver_name: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
 /// 袋號反查整袋訂單編號結果(面單預產用)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageOrdersResult {

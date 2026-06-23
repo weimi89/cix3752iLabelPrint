@@ -16,6 +16,8 @@ import ParcelAlertLogPage from '@/pages/ParcelAlertLogPage.vue'
 import PrintStatsPage from '@/pages/PrintStatsPage.vue'
 import SortChannelsPage from '@/pages/SortChannelsPage.vue'
 import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
+import ClearanceAddPage from '@/pages/ClearanceAddPage.vue'
+import ClearanceDispatchPage from '@/pages/ClearanceDispatchPage.vue'
 
 const routes = [
   { path: '/', name: 'dashboard', component: DashboardPage,
@@ -30,6 +32,10 @@ const routes = [
     meta: { title: 'nav.preGenerate', icon: 'tabler-photo-down', group: 'nav.section.print' } },
   { path: '/sort-channels', name: 'sort-channels', component: SortChannelsPage,
     meta: { title: 'nav.sortChannels', icon: 'tabler-route', group: 'nav.section.main' } },
+  { path: '/clearance-add', name: 'clearance-add', component: ClearanceAddPage,
+    meta: { title: 'nav.clearanceAdd', icon: 'tabler-scan', group: 'nav.section.clearance' } },
+  { path: '/clearance-dispatch', name: 'clearance-dispatch', component: ClearanceDispatchPage,
+    meta: { title: 'nav.clearanceDispatch', icon: 'tabler-truck-delivery', group: 'nav.section.clearance' } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,
     meta: { title: 'nav.dispatchProviders', icon: 'tabler-truck-delivery', group: 'nav.section.settings' } },
   { path: '/printer-settings', name: 'printer-settings', component: PrinterSettingsPage,

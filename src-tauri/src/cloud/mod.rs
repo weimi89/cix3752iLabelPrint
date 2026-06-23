@@ -7,8 +7,9 @@ use serde_json::json;
 
 use crate::config::AppConfig;
 use crate::models::{
-    CloudOrderResponse, CloudPrintResult, CloudSession, ExaminePackageResult,
-    PackageOrdersResult, ParcelInfo, PrintViewResult,
+    ClearanceDispatchResult, ClearanceOptions, ClearanceStoreResult, CloudOrderResponse,
+    CloudPrintResult, CloudSession, ExaminePackageResult, PackageOrdersResult, ParcelInfo,
+    PrintViewResult,
 };
 use crate::{AppError, AppResult};
 
@@ -50,6 +51,9 @@ struct CloudState {
     examine_package_path: String,
     package_orders_path: String,
     orders_by_date_path: String,
+    clearance_options_path: String,
+    clearance_store_path: String,
+    clearance_dispatch_path: String,
     webhook_path: String,
 }
 
@@ -79,6 +83,9 @@ impl CloudClient {
             examine_package_path: config.cloud.examine_package_path.clone(),
             package_orders_path: config.cloud.package_orders_path.clone(),
             orders_by_date_path: config.cloud.orders_by_date_path.clone(),
+            clearance_options_path: config.cloud.clearance_options_path.clone(),
+            clearance_store_path: config.cloud.clearance_store_path.clone(),
+            clearance_dispatch_path: config.cloud.clearance_dispatch_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
         };
 
@@ -112,6 +119,9 @@ impl CloudClient {
         s.examine_package_path = config.cloud.examine_package_path.clone();
         s.package_orders_path = config.cloud.package_orders_path.clone();
         s.orders_by_date_path = config.cloud.orders_by_date_path.clone();
+        s.clearance_options_path = config.cloud.clearance_options_path.clone();
+        s.clearance_store_path = config.cloud.clearance_store_path.clone();
+        s.clearance_dispatch_path = config.cloud.clearance_dispatch_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
     }
 
@@ -404,6 +414,107 @@ impl CloudClient {
         let result: PackageOrdersResult = serde_json::from_str(&text).map_err(|e| {
             AppError::Server(format!(
                 "雲端 orders-by-date 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 清關作業:取得選項(倉庫 / 清關公司 / 司機 歷史清單),對齊雲端 clearance/options
+    pub async fn fetch_clearance_options(&self) -> AppResult<ClearanceOptions> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().clearance_options_path.clone();
+        let url = join_url(&base, &path);
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: ClearanceOptions = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 clearance/options 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 清關作業:新增清關包裹,對齊雲端 clearance/store
+    /// `package_sn` 以逗號 / 空白 / 換行分隔的多筆袋號字串(雲端會再去重、轉大寫)
+    pub async fn store_clearance_packages(
+        &self,
+        transport_package_sn: &str,
+        clearance_company: &str,
+        clearance_date: &str,
+        storage_code: &str,
+    ) -> AppResult<ClearanceStoreResult> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().clearance_store_path.clone();
+        let url = join_url(&base, &path);
+
+        let body = json!({
+            "transport_package_sn": transport_package_sn,
+            "clearance_company": clearance_company,
+            "clearance_date": clearance_date,
+            "storage_code": storage_code,
+        });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: ClearanceStoreResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 clearance/store 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })?;
+        Ok(result)
+    }
+
+    /// 清關作業:司機派工,對齊雲端 clearance/dispatch
+    pub async fn dispatch_clearance_packages(
+        &self,
+        transport_package_sn: &str,
+        driver_name: &str,
+        shipping_date: &str,
+        storage_code: &str,
+    ) -> AppResult<ClearanceDispatchResult> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().clearance_dispatch_path.clone();
+        let url = join_url(&base, &path);
+
+        let body = json!({
+            "transport_package_sn": transport_package_sn,
+            "driver_name": driver_name,
+            "shipping_date": shipping_date,
+            "storage_code": storage_code,
+        });
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        let result: ClearanceDispatchResult = serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 clearance/dispatch 回應解析失敗: {e}; body: {}",
                 text.chars().take(500).collect::<String>()
             ))
         })?;

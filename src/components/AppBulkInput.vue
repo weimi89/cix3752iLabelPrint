@@ -151,6 +151,9 @@ const focusInput = () => {
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
+
+// 對外公開:讓掃描頁可在載入 / 清空後把游標移回輸入框,操作員免手動點擊
+defineExpose({ focusInput })
 </script>
 
 <template>

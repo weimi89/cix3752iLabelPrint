@@ -6,7 +6,8 @@ use crate::event_log;
 use crate::cloud::LabelFetchMode;
 use crate::commands::print_stats_commands::emit_print_stats_updated;
 use crate::models::{
-    CloudPrintResult, CloudSession, ExaminePackageResult, PackageOrdersResult, PrintViewResult,
+    ClearanceDispatchResult, ClearanceOptions, ClearanceStoreResult, CloudPrintResult,
+    CloudSession, ExaminePackageResult, PackageOrdersResult, PrintViewResult,
 };
 use crate::watermark::derive_repeat_key;
 use crate::{AppError, AppResult, SharedState};
@@ -338,6 +339,69 @@ pub async fn cloud_orders_by_date(
 ) -> AppResult<PackageOrdersResult> {
     let source = req.source.as_deref().unwrap_or("clearance");
     state.cloud.fetch_orders_by_date(&req.date, source).await
+}
+
+/// 清關作業:取得選項(倉庫 / 清關公司 / 司機 歷史清單)
+#[tauri::command]
+pub async fn cloud_clearance_options(
+    state: State<'_, SharedState>,
+) -> AppResult<ClearanceOptions> {
+    state.cloud.fetch_clearance_options().await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClearanceStoreRequest {
+    pub transport_package_sn: String,
+    #[serde(default)]
+    pub clearance_company: Option<String>,
+    #[serde(default)]
+    pub clearance_date: Option<String>,
+    #[serde(default)]
+    pub storage_code: Option<String>,
+}
+
+/// 清關作業:新增清關包裹
+#[tauri::command]
+pub async fn cloud_clearance_store(
+    state: State<'_, SharedState>,
+    req: ClearanceStoreRequest,
+) -> AppResult<ClearanceStoreResult> {
+    state
+        .cloud
+        .store_clearance_packages(
+            &req.transport_package_sn,
+            req.clearance_company.as_deref().unwrap_or(""),
+            req.clearance_date.as_deref().unwrap_or(""),
+            req.storage_code.as_deref().unwrap_or("33843"),
+        )
+        .await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClearanceDispatchRequest {
+    pub transport_package_sn: String,
+    pub driver_name: String,
+    #[serde(default)]
+    pub shipping_date: Option<String>,
+    #[serde(default)]
+    pub storage_code: Option<String>,
+}
+
+/// 清關作業:司機派工
+#[tauri::command]
+pub async fn cloud_clearance_dispatch(
+    state: State<'_, SharedState>,
+    req: ClearanceDispatchRequest,
+) -> AppResult<ClearanceDispatchResult> {
+    state
+        .cloud
+        .dispatch_clearance_packages(
+            &req.transport_package_sn,
+            &req.driver_name,
+            req.shipping_date.as_deref().unwrap_or(""),
+            req.storage_code.as_deref().unwrap_or("33843"),
+        )
+        .await
 }
 
 /// 自動印單專用:cloud-print 端點回應 schema 與 PrintViewResult 不同,需獨立 command

@@ -36,6 +36,9 @@ const MOCK_CONFIG = {
     orders_by_date_path: '/api/v1/local-middleware/label/orders-by-date',
     cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
     examine_package_path: '/api/v1/local-middleware/label/examine-package',
+    clearance_options_path: '/api/v1/local-middleware/clearance/options',
+    clearance_store_path: '/api/v1/local-middleware/clearance/store',
+    clearance_dispatch_path: '/api/v1/local-middleware/clearance/dispatch',
     webhook_path: '/webhook/logistic-cat',
   },
   cache: { dir: '', keep_days: 5, max_size_mb: 0 },
@@ -110,6 +113,47 @@ export const cloudOrdersByDate = async (date, source = 'clearance') => {
     return { respond_code: 'FIND-PACKAGE-ORDER', date, source, package_count: source === 'clearance' ? 2 : 0, order_sns: ['SO-MOCK-1', 'SO-MOCK-2', 'SO-MOCK-3', 'SO-MOCK-4'] }
   }
   return await invoke('cloud_orders_by_date', { req: { date, source } })
+}
+
+// 清關作業 — 選項(倉庫 / 清關公司 / 司機 歷史清單,供下拉;欄位仍可自由輸入)
+export const cloudClearanceOptions = async () => {
+  if (!isTauri) {
+    return {
+      storages: [
+        { value: '33843', title: '桃園' },
+        { value: '41466', title: '台中' },
+      ],
+      clearance_companies: [
+        { value: '宏遠報關', title: '宏遠報關' },
+        { value: '聯興報關', title: '聯興報關' },
+      ],
+      drivers: [
+        { value: '王大明', title: '王大明' },
+        { value: '陳小華', title: '陳小華' },
+      ],
+    }
+  }
+  return await invoke('cloud_clearance_options')
+}
+// 清關作業 — 新增包裹(transport_package_sn 為逗號分隔多筆袋號)
+export const cloudClearanceStore = async ({ transportPackageSn, clearanceCompany = '', clearanceDate = '', storageCode = '33843' }) => {
+  if (!isTauri) {
+    const n = transportPackageSn.split(/[,\s]+/).filter(Boolean).length
+    return { success: true, upserted: n, confirm_success: n, confirm_failed: 0, message: `已新增 ${n} 個包裹，訂單自動確認成功 ${n} / 失敗 0` }
+  }
+  return await invoke('cloud_clearance_store', {
+    req: { transport_package_sn: transportPackageSn, clearance_company: clearanceCompany, clearance_date: clearanceDate, storage_code: storageCode },
+  })
+}
+// 清關作業 — 司機派工
+export const cloudClearanceDispatch = async ({ transportPackageSn, driverName, shippingDate = '', storageCode = '33843' }) => {
+  if (!isTauri) {
+    const n = transportPackageSn.split(/[,\s]+/).filter(Boolean).length
+    return { success: true, dispatched: n, driver_name: driverName, message: `已派工 ${n} 個包裹給司機「${driverName}」` }
+  }
+  return await invoke('cloud_clearance_dispatch', {
+    req: { transport_package_sn: transportPackageSn, driver_name: driverName, shipping_date: shippingDate, storage_code: storageCode },
+  })
 }
 
 // 印表機

@@ -43,6 +43,7 @@
   "nav": {
     "section": {
       "main": "主功能",
+      "clearance": "清關作業",
       "print": "訂單列印",
       "settings": "設定",
       "logs": "日誌"
@@ -53,6 +54,8 @@
     "scanPrint": "掃描列印",
     "autoPrint": "自動印單",
     "sortChannels": "分揀通道",
+    "clearanceAdd": "包裹入廠",
+    "clearanceDispatch": "司機派工",
     "cacheSettings": "圖片快取",
     "dispatchProviders": "指派物流",
     "serverSettings": "服務設定",
@@ -216,6 +219,42 @@
     }
   },
   "page": {
+    "clearanceAdd": {
+      "title": "包裹入廠",
+      "subtitle": "掃描包裹袋號,新增至清關清單",
+      "settingsTitle": "清關設定",
+      "scanTitle": "掃描包裹",
+      "clearanceDate": "清關日期",
+      "clearanceCompany": "清關公司",
+      "clearanceCompanyPlaceholder": "選擇或輸入清關公司",
+      "storageCode": "倉庫代碼",
+      "scanLabel": "掃描器輸入",
+      "scanPlaceholder": "掃描或輸入包裹袋號後按 Enter(可一次貼多筆)",
+      "submitBtn": "確認新增",
+      "errNoPackage": "請先掃描至少一個包裹袋號",
+      "errNoCompany": "請輸入清關公司",
+      "submitOk": "已新增 {n} 個包裹",
+      "submitError": "新增失敗:{msg}",
+      "optionsError": "選項載入失敗,清關公司可手動輸入:{msg}"
+    },
+    "clearanceDispatch": {
+      "title": "司機派工",
+      "subtitle": "掃描包裹袋號,指派出清司機",
+      "settingsTitle": "派工設定",
+      "scanTitle": "掃描包裹",
+      "shippingDate": "出清日期",
+      "driverName": "司機姓名",
+      "driverNamePlaceholder": "選擇或輸入司機姓名",
+      "storageCode": "倉庫代碼",
+      "scanLabel": "掃描器輸入",
+      "scanPlaceholder": "掃描或輸入包裹袋號後按 Enter(可一次貼多筆)",
+      "submitBtn": "確認派工",
+      "errNoPackage": "請先掃描至少一個包裹袋號",
+      "errNoDriver": "請輸入司機姓名",
+      "submitOk": "已派工 {n} 個包裹",
+      "submitError": "派工失敗:{msg}",
+      "optionsError": "選項載入失敗,司機可手動輸入:{msg}"
+    },
     "dashboard": {
       "title": "儀表板",
       "subtitle": "本地分揀中介服務即時狀態",
