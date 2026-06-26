@@ -18,6 +18,7 @@ declare global {
   const cancelSpeech: typeof import('./composables/useSpeech.js')['cancelSpeech']
   const carNoValidator: typeof import('./@core/utils/validators.js')['carNoValidator']
   const checkForUpdates: typeof import('./composables/useUpdater.js')['checkForUpdates']
+  const clearProcessed: typeof import('./composables/usePreGenProcessed.js')['clearProcessed']
   const computed: typeof import('vue')['computed']
   const computedAsync: typeof import('@vueuse/core')['computedAsync']
   const computedEager: typeof import('@vueuse/core')['computedEager']
@@ -120,6 +121,7 @@ declare global {
   const preGenInputMode: typeof import('./composables/usePreGenState.js')['preGenInputMode']
   const prefixWithPlus: typeof import('./@core/utils/formatters.js')['prefixWithPlus']
   const printErrorLabel: typeof import('./composables/useErrorLabelPrint.js')['printErrorLabel']
+  const processedCount: typeof import('./composables/usePreGenProcessed.js')['processedCount']
   const provide: typeof import('vue')['provide']
   const provideLocal: typeof import('@vueuse/core')['provideLocal']
   const reactify: typeof import('@vueuse/core')['reactify']
@@ -402,6 +404,7 @@ declare module 'vue' {
     readonly cancelSpeech: UnwrapRef<typeof import('./composables/useSpeech.js')['cancelSpeech']>
     readonly carNoValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['carNoValidator']>
     readonly checkForUpdates: UnwrapRef<typeof import('./composables/useUpdater.js')['checkForUpdates']>
+    readonly clearProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['clearProcessed']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly computedAsync: UnwrapRef<typeof import('@vueuse/core')['computedAsync']>
     readonly computedEager: UnwrapRef<typeof import('@vueuse/core')['computedEager']>
@@ -504,6 +507,7 @@ declare module 'vue' {
     readonly preGenInputMode: UnwrapRef<typeof import('./composables/usePreGenState.js')['preGenInputMode']>
     readonly prefixWithPlus: UnwrapRef<typeof import('./@core/utils/formatters.js')['prefixWithPlus']>
     readonly printErrorLabel: UnwrapRef<typeof import('./composables/useErrorLabelPrint.js')['printErrorLabel']>
+    readonly processedCount: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['processedCount']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
     readonly provideLocal: UnwrapRef<typeof import('@vueuse/core')['provideLocal']>
     readonly reactify: UnwrapRef<typeof import('@vueuse/core')['reactify']>

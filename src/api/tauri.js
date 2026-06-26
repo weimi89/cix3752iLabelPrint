@@ -105,8 +105,8 @@ export const cloudSession = async () => {
   if (!isTauri) return { ...MOCK_SESSION }
   return await invoke('cloud_session')
 }
-export const cloudFetchLabel = (orderSn, { printTypes = ['ALL'], enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '' } = {}) =>
-  invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printTypes, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser } })
+export const cloudFetchLabel = (orderSn, { printTypes = ['ALL'], enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '', force = false } = {}) =>
+  invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printTypes, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser, force_refetch: force } })
 export const cloudFetchCloudPrint = (orderSn, { printTypes = ['ALL'], enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) =>
   invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printTypes, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
 export const cloudExaminePackage = shipmentNo =>

@@ -51,3 +51,13 @@ export const persistProcessed = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ day: state.day, sns: [...state.sns] }))
   } catch { /* localStorage 滿/不可用時略過,不影響預產 */ }
 }
+
+/** 清除本快取日的「已預產」記憶(記憶體 + localStorage),讓所有訂單下次查詢都重新抓取。
+ *  供面單預產頁「清除已預產記錄」鈕,以及清空後端快取時連帶呼叫 —— 兩層去重一起歸零才能真正重跑。 */
+export const clearProcessed = () => {
+  state = { day: cacheDayKey(), sns: new Set() }
+  try { localStorage.removeItem(STORAGE_KEY) } catch { /* 不可用時略過 */ }
+}
+
+/** 本快取日目前已預產(會被略過)的訂單數,供 UI 顯示「清除」鈕是否有意義 */
+export const processedCount = () => { rollover(); return state.sns.size }

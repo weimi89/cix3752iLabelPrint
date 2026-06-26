@@ -143,6 +143,13 @@ impl CacheManager {
         Ok(FetchOutcome::Downloaded)
     }
 
+    /// 強制重抓:**忽略本地命中與 source_url 比對**,一律重新下載覆寫檔案與 meta。
+    /// 供面單預產「強制重跑」用 —— 即使雲端回相同 URL,也重新拉一份(排除快取檔陳舊/毀損)。
+    pub async fn refetch(&self, label_key: &str, source_url: &str) -> AppResult<FetchOutcome> {
+        download_one(&self.inner, label_key, source_url).await?;
+        Ok(FetchOutcome::Downloaded)
+    }
+
     /// 啟動背景清理 task(依 keep_days 與 max_size_mb 刪除)
     pub fn start_cleaner(&self) {
         let inner = self.inner.clone();

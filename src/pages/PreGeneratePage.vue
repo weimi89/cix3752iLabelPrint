@@ -2,7 +2,7 @@
 import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate, getConfig, updateConfig, getPregenStatus } from '@/api/tauri'
 import { useRouter } from 'vue-router'
 import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
-import { isOrderProcessed, markOrderProcessed, persistProcessed } from '@/composables/usePreGenProcessed'
+import { isOrderProcessed, markOrderProcessed, persistProcessed, clearProcessed, processedCount } from '@/composables/usePreGenProcessed'
 import {
   isDownloadable, statusLabel, statusIcon, errorMessageFromException,
 } from '@/composables/useLabelStatus'
@@ -28,6 +28,11 @@ const completedCount = ref(0)
 const successCount = ref(0)
 const failCount = ref(0)
 const skippedCount = ref(0)  // 本快取日內已預產過、本批略過重打雲端的筆數
+// 強制重跑:開啟時忽略「已預產」去重、且要求後端強制重新下載覆蓋既有快取檔
+const forceRerun = ref(false)
+// 本快取日目前累積的「已預產」筆數(供「清除已預產記錄」鈕顯示與啟用判斷)
+const processedTodayCount = ref(0)
+const refreshProcessedCount = () => { processedTodayCount.value = processedCount() }
 const progressPct = computed(() => (totalCount.value ? Math.round(completedCount.value / totalCount.value * 100) : 0))
 
 // 本批執行耗時(ms):執行中由 ticker 每 200ms 即時更新,結束後定格在總耗時。
@@ -83,15 +88,17 @@ const pushFail = (sn, code, message = '') => {
 
 const processOne = async (sn, index) => {
   const thumb = downloadList.length ? downloadList[index] : null
-  // 本快取日內已成功預產過 → 略過,不重打雲端(只處理大量圖的預產才需要這層去重)
-  if (isOrderProcessed(sn)) {
+  // 本快取日內已成功預產過 → 略過,不重打雲端(只處理大量圖的預產才需要這層去重)。
+  // 「強制重跑」開啟時跳過這層去重,讓已預產過的也重抓。
+  if (!forceRerun.value && isOrderProcessed(sn)) {
     skippedCount.value++
     completedCount.value++
     if (thumb) { thumb.code = 'SKIPPED'; thumb.message = t('page.preGenerate.skipped') }
     return
   }
   try {
-    const data = await cloudFetchLabel(sn, { mode: 'download' })
+    // force:強制重跑時連後端也忽略快取命中、重新下載覆蓋既有面單檔
+    const data = await cloudFetchLabel(sn, { mode: 'download', force: forceRerun.value })
     const code = data.print_view_status || ''
     if (isDownloadable(code)) {
       successCount.value++
@@ -139,11 +146,18 @@ const processShipments = async snList => {
   } finally {
     stopElapsedTimer()
     persistProcessed()  // 本批新標記的已處理訂單一次寫入 localStorage(避免逐筆寫)
+    refreshProcessedCount()
     isProcessing.value = false
   }
 }
 
 const stopProcessing = () => { abortRequested = true }
+
+// 清除本快取日「已預產」記憶,讓所有訂單下次查詢都重新抓取(配合或不配合「強制重跑」皆可用)
+const handleClearProcessed = () => {
+  clearProcessed()
+  refreshProcessedCount()
+}
 
 const handleQuery = async () => {
   if (orderSnList.value.length === 0) return
@@ -257,6 +271,7 @@ const pageNextRunText = computed(() => {
 const goPregenLog = () => router.push({ name: 'event-log', query: { category: 'pregen' } })
 
 onMounted(async () => {
+  refreshProcessedCount()
   try { applyConfigSnapshot(await getConfig()) } catch { /* 頁面首載失敗不致命 */ }
   await refreshPregenStatus()
   // 狀態每 30s 刷新一次,讓「上次執行」在背景到點後自動更新
@@ -505,6 +520,26 @@ const saveSchedule = async () => {
                 />
                 <VAlert v-if="dateError" type="error" variant="tonal" density="compact" class="mt-2">{{ dateError }}</VAlert>
               </template>
+
+              <!-- 重跑選項:強制重跑(忽略已預產去重 + 後端強制覆蓋下載)+ 清除已預產記錄 -->
+              <div class="rerun-opts mt-4">
+                <div class="d-flex align-center justify-space-between">
+                  <div class="pe-2">
+                    <div class="text-body-2 font-weight-medium">{{ $t('page.preGenerate.forceRerun') }}</div>
+                    <div class="text-caption text-medium-emphasis text-wrap">{{ $t('page.preGenerate.forceRerunHint') }}</div>
+                  </div>
+                  <VSwitch v-model="forceRerun" color="primary" hide-details density="compact" inset :disabled="isProcessing" />
+                </div>
+                <VBtn
+                  v-if="processedTodayCount > 0"
+                  size="small" variant="tonal" color="secondary" block class="mt-2"
+                  :disabled="isProcessing"
+                  @click="handleClearProcessed"
+                >
+                  <VIcon icon="tabler-eraser" size="16" class="me-1" />
+                  {{ $t('page.preGenerate.clearProcessed', { n: processedTodayCount }) }}
+                </VBtn>
+              </div>
 
               <div v-if="totalCount > 0" class="mt-3">
                 <div class="d-flex justify-space-between mb-1">

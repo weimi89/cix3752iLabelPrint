@@ -36,11 +36,19 @@ async fn process_label_for_ui(
     raw_url: &str,
     print_num: Option<u32>,
     provider: Option<&str>,
+    force: bool,
 ) -> String {
     let label_key = derive_label_key(raw_url);
 
-    // 1. 確保原圖已在 cache(一律走 fetch_now,由它比對 source_url 決定命中或重抓,避免回陳舊面單圖)
-    if let Err(e) = state.cache.fetch_now(&label_key, raw_url).await {
+    // 1. 確保原圖已在 cache。
+    //    force=true(面單預產「強制重跑」)→ refetch:忽略命中強制重抓覆寫;
+    //    force=false → fetch_now:比對 source_url 決定命中或重抓,避免回陳舊面單圖。
+    let fetch_res = if force {
+        state.cache.refetch(&label_key, raw_url).await
+    } else {
+        state.cache.fetch_now(&label_key, raw_url).await
+    };
+    if let Err(e) = fetch_res {
         tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗,回原雲端 URL");
         return raw_url.to_string();
     }
@@ -130,6 +138,10 @@ pub struct FetchLabelRequest {
     pub print_type: Vec<String>,
     #[serde(default)]
     pub enforce: bool,
+    /// 強制重抓本地快取:面單預產「強制重跑」時為 true → 即使快取命中也重新下載覆寫。
+    /// 與 `enforce`(打雲端 API 的參數)無關,只影響本地 cache。
+    #[serde(default)]
+    pub force_refetch: bool,
     /// "web_print" / "download" / "cloud_print"
     #[serde(default = "default_mode")]
     pub mode: String,
@@ -240,7 +252,7 @@ pub async fn cloud_fetch_label(
         if let Some(url) = result.print_file_path.clone() {
             let provider = result.print_shipping_provider.as_deref();
             let local_url =
-                process_label_for_ui(state.inner(), &url, result.print_num, provider).await;
+                process_label_for_ui(state.inner(), &url, result.print_num, provider, req.force_refetch).await;
             result.print_file_path = Some(local_url);
         }
     }
@@ -425,7 +437,7 @@ pub async fn cloud_fetch_cloud_print(
     if let Some(url) = result.image_path.clone() {
         let provider = result.provider_code.as_deref();
         let local_url =
-            process_label_for_ui(state.inner(), &url, result.print_num, provider).await;
+            process_label_for_ui(state.inner(), &url, result.print_num, provider, false).await;
         result.image_path = Some(local_url);
     }
 
