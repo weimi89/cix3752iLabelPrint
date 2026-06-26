@@ -63,4 +63,17 @@ export default defineConfig(async () => ({
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
+  // vite-plugin-vuetify 的 autoImport 是「按需」解析元件,初次掃描掃不到只在某頁/對話框才用到的元件;
+  // 這些元件在 dev 期首次渲染時才被發現 → Vite 觸發整頁硬 reload 重新 optimize。該 reload 撞進
+  // Tauri webview 初始化時機會把 SPA router 卡死(切不了頁)。在此預先宣告,啟動即 bundle、不再 reload。
+  optimizeDeps: {
+    include: [
+      'vuetify/components/VImg',
+      'vuetify/components/VSwitch',
+      'vuetify/components/VProgressCircular',
+      'vuetify/components/VTooltip',
+      'vuetify/components/VDialog',
+      'vuetify/components/VSlider',
+    ],
+  },
 }))

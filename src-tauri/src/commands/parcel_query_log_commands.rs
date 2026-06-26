@@ -37,6 +37,9 @@ pub struct ParcelQueryLogItem {
     pub cloud_ms: Option<i64>,
     pub label_ms: Option<i64>,
     pub total_ms: Option<i64>,
+    /// 收到此查詢當下抓到的讀碼站快照(相對 cache 根的 key,例 `@captures/xxx.jpg`);
+    /// 相機未啟用 / 未抓到幀時為 None。前端以 `/images/{photo_path}` 顯示佐證畫面。
+    pub photo_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,7 +93,7 @@ pub async fn parcel_query_log_list(
 
     let sql = format!(
         "SELECT response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile,
-                should_print, label_key, created_at, cloud_ms, label_ms, total_ms
+                should_print, label_key, created_at, cloud_ms, label_ms, total_ms, photo_path
          FROM parcel_query_log
          {where_sql}
          ORDER BY created_at DESC
@@ -141,6 +144,7 @@ pub async fn parcel_query_log_list(
             cloud_ms: row.try_get("cloud_ms").ok(),
             label_ms: row.try_get("label_ms").ok(),
             total_ms: row.try_get("total_ms").ok(),
+            photo_path: row.try_get("photo_path").ok(),
         })
         .collect();
 

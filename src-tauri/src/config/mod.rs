@@ -21,7 +21,51 @@ pub struct AppConfig {
     pub label_path: LabelPathConfig,
     #[serde(default)]
     pub pre_gen_schedule: PreGenScheduleConfig,
+    #[serde(default)]
+    pub camera: CameraConfig,
 }
+
+/// 讀碼站快照相機設定 — 收到工控機 GET /api/parcel 時抓 USB 相機當下一幀存證
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CameraConfig {
+    /// 總開關(預設關;接好相機、選對 device_index 再開)
+    #[serde(default)]
+    pub enabled: bool,
+    /// USB 相機裝置索引(0 = 第一台;多台時依序試)
+    #[serde(default)]
+    pub device_index: u32,
+    /// JPEG 壓縮品質 1-100(預設 80,存證夠用又省空間)
+    #[serde(default = "default_camera_quality")]
+    pub jpeg_quality: u8,
+    /// 數位變焦 1.0–4.0(1.0=原畫面;>1 裁切畫面中央 1/zoom 區域=「拉近」框景)。
+    /// USB 相機多半無法用軟體控制光學變焦/對焦,故以數位裁切達成「拉近」,讓相機擺不到理想位置時仍能對準讀碼站。
+    #[serde(default = "default_camera_zoom")]
+    pub zoom: f32,
+    /// 存證快照存放目錄(留白=預設 `{app_data}/captures`)。
+    /// **刻意與面單快取目錄分離** —— 存證是爭議佐證,不該被面單快取的 keep_days(可能僅數天)清掉。
+    #[serde(default)]
+    pub captures_dir: String,
+    /// 存證快照保留天數(0 = 永久保留)。與面單快取的 cache.keep_days 完全獨立。
+    #[serde(default = "default_captures_keep_days")]
+    pub keep_days: u32,
+}
+
+impl Default for CameraConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            device_index: 0,
+            jpeg_quality: default_camera_quality(),
+            zoom: default_camera_zoom(),
+            captures_dir: String::new(),
+            keep_days: default_captures_keep_days(),
+        }
+    }
+}
+
+fn default_camera_quality() -> u8 { 80 }
+fn default_camera_zoom() -> f32 { 1.0 }
+fn default_captures_keep_days() -> u32 { 90 }
 
 /// 面單預產自動排程設定 — 每天到指定時間點自動反查當日整批訂單並預下載快取(headless)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +307,7 @@ impl Default for AppConfig {
             network: NetworkConfig::default(),
             label_path: LabelPathConfig::default(),
             pre_gen_schedule: PreGenScheduleConfig::default(),
+            camera: CameraConfig::default(),
         }
     }
 }
@@ -361,6 +406,19 @@ impl AppConfig {
             .app_data_dir()
             .map_err(|e| AppError::Config(format!("無法取得 app_data 目錄: {e}")))?;
         Ok(app_data.join("cache").join("labels"))
+    }
+
+    /// 解析存證快照目錄 —— **與 `resolved_cache_dir` 分離**,不放在面單快取下,
+    /// 避免被面單快取的 keep_days 清掉。留白時預設 `{app_data}/captures`。
+    pub fn resolved_captures_dir(&self, handle: &AppHandle) -> AppResult<PathBuf> {
+        if !self.camera.captures_dir.is_empty() {
+            return Ok(PathBuf::from(&self.camera.captures_dir));
+        }
+        let app_data = handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::Config(format!("無法取得 app_data 目錄: {e}")))?;
+        Ok(app_data.join("captures"))
     }
 }
 

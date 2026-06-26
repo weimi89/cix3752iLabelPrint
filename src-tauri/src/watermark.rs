@@ -92,8 +92,49 @@ impl Default for WatermarkRenderer {
 }
 
 /// 由原 label_key 推導浮水印版本的 key
-/// 例:`HCT/20260513/abc.png` + provider=`H` → `@repeat/WH-abc.png`
+///
+/// **必須保留 `label_key` 的完整子路徑唯一性**:主 key(`derive_label_key`)是靠
+/// `物流商/日期/檔名` 整條相對路徑來確保唯一,若這裡只取最後一段檔名,
+/// 不同日期、同檔名的兩張面單會推出同一個 repeat_key → 浮水印圖互相覆蓋/讀錯(找錯面單圖)。
+/// 因此把子路徑分隔 `/` 攤平成 `__` 併進檔名,讓 repeat_key 與主 key 一樣全域唯一,
+/// 同時維持 `@repeat/` 單層目錄結構(清理/過期邏輯依此運作)。
+///
+/// 例:`HCT/20260513/abc.png` + provider=`H` → `@repeat/WH-HCT__20260513__abc.png`
 pub fn derive_repeat_key(label_key: &str, provider: &str) -> String {
-    let basename = label_key.rsplit('/').next().unwrap_or(label_key);
-    format!("@repeat/W{}-{}", provider, basename)
+    let flat = label_key.trim_start_matches('/').replace('/', "__");
+    format!("@repeat/W{}-{}", provider, flat)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_repeat_key;
+
+    /// 回歸:同物流商、不同日期、**同檔名**的兩張面單,repeat_key 必須不同。
+    /// 舊實作只取 `rsplit('/').next()`(檔名)→ 兩者都是 `@repeat/WH-abc.png` 碰撞,
+    /// 浮水印圖互相覆蓋,工控機/UI 拿到他單的 `(N)` 面單(找錯面單圖)。
+    #[test]
+    fn repeat_key_distinct_across_dates_same_filename() {
+        let a = derive_repeat_key("HCT/20260513/abc.png", "H");
+        let b = derive_repeat_key("HCT/20260614/abc.png", "H");
+        assert_ne!(a, b, "跨日同檔名的 repeat_key 不可碰撞");
+        assert_eq!(a, "@repeat/WH-HCT__20260513__abc.png");
+        assert_eq!(b, "@repeat/WH-HCT__20260614__abc.png");
+    }
+
+    /// 不同物流商即使 label_key 相同也要區隔(provider 進前綴)。
+    #[test]
+    fn repeat_key_distinct_across_providers() {
+        let h = derive_repeat_key("X/20260513/abc.png", "H");
+        let e = derive_repeat_key("X/20260513/abc.png", "E");
+        assert_ne!(h, e);
+    }
+
+    /// 維持 `@repeat/` 單層目錄(清理/過期邏輯依此),子路徑攤平不再產生巢狀資料夾。
+    #[test]
+    fn repeat_key_stays_single_level_under_at_repeat() {
+        let k = derive_repeat_key("HCT/20260513/abc.png", "H");
+        assert!(k.starts_with("@repeat/"));
+        // @repeat 之後不應再有 '/'(子路徑已攤平成 __)
+        assert!(!k["@repeat/".len()..].contains('/'));
+    }
 }

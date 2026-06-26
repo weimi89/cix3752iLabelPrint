@@ -42,6 +42,7 @@ const MOCK_CONFIG = {
     webhook_path: '/webhook/logistic-cat',
   },
   cache: { dir: '', keep_days: 5, max_size_mb: 0 },
+  camera: { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 },
   network: {
     interval_secs: 15,
     degrade_interval_secs: 60,
@@ -70,6 +71,16 @@ export const getConfig = async () => {
 export const updateConfig = async newConfig => {
   if (!isTauri) return JSON.parse(JSON.stringify(newConfig))
   return await invoke('update_config', { newConfig })
+}
+// 即時調整數位變焦(不存檔):相機預覽對話框拖滑桿時呼叫,後端下一幀就套用到 MJPEG 串流
+export const cameraSetZoom = async zoom => {
+  if (!isTauri) return
+  return await invoke('camera_set_zoom', { zoom })
+}
+// 手動拍一張:抓當下最新一幀存進存證目錄,回相對 key(相機未啟用/無幀時回 null)
+export const cameraCaptureNow = async () => {
+  if (!isTauri) return null
+  return await invoke('camera_capture_now')
 }
 // 面單預產自動排程的可觀測狀態(排程啟動 / 上次執行),供前端顯示確認排程是否運作
 export const getPregenStatus = async () => {
@@ -302,6 +313,8 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   should_print: 1,
   label_key: `HCT/20260513/${(700000 + i).toString(16)}.png`,
   created_at: `2026-05-18T${10 - Math.floor(i / 12)}:${String(60 - i).padStart(2, '0')}:00`,
+  // 每 3 筆有一張讀碼站快照(獨立 captures 目錄,key 無前綴;預覽模式檔案不存在,VImg 落 error 樣板)
+  photo_path: i % 3 === 0 ? `${16021200 - i}_20260626001425.jpg` : null,
 }))
 export const parcelQueryLogList = async ({ keyword = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {

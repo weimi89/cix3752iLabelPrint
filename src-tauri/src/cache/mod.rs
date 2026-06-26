@@ -12,6 +12,15 @@ use crate::db::DbPool;
 use crate::event_log;
 use crate::{AppError, AppResult};
 
+/// `fetch_now` 的結果:本地命中且來源一致(Hit)還是重新下載/重抓(Downloaded)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchOutcome {
+    /// 本地已有且 `source_url` 一致,直接沿用
+    Hit,
+    /// 本地無檔、URL 變動或 meta 缺失,實際下載(覆寫)了一次
+    Downloaded,
+}
+
 /// 圖片快取管理 — 負責 local 判斷、補下載、清理過期、命中率統計
 #[derive(Clone)]
 pub struct CacheManager {
@@ -104,13 +113,34 @@ impl CacheManager {
         Ok(())
     }
 
-    /// 同步下載並寫入快取，完成才返回（給 GET /api/parcel 即時取得最新路徑用）
-    /// 若檔案已存在則直接返回 Ok(()) 不重抓
-    pub async fn fetch_now(&self, label_key: &str, source_url: &str) -> AppResult<()> {
+    /// 同步確保 `label_key` 對應「這次 `source_url`」的最新面單已在本地，完成才返回。
+    ///
+    /// 命中本地時**必須比對 `cache_meta.source_url`**:面單命中只認 `derive_label_key(URL)`
+    /// 推出的 key,若雲端對同一面單路徑更新了內容(重印改地址、補資料重生成卻沿用同 URL),
+    /// 只看「檔案存在」會永遠回舊圖 → 找錯(陳舊)面單圖,且永不自我修復。
+    /// 因此只有「檔案存在且來源 URL 完全一致」才算 Hit;URL 不符或 meta 缺失一律重抓覆寫。
+    pub async fn fetch_now(&self, label_key: &str, source_url: &str) -> AppResult<FetchOutcome> {
         if self.has_local(label_key) {
-            return Ok(());
+            let cached_url: Option<String> = sqlx::query_scalar(
+                "SELECT source_url FROM cache_meta WHERE label_key = ?",
+            )
+            .bind(label_key)
+            .fetch_optional(&self.inner.db)
+            .await
+            .ok()
+            .flatten();
+            if cached_url.as_deref() == Some(source_url) {
+                return Ok(FetchOutcome::Hit);
+            }
+            tracing::info!(
+                label_key,
+                %source_url,
+                cached = ?cached_url,
+                "快取來源 URL 變動或 meta 缺失,重抓面單避免回陳舊圖"
+            );
         }
-        download_one(&self.inner, label_key, source_url).await
+        download_one(&self.inner, label_key, source_url).await?;
+        Ok(FetchOutcome::Downloaded)
     }
 
     /// 啟動背景清理 task(依 keep_days 與 max_size_mb 刪除)
@@ -154,11 +184,64 @@ pub fn derive_label_key(image_url: &str) -> String {
     if let Some(rest) = no_query.strip_prefix("labels/") {
         return rest.to_string();
     }
-    no_query
-        .rsplit('/')
-        .next()
-        .unwrap_or("unknown.png")
-        .to_string()
+    // fallback:URL 不含 `labels/` 段。**保留 host 之後的完整路徑**而非只取最後一段檔名 ——
+    // 只取檔名會讓「不同子資料夾、同檔名」的兩張面單推出同一 key 互相命中(找錯面單圖);
+    // 保留子路徑才能維持唯一。空字串(雲端回空 shipping_image)退回 `unknown.png` 統一兜底,
+    // 配合 fetch_now 的 source_url 校驗,空 URL 永遠下載失敗而不會誤回他單快取。
+    let path = match no_query.split_once("://") {
+        // 有 scheme:取 host 之後的 path;只有 host 無 path 時回空 → 下方兜底 unknown.png
+        Some((_scheme, rest)) => rest.split_once('/').map(|(_host, p)| p).unwrap_or(""),
+        None => no_query,
+    };
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        "unknown.png".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[cfg(test)]
+mod label_key_tests {
+    use super::derive_label_key;
+
+    /// 正常路徑:保留 `labels/` 之後的完整子路徑(物流商/日期/檔名)→ 跨日不碰撞。
+    #[test]
+    fn keeps_subpath_after_labels() {
+        assert_eq!(
+            derive_label_key("https://cdn.x.com/data/labels/HCT/20260513/abc.png?t=1"),
+            "HCT/20260513/abc.png"
+        );
+        assert_eq!(
+            derive_label_key("/data/labels/SFExpress/20260415/xxx.png"),
+            "SFExpress/20260415/xxx.png"
+        );
+    }
+
+    /// 回歸:fallback(URL 不含 `labels/`)必須保留子路徑,**不可只取檔名** ——
+    /// 否則不同子資料夾、同檔名會推出同一 key 互相命中(找錯面單圖)。
+    #[test]
+    fn fallback_keeps_full_subpath_not_just_filename() {
+        let a = derive_label_key("https://cdn.x.com/foo/20260513/abc.png");
+        let b = derive_label_key("https://cdn.x.com/foo/20260614/abc.png");
+        assert_ne!(a, b, "fallback 跨資料夾同檔名不可碰撞");
+        assert_eq!(a, "foo/20260513/abc.png");
+        assert_eq!(b, "foo/20260614/abc.png");
+    }
+
+    /// 相對 URL(無 scheme、無 labels/)同樣保留子路徑。
+    #[test]
+    fn fallback_relative_url_keeps_subpath() {
+        assert_eq!(derive_label_key("/cdn/foo/bar/abc.png"), "cdn/foo/bar/abc.png");
+    }
+
+    /// 空 / 純斜線 URL 統一兜底成 `unknown.png`(不會推出空字串 key)。
+    #[test]
+    fn empty_url_falls_back_to_sentinel() {
+        assert_eq!(derive_label_key(""), "unknown.png");
+        assert_eq!(derive_label_key("https://cdn.x.com/"), "unknown.png");
+        assert_eq!(derive_label_key("https://cdn.x.com"), "unknown.png");
+    }
 }
 
 async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppResult<()> {

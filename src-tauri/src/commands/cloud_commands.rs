@@ -39,12 +39,10 @@ async fn process_label_for_ui(
 ) -> String {
     let label_key = derive_label_key(raw_url);
 
-    // 1. 確保原圖已在 cache
-    if !state.cache.has_local(&label_key) {
-        if let Err(e) = state.cache.fetch_now(&label_key, raw_url).await {
-            tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗,回原雲端 URL");
-            return raw_url.to_string();
-        }
+    // 1. 確保原圖已在 cache(一律走 fetch_now,由它比對 source_url 決定命中或重抓,避免回陳舊面單圖)
+    if let Err(e) = state.cache.fetch_now(&label_key, raw_url).await {
+        tracing::warn!(label_key = %label_key, ?e, "面單下載到 cache 失敗,回原雲端 URL");
+        return raw_url.to_string();
     }
 
     // 2. print_num > 1 → 套用浮水印

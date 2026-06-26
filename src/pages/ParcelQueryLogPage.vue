@@ -1,5 +1,5 @@
 <script setup>
-import { parcelQueryLogList } from '@/api/tauri'
+import { parcelQueryLogList, getConfig } from '@/api/tauri'
 import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
@@ -15,6 +15,22 @@ const items = ref([])
 const total = ref(0)
 const loading = ref(false)
 const errorMsg = ref('')
+
+// 通用圖片檢視器:存證快照與面單原圖共用一套對話框,但走「不同」本機 HTTP 路由 ——
+// 存證走 /captures(獨立存證目錄,與面單快取分離);面單原圖走 /images(面單快取)。server 同機,viewer 用 127.0.0.1。
+const serverPort = ref(18080)
+const mediaUrl = (route, key) => (key ? `http://127.0.0.1:${serverPort.value}/${route}/${encodeURI(key)}` : '')
+const viewer = ref({ open: false, title: '', key: '', url: '' })
+// 圖片載入失敗旗標(404 / 檔案已被清理):每次開新圖前歸零,<img> @error 時設 true → 顯示「圖案已遺失」
+const viewerError = ref(false)
+const openSnapshot = row => {
+  viewerError.value = false
+  viewer.value = { open: true, title: t('page.parcelQueryLog.snapshotTitle'), key: row.photo_path, url: mediaUrl('captures', row.photo_path) }
+}
+const openLabel = row => {
+  viewerError.value = false
+  viewer.value = { open: true, title: t('page.parcelQueryLog.labelTitle'), key: row.label_key, url: mediaUrl('images', row.label_key) }
+}
 
 const MS_FIELDS = computed(() => [
   { title: t('page.parcelQueryLog.msFieldAny'), value: null },
@@ -58,6 +74,7 @@ watch(page, load)
 let _unlisten = null
 onMounted(async () => {
   load()
+  try { const cfg = await getConfig(); if (cfg?.server?.port) serverPort.value = cfg.server.port } catch {}
   if (isTauriRuntime) try { _unlisten = await listen('parcel-query-logged', load) } catch {}
 })
 onUnmounted(() => { if (_unlisten) { _unlisten(); _unlisten = null } })
@@ -71,6 +88,13 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
   td {
     white-space: nowrap;
   }
+}
+
+.viewer-img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
 }
 </style>
 
@@ -177,15 +201,16 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <th class="text-center" style="width: 90px;">{{ $t('page.parcelQueryLog.col.channel') }}</th>
             <th class="text-center" style="min-width: 160px;">{{ $t('page.parcelQueryLog.col.printProfile') }}</th>
             <th class="text-center" style="width: 110px;">{{ $t('page.parcelQueryLog.col.responseId') }}</th>
-            <th class="text-center" style="min-width: 220px;">{{ $t('page.parcelQueryLog.col.labelKey') }}</th>
             <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.cloudMs') }}</th>
             <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.labelMs') }}</th>
             <th class="text-center" style="width: 80px;">{{ $t('page.parcelQueryLog.col.totalMs') }}</th>
+            <th class="text-center" style="width: 70px;">{{ $t('page.parcelQueryLog.col.labelKey') }}</th>
+            <th class="text-center" style="width: 70px;">{{ $t('page.parcelQueryLog.col.snapshot') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!items.length">
-            <td colspan="11">
+            <td colspan="12">
               <div class="py-2 d-flex align-center justify-center">
                 <VIcon icon="tabler-alert-circle" size="20" class="me-1" />
                 <span class="text-md">{{ $t('common.noResults') }}</span>
@@ -200,10 +225,31 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <td class="text-center">{{ row.sort_channel || '—' }}</td>
             <td class="text-center">{{ row.print_profile || '—' }}</td>
             <td class="text-center text-disabled">{{ row.response_id }}</td>
-            <td class="text-center"><code class="text-caption">{{ row.label_key || '—' }}</code></td>
             <td class="text-center text-caption">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
             <td class="text-center text-caption">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
             <td class="text-center text-caption" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
+            <td class="text-center">
+              <VBtn v-if="row.label_key" icon variant="text" color="primary" density="comfortable" size="small" @click="openLabel(row)">
+                <VIcon icon="tabler-photo" size="20" />
+                <VTooltip activator="parent" location="top">{{ $t('page.parcelQueryLog.viewLabel') }}</VTooltip>
+              </VBtn>
+              <span v-else class="text-disabled">—</span>
+            </td>
+            <td class="text-center">
+              <VBtn
+                v-if="row.photo_path"
+                icon
+                variant="text"
+                color="primary"
+                density="comfortable"
+                size="small"
+                @click="openSnapshot(row)"
+              >
+                <VIcon icon="tabler-camera" size="20" />
+                <VTooltip activator="parent" location="top">{{ $t('page.parcelQueryLog.viewSnapshot') }}</VTooltip>
+              </VBtn>
+              <span v-else class="text-disabled">—</span>
+            </td>
           </tr>
         </tbody>
       </VTable>
@@ -212,5 +258,44 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
       <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="total" />
     </VCard>
+
+    <!-- 通用圖片檢視器:存證快照 / 面單原圖共用 -->
+    <VDialog v-model="viewer.open" max-width="760">
+      <div v-if="viewer.key" style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="viewer.open = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
+        <VCard>
+        <VCardItem>
+          <VCardTitle>{{ viewer.title }}</VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="text-center">
+          <img
+            v-if="viewer.url && !viewerError"
+            :src="viewer.url"
+            class="viewer-img"
+            alt=""
+            @error="viewerError = true"
+          />
+          <div
+            v-else
+            class="d-flex flex-column align-center justify-center text-disabled"
+            style="min-height: 180px;"
+          >
+            <VIcon icon="tabler-photo-off" size="40" class="mb-2" />
+            <div>{{ $t('page.parcelQueryLog.imageLoadFailed') }}</div>
+          </div>
+          <div class="text-caption text-disabled mt-2"><code>{{ viewer.key }}</code></div>
+        </VCardText>
+        </VCard>
+      </div>
+    </VDialog>
   </div>
 </template>

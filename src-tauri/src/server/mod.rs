@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::Path as StdPath;
+use std::path::{Path as StdPath, PathBuf};
 use std::sync::Arc;
 
 use crate::event_log;
 
 use axum::{
     extract::{Host, Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -22,7 +22,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use crate::cache::{derive_label_key, CacheManager};
+use crate::cache::{derive_label_key, CacheManager, FetchOutcome};
+use crate::camera::CameraManager;
 use crate::cloud::CloudClient;
 use crate::config::{AppConfig, LabelPathConfig, LabelPathMode};
 use crate::db::DbPool;
@@ -121,6 +122,9 @@ struct ServerState {
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
     bag_check: BagCheckState,
+    camera: CameraManager,
+    /// 讀碼站存證目錄(獨立於面單快取,server 啟動時由 config 解析定版;存檔與 /captures 服務共用)
+    captures_dir: PathBuf,
     app: tauri::AppHandle,
     /// DirectPrint 模式有序列印佇列:get_parcel 把工作丟進來,由單一 worker 逐筆 FIFO 處理。
     /// 保證列印順序 = 請求順序,且同時只有一筆在送印(不並發打 spooler)。
@@ -160,6 +164,7 @@ pub async fn start(
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
     bag_check: BagCheckState,
+    camera: CameraManager,
     app: tauri::AppHandle,
 ) -> AppResult<ServerHandle> {
     let addr: SocketAddr = format!("{}:{}", config.server.listen_ip, config.server.port)
@@ -183,6 +188,9 @@ pub async fn start(
         });
     }
 
+    // 存證目錄:啟動時依 config 解析定版(與面單快取分離)。存檔與 /captures 服務共用同一份,確保一致。
+    let captures_dir = config.resolved_captures_dir(&app)?;
+
     let state = ServerState {
         db,
         cloud,
@@ -192,11 +200,14 @@ pub async fn start(
         label_resolver,
         watermark,
         bag_check,
+        camera,
+        captures_dir: captures_dir.clone(),
         app,
         direct_print_tx,
     };
 
     let images_service = ServeDir::new(cache.base_dir());
+    let captures_service = ServeDir::new(&captures_dir);
 
     let app = Router::new()
         .route("/healthz", get(healthz))
@@ -210,7 +221,10 @@ pub async fn start(
         .route("/api/channels/:position", post(set_channel_enabled))
         .route("/api/channels/:position/skip", post(skip_channel))
         .route("/api/channels/:position/recent", get(channel_recent))
+        .route("/camera/preview", get(camera_preview))
+        .route("/camera/preview/stream", get(camera_preview_stream))
         .nest_service("/images", images_service)
+        .nest_service("/captures", captures_service)
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
@@ -595,6 +609,55 @@ async fn channel_recent(
 }
 
 /// GET /control — 手機版分揀通道暫停控制頁(自帶 CSS/JS,離線可用)
+/// 相機即時預覽(單張):回傳記憶體中「最新一幀」JPEG。保留作為串流不可用時的退路。
+async fn camera_preview(State(state): State<ServerState>) -> impl IntoResponse {
+    match state.camera.latest_jpeg() {
+        Some(jpeg) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            jpeg,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// 相機即時預覽(**MJPEG 串流**):`multipart/x-mixed-replace`,持續把「最新一幀」推給前端 `<img>`。
+/// 比 1 秒輪詢順得多(約 10fps,= 擷取迴圈速率),且**相機只由後端 nokhwa 獨佔**——
+/// 不像前端 getUserMedia 會在 Windows 工控機上跟存證擷取搶相機;預覽畫面就是存證實際畫面(含已套用 zoom)。
+/// 前端關掉 `<img>`(離開設定頁)時連線中斷,stream 自動結束,不殘留。
+async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoResponse {
+    let camera = state.camera.clone();
+    let stream = futures::stream::unfold(camera, |camera| async move {
+        // ~10fps:對位用足夠順;與擷取迴圈同速率,不額外吃 CPU
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let chunk = match camera.latest_jpeg() {
+            Some(jpeg) if !jpeg.is_empty() => {
+                let mut c = Vec::with_capacity(jpeg.len() + 80);
+                c.extend_from_slice(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ");
+                c.extend_from_slice(jpeg.len().to_string().as_bytes());
+                c.extend_from_slice(b"\r\n\r\n");
+                c.extend_from_slice(&jpeg);
+                c.extend_from_slice(b"\r\n");
+                c
+            }
+            _ => Vec::new(), // 尚無幀:本輪不送內容,下輪再試
+        };
+        Some((Ok::<Vec<u8>, std::io::Error>(chunk), camera))
+    });
+    (
+        [(
+            header::CONTENT_TYPE,
+            "multipart/x-mixed-replace; boundary=frame",
+        )],
+        axum::body::Body::from_stream(stream),
+    )
+        .into_response()
+}
+
 async fn control_page() -> impl IntoResponse {
     axum::response::Html(include_str!("control_page.html"))
 }
@@ -933,18 +996,20 @@ async fn run_direct_print_job(
     } = job;
     let cache_base = cache.base_dir();
 
-    // 1. 確保原圖已在本地快取
-    let original_ok = if cache.has_local(&label_key) {
-        let _ = cache.record_hit(&label_key).await;
-        true
-    } else {
-        let _ = cache.record_miss().await;
-        match cache.fetch_now(&label_key, &image_url).await {
-            Ok(()) => true,
-            Err(e) => {
-                tracing::warn!(label_key = %label_key, ?e, "direct_print 背景下載快取失敗");
-                false
-            }
+    // 1. 確保原圖(對應這次 image_url)已在本地快取;由 fetch_now 比對 source_url 決定命中或重抓
+    let original_ok = match cache.fetch_now(&label_key, &image_url).await {
+        Ok(FetchOutcome::Hit) => {
+            let _ = cache.record_hit(&label_key).await;
+            true
+        }
+        Ok(FetchOutcome::Downloaded) => {
+            let _ = cache.record_miss().await;
+            true
+        }
+        Err(e) => {
+            let _ = cache.record_miss().await;
+            tracing::warn!(label_key = %label_key, ?e, "direct_print 背景下載快取失敗");
+            false
         }
     };
     if !original_ok {
@@ -1007,6 +1072,9 @@ async fn get_parcel(
     Path(query_no): Path<String>,
 ) -> Result<Json<DataEnvelope<ParcelData>>, (StatusCode, Json<ApiErrorBody>)> {
     let t_start = std::time::Instant::now();
+    // 收到請求的「當下」就釘住讀碼站相機最新一幀(離工控機實際讀碼僅約 20ms),
+    // 不在這裡存檔(避免擋住回應),純記憶體複製;後續查得到訂單才丟背景寫檔 + 回寫 photo_path。
+    let snapshot = state.camera.latest_jpeg();
     match state.cloud.fetch_parcel(&query_no).await {
         Ok(info) => {
             let cloud_ms = t_start.elapsed().as_millis() as i64;
@@ -1017,11 +1085,18 @@ async fn get_parcel(
 
             let print_num = info.print_num.unwrap_or(0);
 
+            // 雲端回空 shipping_image(無面單可印)時直接視為「無面單」:不嘗試下載、不排列印,
+            // 避免空 URL 推出兜底 key 後發無謂請求 + 噪音警告(內容正確性已由 fetch_now source_url 校驗保證)。
+            let has_image = !info.shipping_image.trim().is_empty();
+
             // DirectPrint 模式:工控機拿到 label_path=null(由中介機列印),不需要圖檔本身 ──
             // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
             // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
             let (label_path, label_ms) =
-                if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+                if !has_image {
+                    tracing::warn!(query_no = %query_no, "雲端回空 shipping_image,視為無面單");
+                    (None, 0i64)
+                } else if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
                     enqueue_direct_print(
                         &state,
                         label_key.clone(),
@@ -1033,18 +1108,25 @@ async fn get_parcel(
                     (None, 0i64)
                 } else {
                     let t_label = std::time::Instant::now();
-                    // 第一階段:確保原圖已在本地快取(工控機要讀,同步下載到完成)
-                    let original_ok = if state.cache.has_local(&label_key) {
-                        let _ = state.cache.record_hit(&label_key).await;
-                        true
-                    } else {
-                        let _ = state.cache.record_miss().await;
-                        match state.cache.fetch_now(&label_key, &info.shipping_image).await {
-                            Ok(()) => true,
-                            Err(e) => {
-                                tracing::warn!(label_key = %label_key, ?e, "同步下載快取失敗");
-                                false
-                            }
+                    // 第一階段:確保原圖(對應這次 source_url)已在本地快取(工控機要讀,同步下載到完成)。
+                    // 一律走 fetch_now,由它比對 cache_meta.source_url 決定命中或重抓,避免回陳舊面單圖。
+                    let original_ok = match state
+                        .cache
+                        .fetch_now(&label_key, &info.shipping_image)
+                        .await
+                    {
+                        Ok(FetchOutcome::Hit) => {
+                            let _ = state.cache.record_hit(&label_key).await;
+                            true
+                        }
+                        Ok(FetchOutcome::Downloaded) => {
+                            let _ = state.cache.record_miss().await;
+                            true
+                        }
+                        Err(e) => {
+                            let _ = state.cache.record_miss().await;
+                            tracing::warn!(label_key = %label_key, ?e, "同步下載快取失敗");
+                            false
                         }
                     };
 
@@ -1127,6 +1209,34 @@ async fn get_parcel(
                 .await;
                 use tauri::Emitter;
                 let _ = state.app.emit("parcel-query-logged", ());
+
+                // 讀碼站存證:把開頭釘住的那一幀丟背景寫檔 + 回寫 photo_path。
+                // 此時 parcel_query_log 該列已 INSERT 完成(上面已 await),UPDATE by response_id 不會 race。
+                // 抓不到幀(相機未啟用/未接)時 snapshot=None,整段略過,photo_path 保持 NULL。
+                if let Some(jpeg) = snapshot.clone() {
+                    let db = state.db.clone();
+                    let captures_dir = state.captures_dir.clone();
+                    let qn = query_no.clone();
+                    let app = state.app.clone();
+                    tokio::spawn(async move {
+                        let key = tokio::task::spawn_blocking(move || {
+                            crate::camera::save_snapshot(&captures_dir, &qn, &jpeg)
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+                        if let Some(key) = key {
+                            let _ = sqlx::query(
+                                "UPDATE parcel_query_log SET photo_path = ? WHERE response_id = ?",
+                            )
+                            .bind(&key)
+                            .bind(rid)
+                            .execute(&db)
+                            .await;
+                            let _ = app.emit("parcel-query-logged", ());
+                        }
+                    });
+                }
             }
 
             // 記一筆 daily request 統計

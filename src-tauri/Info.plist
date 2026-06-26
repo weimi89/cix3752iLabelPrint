@@ -14,5 +14,7 @@
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>用於在收到工控機查詢請求時拍攝讀碼站當下畫面,作為「沒貨卻出紙」的存證</string>
 </dict>
 </plist>

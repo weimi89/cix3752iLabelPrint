@@ -19,10 +19,13 @@ pub async fn update_config(
     // server.listen_ip / port 不是熱套用欄位(要重綁 socket)。先比對是否變更,
     // 變更則用新設定重啟 server —— start 會驗證新 addr 可綁,失敗就整個 update 中止、
     // 不持久化也不動其他設定,避免「設定存了卻沒生效」的斷鏈(舊版這裡完全沒處理 server)。
+    // listen_ip / port / 存證目錄變更都需重綁 server:前兩者換 socket,存證目錄換 /captures 的 ServeDir
+    //(與存檔目錄共用 server 啟動時定版的值,重啟才會一致)。keep_days 變更不需重啟(清理器讀 config)。
     let server_changed = {
         let cur = state.config.read().await;
         cur.server.listen_ip != new_config.server.listen_ip
             || cur.server.port != new_config.server.port
+            || cur.camera.captures_dir != new_config.camera.captures_dir
     };
     if server_changed {
         crate::commands::server_commands::restart_server(state.inner(), &new_config, handle.clone())
@@ -35,6 +38,8 @@ pub async fn update_config(
     state.cache.apply_config(&handle, &new_config)?;
     state.health.apply_config(&new_config);
     state.label_resolver.apply_config(&new_config);
+    // 讀碼站相機熱套用:設定頁切換 enabled / 換 device_index / 改品質即時生效,不需重啟 App
+    state.camera.apply_config(&new_config.camera);
 
     *state.config.write().await = new_config.clone();
     Ok(new_config)
