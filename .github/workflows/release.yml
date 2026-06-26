@@ -156,8 +156,15 @@ jobs:
           apt-get install -y --no-install-recommends \
             curl wget gnupg ca-certificates lsb-release tzdata \
             software-properties-common
-          # GCC 11 (webkit2gtk 2.42 OK)
-          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          # GCC 11 (webkit2gtk 2.42 OK) — 手動加 ubuntu-toolchain-r/test PPA。
+          # 不用 add-apt-repository:focal 版會把 Launchpad API 回應錯拆成
+          # 'ppa:~ubuntu-toolchain-r/ubuntu/test' 而找不到 PPA(持續性失敗,非偶發)。
+          # 金鑰改用 curl 走 HTTPS 從 keyserver web 介面取,繞過會 flake 的 dirmngr/--recv-keys。
+          mkdir -p /usr/share/keyrings
+          curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x60C317803A41BA51845E371A1E9377A2BA9EF27F" \
+            | gpg --dearmor -o /usr/share/keyrings/ubuntu-toolchain-r.gpg
+          echo "deb [signed-by=/usr/share/keyrings/ubuntu-toolchain-r.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main" \
+            > /etc/apt/sources.list.d/ubuntu-toolchain-r.list
           # CMake 3.20+ from Kitware
           wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
             | gpg --dearmor -o /usr/share/keyrings/kitware.gpg
