@@ -360,6 +360,34 @@ pub async fn cloud_clearance_options(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ClearanceProgressRequest {
+    pub from: String,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+/// 清關進度浮動框:指定報關日區間 → 袋數/件數/已印/剩餘 + 各件列印狀態(透傳雲端 JSON)
+#[tauri::command]
+pub async fn cloud_clearance_progress(
+    state: State<'_, SharedState>,
+    req: ClearanceProgressRequest,
+) -> AppResult<serde_json::Value> {
+    let to = req.to.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&req.from);
+    state.cloud.fetch_clearance_progress(&req.from, to).await
+}
+
+/// 設定清關進度浮動框要即時追蹤的報關日(浮動框開啟/換日期/關閉時呼叫;空=退訂所有日期頻道)。
+/// 交給 sync 管理器更新訂閱;未啟用同步時無作用(浮動框仍可顯示基準值,只是不即時)。
+#[tauri::command]
+pub async fn progress_set_dates(
+    state: State<'_, SharedState>,
+    dates: Vec<String>,
+) -> AppResult<()> {
+    state.sync.set_active_dates(dates);
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ClearanceStoreRequest {
     pub transport_package_sn: String,
     #[serde(default)]

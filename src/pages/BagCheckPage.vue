@@ -42,6 +42,39 @@ const bagState = bag => ((bag.missing || 0) > 0 ? 'missing' : 'complete')
 const STATE_COLOR = { missing: 'warning', complete: 'success' }
 const STATE_ICON = { missing: 'tabler-alert-circle', complete: 'tabler-circle-check' }
 
+// === 視圖模式 + 狀態篩選(記 localStorage,即時切換不重載)===
+// viewMode: 'cards'(詳細卡片,現狀)| 'compact'(精簡一行)| 'missing'(缺件總覽扁平清單)
+// stateFilter: 'all' | 'missing' | 'complete'(套用於 cards / compact;missing 視圖本身只列有缺)
+const VIEW_KEY = 'cix3752iLabelPrint.bagCheck.view'
+const FILTER_KEY = 'cix3752iLabelPrint.bagCheck.filter'
+const loadPref = (k, def) => { try { return localStorage.getItem(k) || def } catch { return def } }
+const viewMode = ref(loadPref(VIEW_KEY, 'cards'))
+const stateFilter = ref(loadPref(FILTER_KEY, 'all'))
+watch(viewMode, v => { try { localStorage.setItem(VIEW_KEY, v) } catch { /* 不可用略過 */ } })
+watch(stateFilter, v => { try { localStorage.setItem(FILTER_KEY, v) } catch { /* 不可用略過 */ } })
+
+const missingBagCount = computed(() => bags.value.filter(b => (b.missing || 0) > 0).length)
+const completeBagCount = computed(() => bags.value.filter(b => (b.missing || 0) === 0).length)
+const totalMissingItems = computed(() => bags.value.reduce((s, b) => s + (b.missing || 0), 0))
+
+// 卡片 / 精簡模式依狀態篩選後的袋清單
+const filteredBags = computed(() => {
+  if (stateFilter.value === 'missing') return bags.value.filter(b => (b.missing || 0) > 0)
+  if (stateFilter.value === 'complete') return bags.value.filter(b => (b.missing || 0) === 0)
+  return bags.value
+})
+
+// 缺件總覽:每個有缺的袋 + 其未印件清單(扁平,一眼看完所有缺料)
+const missingOverview = computed(() =>
+  bags.value
+    .filter(b => (b.missing || 0) > 0)
+    .map(b => ({
+      package_sn: b.package_sn,
+      missing: b.missing || 0,
+      unprinted: (b.orders || []).filter(o => !isPrinted(o)),
+    })),
+)
+
 const isPrinted = o => !!(o.last_print_time && String(o.last_print_time).trim())
 const formatTime = s => (s ? String(s).replace('T', ' ').slice(0, 19) : '')
 // 列表「列印時間」只顯示時間(HH:MM:SS),不帶日期 — 同袋訂單同日列印,日期重複無資訊量
@@ -66,6 +99,8 @@ const masonryEl = ref(null)
 let masonry = null
 let ro = null
 let rafId = 0
+// Masonry 首次排版前隱藏容器,排好(絕對定位到網格)再淡入 → 避免看到「流式排列→網格」中途跳動的閃爍
+const masonryReady = ref(false)
 
 // 合併同一幀內多次請求,避免重複 layout()
 const scheduleLayout = () => {
@@ -87,6 +122,8 @@ const observeItems = () => {
 const initMasonry = async () => {
   await nextTick()
   if (!masonryEl.value) return
+  const fresh = !masonry // 首次建立(進入卡片模式)才需隱藏淡入;篩選 reload 維持平滑過渡不閃
+  if (fresh) masonryReady.value = false
   if (!ro) ro = new ResizeObserver(scheduleLayout)
   if (masonry) {
     masonry.reloadItems()
@@ -103,14 +140,20 @@ const initMasonry = async () => {
     })
   }
   observeItems()
+  if (fresh) {
+    // 等 Masonry 完成首次絕對定位後再顯示(下一幀),避免流式中途畫面
+    await nextTick()
+    requestAnimationFrame(() => { masonryReady.value = true })
+  }
 }
 
-// 袋清單變動 → 重載 Masonry;清單清空 → 銷毀(容器會被 v-if 移除,需丟棄舊實例)
-watch(bags, async val => {
-  if (!val.length) {
+// 卡片清單 / 視圖模式變動 → 重載 Masonry;非卡片模式或清單空 → 銷毀(容器被 v-if 移除,需丟棄舊實例)
+watch([filteredBags, viewMode], async () => {
+  if (viewMode.value !== 'cards' || !filteredBags.value.length) {
     ro?.disconnect()
     masonry?.destroy()
     masonry = null
+    masonryReady.value = false
     return
   }
   await initMasonry()
@@ -140,6 +183,11 @@ onUnmounted(() => {
 // 寬度 calc 與 gutter:12 對齊 → n 欄剛好填滿容器(4 欄:item=(100%-36px)/4 + 3*12px gutter = 100%)。
 .bag-masonry {
   position: relative;
+  // 首次排版前隱藏(不淡入,避免淡入本身被當閃爍),排好(.--ready)即顯示 → 看不到「流式→網格」中途畫面
+  visibility: hidden;
+}
+.bag-masonry--ready {
+  visibility: visible;
 }
 .bag-masonry__sizer,
 .bag-masonry__item {
@@ -179,6 +227,42 @@ onUnmounted(() => {
   gap: 4px;
 }
 .bag-stat__num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+
+// 缺件總覽:袋號加大加粗;未印單號純文字(無框線/底色),加大字級、以間距分隔
+.bag-missing__bag {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.bag-missing__nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px; // 列距 6 / 欄距 22:不靠框線,以間距清楚分隔每個單號
+}
+.bag-missing__num {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+// 精簡列表:整體加大,數字欄再加粗加大
+.bag-compact {
+  :deep(th) { font-size: 0.95rem; }
+  :deep(td) {
+    font-size: 1.05rem;
+    block-size: 48px; // 放寬列高
+  }
+}
+.bag-compact__bag { font-weight: 600; }
+.bag-compact__num {
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bag-compact__time {
+  font-size: 0.95rem;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
 </style>
 
 <template>
@@ -200,6 +284,35 @@ onUnmounted(() => {
 
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
 
+    <!-- 控制列:視圖模式 + 狀態篩選(即時切換,記 localStorage)-->
+    <div v-if="bags.length" class="d-flex flex-wrap align-center ga-3 mb-4">
+      <VBtnToggle v-model="viewMode" mandatory density="comfortable" variant="flat" divided color="primary">
+        <VBtn value="cards" size="small" :ripple="false"><VIcon icon="tabler-layout-grid" size="18" class="me-1" />{{ $t('page.bagCheck.view.cards') }}</VBtn>
+        <VBtn value="compact" size="small" :ripple="false"><VIcon icon="tabler-list" size="18" class="me-1" />{{ $t('page.bagCheck.view.compact') }}</VBtn>
+        <VBtn value="missing" size="small" :ripple="false"><VIcon icon="tabler-alert-circle" size="18" class="me-1" />{{ $t('page.bagCheck.view.missing') }}</VBtn>
+      </VBtnToggle>
+
+      <VSpacer />
+
+      <!-- 狀態篩選:缺件總覽本身只列有缺,故不顯示篩選,改顯示總缺件數 -->
+      <VBtnToggle
+        v-if="viewMode !== 'missing'"
+        v-model="stateFilter"
+        mandatory
+        density="comfortable"
+        variant="flat"
+        divided
+      >
+        <VBtn value="all" size="small" :ripple="false">{{ $t('page.bagCheck.filter.all') }} {{ bags.length }}</VBtn>
+        <VBtn value="missing" size="small" color="warning" :ripple="false">{{ $t('page.bagCheck.filter.missing') }} {{ missingBagCount }}</VBtn>
+        <VBtn value="complete" size="small" color="success" :ripple="false">{{ $t('page.bagCheck.filter.complete') }} {{ completeBagCount }}</VBtn>
+      </VBtnToggle>
+      <VChip v-else color="warning" label>
+        <VIcon icon="tabler-alert-circle" size="16" start />
+        {{ $t('page.bagCheck.totalMissingItems') }}:{{ totalMissingItems }}（{{ missingBagCount }} {{ $t('page.bagCheck.bagsUnit') }}）
+      </VChip>
+    </div>
+
     <!-- 無資料 -->
     <VCard v-if="!bags.length" class="py-10">
       <div class="d-flex flex-column align-center justify-center text-medium-emphasis">
@@ -209,11 +322,73 @@ onUnmounted(() => {
       </div>
     </VCard>
 
-    <!-- 袋卡:Masonry 瀑布流(row-major,4 個一列填滿),展開/收合/刷新由 ResizeObserver 自動重排 -->
-    <div v-else ref="masonryEl" class="bag-masonry">
+    <!-- 缺件總覽:扁平列出每個有缺的袋 + 其未印件 -->
+    <template v-else-if="viewMode === 'missing'">
+      <VCard v-if="!missingOverview.length" class="py-10">
+        <div class="d-flex flex-column align-center justify-center text-success">
+          <VIcon icon="tabler-circle-check" size="48" class="mb-3" />
+          <div class="text-h6">{{ $t('page.bagCheck.allComplete') }}</div>
+        </div>
+      </VCard>
+      <VCard v-else>
+        <VList density="compact" class="py-0">
+          <template v-for="(b, bi) in missingOverview" :key="b.package_sn">
+            <VDivider v-if="bi > 0" />
+            <VListItem class="py-3">
+              <VListItemTitle class="d-flex align-center flex-wrap ga-2">
+                <span class="bag-missing__bag">{{ b.package_sn }}</span>
+                <VChip color="warning" size="small" label class="font-weight-bold">{{ $t('page.bagCheck.status.missing', { n: b.missing }) }}</VChip>
+              </VListItemTitle>
+              <div class="bag-missing__nums mt-1">
+                <span v-for="o in b.unprinted" :key="o.shipping_no" class="bag-missing__num">{{ o.shipping_no || '—' }}</span>
+              </div>
+            </VListItem>
+          </template>
+        </VList>
+      </VCard>
+    </template>
+
+    <!-- 精簡列表:每袋一行 -->
+    <template v-else-if="viewMode === 'compact'">
+      <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
+        <div class="text-body-1">{{ $t('page.bagCheck.noMatch') }}</div>
+      </VCard>
+      <VCard v-else>
+        <VTable class="bag-compact">
+          <thead>
+            <tr>
+              <th class="text-start">{{ $t('page.bagCheck.col.packageSn') }}</th>
+              <th class="text-center" style="width: 90px;">{{ $t('page.bagCheck.total') }}</th>
+              <th class="text-center" style="width: 90px;">{{ $t('page.bagCheck.printed') }}</th>
+              <th class="text-center" style="width: 90px;">{{ $t('page.bagCheck.missing') }}</th>
+              <th class="text-center" style="width: 120px;">{{ $t('page.bagCheck.lastRequestAt') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="bag in filteredBags" :key="bag.package_sn">
+              <td class="text-start bag-compact__bag">
+                <VIcon :icon="STATE_ICON[bagState(bag)]" :color="STATE_COLOR[bagState(bag)]" size="20" class="me-2" />
+                {{ bag.package_sn }}
+              </td>
+              <td class="text-center bag-compact__num">{{ bag.total }}</td>
+              <td class="text-center bag-compact__num text-success">{{ bag.printed }}</td>
+              <td class="text-center bag-compact__num" :class="bag.missing > 0 ? 'text-warning font-weight-bold' : 'text-disabled'">{{ bag.missing }}</td>
+              <td class="text-center bag-compact__time">{{ formatTimeShort(bag.last_request_at) }}</td>
+            </tr>
+          </tbody>
+        </VTable>
+      </VCard>
+    </template>
+
+    <!-- 詳細卡片:Masonry 瀑布流(row-major,4 個一列填滿),展開/收合/刷新由 ResizeObserver 自動重排 -->
+    <template v-else>
+      <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
+        <div class="text-body-1">{{ $t('page.bagCheck.noMatch') }}</div>
+      </VCard>
+      <div v-else ref="masonryEl" class="bag-masonry" :class="{ 'bag-masonry--ready': masonryReady }">
       <!-- columnWidth 量測基準(不參與佈局,僅供 Masonry 計算欄寬) -->
       <div class="bag-masonry__sizer" />
-      <VCard v-for="bag in bags" :key="bag.package_sn" class="bag-card bag-masonry__item">
+      <VCard v-for="bag in filteredBags" :key="bag.package_sn" class="bag-card bag-masonry__item">
           <VCardItem>
             <template #prepend>
               <VAvatar :color="STATE_COLOR[bagState(bag)]" variant="tonal" rounded>
@@ -299,6 +474,7 @@ onUnmounted(() => {
               </div>
           </template>
         </VCard>
-    </div>
+      </div>
+    </template>
   </div>
 </template>

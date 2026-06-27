@@ -1,6 +1,6 @@
 [package]
 name = "cix3752i-label-print"
-version = "0.8.1"
+version = "0.9.0"
 description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"
@@ -36,6 +36,11 @@ hyper = "1"
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+
+# WebSocket client(件數核對跨機同步:訂閱 Reverb/Pusher 廣播)
+# 用 ring provider 對齊既有 reqwest/sqlx 的 rustls(避免 aws-lc-rs 雙 provider 衝突)
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

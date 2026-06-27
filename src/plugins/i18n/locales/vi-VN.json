@@ -199,6 +199,21 @@
       "failThreshold": "Bộ đệm chống nhiễu (số lần lỗi liên tiếp)"
     }
   },
+  "sync": {
+    "settings": {
+      "section": "Đồng bộ đối soát số kiện liên máy",
+      "desc": "Khi nhiều máy phân loại xử lý cùng một túi, tiến độ in được đồng bộ tức thời qua Reverb; túi xử lý ở máy khác cũng cập nhật ngay danh sách đối soát của máy này. Mặc định tắt.",
+      "enable": "Bật đồng bộ liên máy",
+      "enableDesc": "Bật để đăng ký nhận quảng bá Reverb; tắt thì giữ chế độ đơn máy (không ảnh hưởng luồng hiện có)",
+      "host": "Máy chủ Reverb",
+      "hostPlaceholder": "Địa chỉ máy chủ Reverb (hỏi người phụ trách triển khai)",
+      "port": "Cổng",
+      "scheme": "Giao thức",
+      "appKey": "App Key",
+      "appKeyPlaceholder": "App key quảng bá Reverb (hỏi người phụ trách triển khai)",
+      "hint": "Máy chủ và App Key phải cùng môi trường, cùng app với máy chủ quảng bá của cloud tại xưởng đó (chi tiết hỏi người phụ trách triển khai). Lưu xong áp dụng ngay, không cần khởi động lại."
+    }
+  },
   "label": {
     "mode": {
       "local": "Đường dẫn cục bộ",
@@ -489,16 +504,41 @@
       "lastRequestAt": "Yêu cầu gần nhất",
       "expand": "Mở rộng",
       "collapse": "Thu gọn",
+      "view": {
+        "cards": "Thẻ",
+        "compact": "Gọn",
+        "missing": "Tổng quan thiếu"
+      },
+      "filter": {
+        "all": "Tất cả",
+        "missing": "Còn thiếu",
+        "complete": "Đầy đủ"
+      },
+      "totalMissingItems": "Tổng kiện thiếu",
+      "bagsUnit": "túi",
+      "allComplete": "Tất cả đầy đủ, hiện không thiếu kiện",
+      "noMatch": "Không có túi khớp bộ lọc này",
       "status": {
         "complete": "Đầy đủ",
         "missing": "Chưa in {n} kiện"
       },
       "col": {
+        "packageSn": "Số túi",
         "shippingNo": "Số vận đơn",
         "provider": "Mã",
         "printTime": "Thời gian in",
         "unprinted": "Chưa in"
       }
+    },
+    "clearanceProgress": {
+      "title": "Tiến độ thông quan",
+      "setRange": "Đặt khoảng ngày",
+      "rangeHint": "Theo ngày khai báo, mặc định hôm nay; có thể chọn khoảng ngày. In xong tự trừ phần còn lại.",
+      "remainTotalHint": "Số liệu là \"còn lại / tổng\"",
+      "bags": "Túi",
+      "parcels": "Kiện",
+      "printed": "Đã in",
+      "remaining": "Còn lại"
     },
     "alertLog": {
       "title": "Cảnh báo tra cứu",

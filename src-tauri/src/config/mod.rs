@@ -23,7 +23,45 @@ pub struct AppConfig {
     pub pre_gen_schedule: PreGenScheduleConfig,
     #[serde(default)]
     pub camera: CameraConfig,
+    #[serde(default)]
+    pub sync: SyncConfig,
 }
+
+/// 件數核對跨機同步設定 — 訂閱 Reverb(Pusher 相容)的 `bag.{package_sn}` 廣播,
+/// 讓「同一袋包裹拿到別台處理」時本機核對清單也即時更新。預設關閉。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncConfig {
+    /// 總開關(預設關;填好 host/key 並確認雲端同環境廣播後再開)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Reverb 主機位址(須與該分揀場雲端廣播伺服器同環境;實際值由部署設定填入)
+    #[serde(default)]
+    pub reverb_host: String,
+    /// Reverb 連接埠(預設 443)
+    #[serde(default = "default_reverb_port")]
+    pub reverb_port: u16,
+    /// 連線 scheme:`wss`(TLS,預設)或 `ws`
+    #[serde(default = "default_reverb_scheme")]
+    pub reverb_scheme: String,
+    /// Reverb 廣播 app key(由部署設定填入;public 頻道訂閱免 secret)
+    #[serde(default)]
+    pub reverb_app_key: String,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            reverb_host: String::new(),
+            reverb_port: default_reverb_port(),
+            reverb_scheme: default_reverb_scheme(),
+            reverb_app_key: String::new(),
+        }
+    }
+}
+
+fn default_reverb_port() -> u16 { 443 }
+fn default_reverb_scheme() -> String { "wss".to_string() }
 
 /// 讀碼站快照相機設定 — 收到工控機 GET /api/parcel 時抓 USB 相機當下一幀存證
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +211,9 @@ pub struct CloudConfig {
     /// 清關作業 — 司機派工 path
     #[serde(default = "default_clearance_dispatch_path")]
     pub clearance_dispatch_path: String,
+    /// 清關進度浮動框 — 指定報關日區間聚合(袋數/件數/已印/剩餘)path
+    #[serde(default = "default_clearance_progress_path")]
+    pub clearance_progress_path: String,
     /// 分揀完成 webhook path
     #[serde(default = "default_webhook_path")]
     pub webhook_path: String,
@@ -197,6 +238,7 @@ impl Default for CloudConfig {
             cloud_print_path: default_cloud_print_path(),
             examine_package_path: default_examine_package_path(),
             clearance_options_path: default_clearance_options_path(),
+            clearance_progress_path: default_clearance_progress_path(),
             clearance_store_path: default_clearance_store_path(),
             clearance_dispatch_path: default_clearance_dispatch_path(),
             webhook_path: default_webhook_path(),
@@ -308,6 +350,7 @@ impl Default for AppConfig {
             label_path: LabelPathConfig::default(),
             pre_gen_schedule: PreGenScheduleConfig::default(),
             camera: CameraConfig::default(),
+            sync: SyncConfig::default(),
         }
     }
 }
@@ -350,6 +393,7 @@ fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/ex
 fn default_package_orders_path() -> String { "/api/v1/local-middleware/label/package-orders".to_string() }
 fn default_orders_by_date_path() -> String { "/api/v1/local-middleware/label/orders-by-date".to_string() }
 fn default_clearance_options_path() -> String { "/api/v1/local-middleware/clearance/options".to_string() }
+fn default_clearance_progress_path() -> String { "/api/v1/local-middleware/clearance/progress".to_string() }
 fn default_clearance_store_path() -> String { "/api/v1/local-middleware/clearance/store".to_string() }
 fn default_clearance_dispatch_path() -> String { "/api/v1/local-middleware/clearance/dispatch".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }

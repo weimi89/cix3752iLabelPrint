@@ -15,6 +15,7 @@ mod pregen;
 mod printer;
 mod queue;
 mod server;
+mod sync;
 mod watermark;
 
 use std::sync::Arc;
@@ -39,6 +40,7 @@ pub struct AppState {
     pub watermark: watermark::WatermarkRenderer,
     pub bag_check: bag_check::BagCheckState,
     pub camera: camera::CameraManager,
+    pub sync: sync::SyncManager,
     /// 面單預產自動排程的可觀測狀態(啟動 / 上次執行),供前端 get_pregen_status 查詢
     pub pregen_status: RwLock<pregen::PregenStatus>,
 }
@@ -48,6 +50,10 @@ pub type SharedState = Arc<AppState>;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     log::init();
+
+    // 安裝 rustls CryptoProvider(件數核對同步的 wss 連線需要;用 ring 對齊 reqwest/sqlx,單一 provider)。
+    // reqwest/sqlx 若已自行安裝則此呼叫回 Err,忽略即可。
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     tauri::Builder::default()
         // single-instance 必須最先註冊:第二個實例啟動時聚焦既有視窗後正常退出,
@@ -114,6 +120,8 @@ pub fn run() {
             commands::cloud_commands::cloud_package_orders,
             commands::cloud_commands::cloud_orders_by_date,
             commands::cloud_commands::cloud_clearance_options,
+            commands::cloud_commands::cloud_clearance_progress,
+            commands::cloud_commands::progress_set_dates,
             commands::cloud_commands::cloud_clearance_store,
             commands::cloud_commands::cloud_clearance_dispatch,
             commands::dispatch_commands::dispatch_provider_list,
@@ -166,6 +174,11 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
     let watermark = watermark::WatermarkRenderer::new();
     let bag_check = bag_check::BagCheckState::new(cloud.clone(), handle.clone());
 
+    // 件數核對跨機同步:訂閱 Reverb 廣播,讓別台處理的同袋包裹也即時更新本機核對清單。
+    // 用 SyncManager 管理,設定頁可熱套用;未啟用(預設)則不連線,不影響既有單機流程。
+    let sync = sync::SyncManager::new(bag_check.clone(), handle.clone());
+    sync.apply_config(&app_config.sync);
+
     // 讀碼站快照相機:依設定常駐抓幀(enabled=false 則不啟動)
     let camera = camera::CameraManager::new();
     camera.start(&app_config.camera);
@@ -214,6 +227,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         watermark,
         bag_check,
         camera,
+        sync,
         pregen_status: RwLock::new(pregen::PregenStatus::default()),
     });
 

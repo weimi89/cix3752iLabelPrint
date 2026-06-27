@@ -40,6 +40,8 @@ pub async fn update_config(
     state.label_resolver.apply_config(&new_config);
     // 讀碼站相機熱套用:設定頁切換 enabled / 換 device_index / 改品質即時生效,不需重啟 App
     state.camera.apply_config(&new_config.camera);
+    // 件數核對跨機同步熱套用:切換 enabled / 改 host/key 即時重連或斷線,不需重啟 App
+    state.sync.apply_config(&new_config.sync);
 
     *state.config.write().await = new_config.clone();
     Ok(new_config)

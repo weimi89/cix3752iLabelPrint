@@ -8,6 +8,7 @@ import { layoutConfig } from '@layouts'
 import { useLayoutConfigStore } from '@layouts/stores/config'
 import AppNavbar from '@/components/AppNavbar.vue'
 import AppLogo from '@/components/AppLogo.vue'
+import ClearanceProgressWidget from '@/components/ClearanceProgressWidget.vue'
 import { navItems } from '@/config/navConfig'
 import { useSkins } from '@core/composable/useSkins'
 import { useStatusStore } from '@/stores/status'
@@ -109,6 +110,9 @@ onBeforeUnmount(() => {
 
     <!-- 👉 Pages -->
     <slot />
+
+    <!-- 全域清關進度浮動框(跨頁不消失,Teleport 到 body)-->
+    <ClearanceProgressWidget />
   </VerticalNavLayout>
 </template>
 

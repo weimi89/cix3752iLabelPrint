@@ -43,6 +43,7 @@ const MOCK_CONFIG = {
   },
   cache: { dir: '', keep_days: 5, max_size_mb: 0 },
   camera: { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 },
+  sync: { enabled: false, reverb_host: '', reverb_port: 443, reverb_scheme: 'wss', reverb_app_key: '' },
   network: {
     interval_secs: 15,
     degrade_interval_secs: 60,
@@ -146,6 +147,28 @@ export const cloudClearanceOptions = async () => {
   }
   return await invoke('cloud_clearance_options')
 }
+
+// 清關進度浮動框 — 指定報關日區間 → 袋數/件數/已印/剩餘 + 各件列印狀態(供去重遞減)
+export const clearanceProgress = async (from, to = '') => {
+  if (!isTauri) {
+    const parcels = Array.from({ length: 14 }, (_, i) => ({
+      shipping_no: `74Z0100${1000 + i}`,
+      package_sn: i < 8 ? 'XYE2619201' : '0Y9T5714',
+      printed: i < 9,
+    }))
+    const printed = parcels.filter(p => p.printed).length
+    const bagRemaining = new Set(parcels.filter(p => !p.printed).map(p => p.package_sn)).size
+    return { respond_code: 'OK', from, to: to || from, bag_total: 2, bag_remaining: bagRemaining, parcel_total: parcels.length, printed, remaining: parcels.length - printed, parcels }
+  }
+  return await invoke('cloud_clearance_progress', { req: { from, to: to || from } })
+}
+
+// 清關進度浮動框 — 設定要即時追蹤的報關日(開啟/換日期傳日期陣列;關閉傳空陣列退訂)
+export const progressSetDates = async (dates = []) => {
+  if (!isTauri) return
+  return await invoke('progress_set_dates', { dates })
+}
+
 // 清關作業 — 新增包裹(transport_package_sn 為逗號分隔多筆袋號)
 export const cloudClearanceStore = async ({ transportPackageSn, clearanceCompany = '', clearanceDate = '', storageCode = '33843' }) => {
   if (!isTauri) {

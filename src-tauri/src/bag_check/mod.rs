@@ -116,8 +116,10 @@ impl BagCheckState {
         shipping_no: &str,
         provider: &str,
     ) {
+        // 無袋號(散單)不納入袋核對:對齊雲端 !empty() 慣例,空字串 / "0" 皆視為散單。
+        // 真實袋號可能以 0 開頭(如 0STTJX9B1694),故只排除「剛好等於 0」者。
         let package_sn = match package_sn {
-            Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+            Some(s) if !s.trim().is_empty() && s.trim() != "0" => s.trim().to_string(),
             _ => return,
         };
         let this = self.clone();
@@ -211,7 +213,7 @@ impl BagCheckState {
                     .filter(|s| !s.trim().is_empty())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| package_sn.to_string());
-                let orders = res
+                let orders: Vec<BagOrder> = res
                     .orders
                     .iter()
                     .map(|o| {
@@ -230,6 +232,13 @@ impl BagCheckState {
                         }
                     })
                     .collect();
+                let unprinted: Vec<String> = orders
+                    .iter()
+                    .filter(|o| o.last_print_time.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true))
+                    .map(|o| o.shipping_no.clone())
+                    .collect();
+                tracing::info!(package_sn = %pkg, total = orders.len(), unprinted = ?unprinted,
+                    "件數核對:新袋載入");
                 Some(BagEntry {
                     package_sn: pkg,
                     orders,
@@ -247,6 +256,80 @@ impl BagCheckState {
                 tracing::debug!(order_sn, error = %e, "袋件核對:examine_package 失敗,跳過不建卡");
                 None
             }
+        }
+    }
+
+    /// 目前持有的袋號集合 —— 供跨機同步模組決定要訂閱哪些 `bag.{package_sn}` 頻道。
+    pub fn held_package_sns(&self) -> Vec<String> {
+        self.inner.lock().iter().map(|b| b.package_sn.clone()).collect()
+    }
+
+    /// 套用遠端(別台經雲端廣播)的「某件已印」事件。
+    /// **僅在本機記憶體已持有該袋時**才更新,不從遠端事件建袋(否則每台都會冒出全部袋)。
+    /// 時間字串同格式("Y-m-d H:i:s")可字典序比較;只有實際造成變動才 emit。
+    pub fn apply_remote_print(&self, package_sn: &str, shipping_no: &str, print_time: &str) {
+        let changed = apply_remote_to(&mut self.inner.lock(), package_sn, shipping_no, print_time);
+        if changed {
+            tracing::info!(package_sn, shipping_no, print_time, "件數核對:套用遠端列印(跨機同步)");
+            self.emit();
+        }
+    }
+
+    /// 重連 / 新訂閱後對指定袋重抓雲端 manifest 補洞 —— WS 斷線期間漏掉的列印,靠雲端真相補回。
+    /// 僅在本機已持有此袋時動作;以雲端 `last_print_time` 為準取較新者(不會把已印變未印)。
+    /// `examine_package` 接受袋號(package_sn)。注意:`await` 在鎖外,避免跨 await 持鎖。
+    pub async fn refresh_bag(&self, package_sn: &str) {
+        // examine_package 需要「訂單號 / 單號」而非袋號(用袋號查會回 NO-PACKAGE-DATA),
+        // 故從該袋取一個成員單號當查詢鍵。鎖只在 await 前借用。
+        let probe = {
+            let bags = self.inner.lock();
+            let Some(bag) = bags.iter().find(|b| b.package_sn == package_sn) else {
+                return; // 未持有 → 不抓
+            };
+            bag.orders
+                .iter()
+                .map(|o| o.shipping_no.clone())
+                .find(|s| !s.trim().is_empty())
+        };
+        let Some(probe) = probe else { return };
+        let res = match self.cloud.examine_package(&probe).await {
+            Ok(r) if r.respond_code == "FIND-PACKAGE-ORDER" => r,
+            Ok(r) => {
+                tracing::debug!(package_sn, code = %r.respond_code, "袋核對 refresh:雲端非命中,略過");
+                return;
+            }
+            Err(e) => {
+                tracing::debug!(package_sn, error = %e, "袋核對 refresh:examine_package 失敗,略過");
+                return;
+            }
+        };
+        let changed = {
+            let mut bags = self.inner.lock();
+            let Some(bag) = bags.iter_mut().find(|b| b.package_sn == package_sn) else {
+                return;
+            };
+            let mut any = false;
+            for o in &res.orders {
+                let sn = o.shipping_no.clone().unwrap_or_default();
+                let cloud_t = o.last_print_time.clone().unwrap_or_default();
+                if sn.is_empty() || cloud_t.trim().is_empty() {
+                    continue;
+                }
+                if let Some(ord) = bag.orders.iter_mut().find(|x| x.shipping_no == sn) {
+                    let cur = ord.last_print_time.clone().unwrap_or_default();
+                    if cur.trim().is_empty() || cloud_t.as_str() > cur.as_str() {
+                        ord.last_print_time = Some(cloud_t);
+                        any = true;
+                    }
+                }
+            }
+            if any {
+                bag.recount();
+            }
+            any
+        };
+        if changed {
+            self.emit();
         }
     }
 }
@@ -290,6 +373,32 @@ fn mark_printed(
         });
     }
     bag.recount();
+}
+
+/// 套用遠端「某件已印」到清單核心邏輯(供 [`BagCheckState::apply_remote_print`] 與測試共用)。
+/// 僅在清單已有該袋、且袋內有該件時更新;只有 last_print_time 由空變有、或新時間較新才算變動。
+/// 回傳是否實際造成變動(true 才需 emit)。時間字串同格式可字典序比較。
+fn apply_remote_to(
+    bags: &mut VecDeque<BagEntry>,
+    package_sn: &str,
+    shipping_no: &str,
+    print_time: &str,
+) -> bool {
+    let Some(bag) = bags.iter_mut().find(|b| b.package_sn == package_sn) else {
+        return false; // 未持有此袋
+    };
+    let Some(ord) = bag.orders.iter_mut().find(|o| o.shipping_no == shipping_no) else {
+        return false; // 袋內查無此件(清單以雲端 manifest 為準)
+    };
+    let newer = match ord.last_print_time.as_deref() {
+        Some(cur) if !cur.trim().is_empty() => print_time > cur,
+        _ => true,
+    };
+    if newer {
+        ord.last_print_time = Some(print_time.to_string());
+        bag.recount();
+    }
+    newer
 }
 
 /// 本機時區當下時間,格式對齊雲端 last_print_time("Y-m-d H:i:s")
@@ -347,5 +456,65 @@ mod tests {
         ]);
         prune(&mut bags);
         assert_eq!(codes(&bags), ["e", "d", "c", "b"]);
+    }
+
+    /// 建一筆訂單(last_print_time 空=未印)
+    fn ord(sn: &str, printed_at: Option<&str>) -> BagOrder {
+        BagOrder {
+            shipping_no: sn.to_string(),
+            order_sn: Some(format!("O-{sn}")),
+            shipping_provider: Some("EXPRESS".to_string()),
+            last_print_time: printed_at.map(|s| s.to_string()),
+        }
+    }
+
+    /// 建含訂單的袋並先 recount
+    fn bag_with(sn: &str, orders: Vec<BagOrder>) -> BagEntry {
+        let mut b = BagEntry {
+            package_sn: sn.to_string(),
+            orders,
+            total: 0,
+            printed: 0,
+            missing: 0,
+            last_request_at: String::new(),
+        };
+        b.recount();
+        b
+    }
+
+    #[test]
+    fn remote_print_marks_held_bag_and_recounts() {
+        // 持有袋、件未印 → 套用後標記已印、missing 由 1 變 0、回傳 true
+        let mut bags = VecDeque::from(vec![bag_with(
+            "P1",
+            vec![ord("S1", Some("2026-06-26 10:00:00")), ord("S2", None)],
+        )]);
+        assert_eq!(bags[0].missing, 1);
+        let changed = apply_remote_to(&mut bags, "P1", "S2", "2026-06-26 10:05:00");
+        assert!(changed);
+        assert_eq!(bags[0].missing, 0);
+        assert_eq!(bags[0].printed, 2);
+    }
+
+    #[test]
+    fn remote_print_ignores_unheld_bag_or_unknown_order() {
+        let mut bags = VecDeque::from(vec![bag_with("P1", vec![ord("S1", None)])]);
+        // 未持有的袋 → 不變動
+        assert!(!apply_remote_to(&mut bags, "PX", "S1", "2026-06-26 10:00:00"));
+        // 持有袋但袋內無此件 → 不變動
+        assert!(!apply_remote_to(&mut bags, "P1", "S999", "2026-06-26 10:00:00"));
+        assert_eq!(bags[0].missing, 1);
+    }
+
+    #[test]
+    fn remote_print_skips_when_not_newer() {
+        // 已印且來件時間較舊/相等 → 不覆蓋、回 false
+        let mut bags = VecDeque::from(vec![bag_with("P1", vec![ord("S1", Some("2026-06-26 12:00:00"))])]);
+        assert!(!apply_remote_to(&mut bags, "P1", "S1", "2026-06-26 11:00:00")); // 較舊
+        assert!(!apply_remote_to(&mut bags, "P1", "S1", "2026-06-26 12:00:00")); // 相等
+        assert_eq!(bags[0].orders[0].last_print_time.as_deref(), Some("2026-06-26 12:00:00"));
+        // 較新 → 覆蓋
+        assert!(apply_remote_to(&mut bags, "P1", "S1", "2026-06-26 13:00:00"));
+        assert_eq!(bags[0].orders[0].last_print_time.as_deref(), Some("2026-06-26 13:00:00"));
     }
 }

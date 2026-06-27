@@ -52,6 +52,7 @@ struct CloudState {
     package_orders_path: String,
     orders_by_date_path: String,
     clearance_options_path: String,
+    clearance_progress_path: String,
     clearance_store_path: String,
     clearance_dispatch_path: String,
     webhook_path: String,
@@ -84,6 +85,7 @@ impl CloudClient {
             package_orders_path: config.cloud.package_orders_path.clone(),
             orders_by_date_path: config.cloud.orders_by_date_path.clone(),
             clearance_options_path: config.cloud.clearance_options_path.clone(),
+            clearance_progress_path: config.cloud.clearance_progress_path.clone(),
             clearance_store_path: config.cloud.clearance_store_path.clone(),
             clearance_dispatch_path: config.cloud.clearance_dispatch_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
@@ -120,6 +122,7 @@ impl CloudClient {
         s.package_orders_path = config.cloud.package_orders_path.clone();
         s.orders_by_date_path = config.cloud.orders_by_date_path.clone();
         s.clearance_options_path = config.cloud.clearance_options_path.clone();
+        s.clearance_progress_path = config.cloud.clearance_progress_path.clone();
         s.clearance_store_path = config.cloud.clearance_store_path.clone();
         s.clearance_dispatch_path = config.cloud.clearance_dispatch_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
@@ -442,6 +445,35 @@ impl CloudClient {
             ))
         })?;
         Ok(result)
+    }
+
+    /// 清關進度浮動框:GET clearance/progress?from&to,回傳雲端原始 JSON
+    /// (`{from,to,bag_total,parcel_total,printed,remaining,parcels:[...]}`),直接透傳給前端。
+    pub async fn fetch_clearance_progress(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> AppResult<serde_json::Value> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().clearance_progress_path.clone();
+        let url = join_url(&base, &path);
+
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .get(&url)
+            .query(&[("from", from), ("to", to)])
+            .bearer_auth(&token)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        let text = resp.text().await?;
+        serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 clearance/progress 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })
     }
 
     /// 清關作業:新增清關包裹,對齊雲端 clearance/store

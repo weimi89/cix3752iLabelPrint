@@ -199,6 +199,21 @@
       "failThreshold": "抖動緩衝(連續失敗次數)"
     }
   },
+  "sync": {
+    "settings": {
+      "section": "件數核對跨機同步",
+      "desc": "多台分揀機共用同一袋時,經 Reverb 即時同步列印進度;同袋在別台處理也會即時更新本機核對清單。預設關閉。",
+      "enable": "啟用跨機同步",
+      "enableDesc": "開啟後訂閱 Reverb 廣播;關閉則維持單機(不影響既有流程)",
+      "host": "Reverb 主機",
+      "hostPlaceholder": "Reverb 主機位址(向部署負責人索取)",
+      "port": "連接埠",
+      "scheme": "連線協定",
+      "appKey": "App Key",
+      "appKeyPlaceholder": "Reverb 廣播 app key(向部署負責人索取)",
+      "hint": "主機與 App Key 須與該分揀場雲端的廣播伺服器同一環境、同一 app(詳情向部署負責人索取)。變更儲存後即時生效,無須重啟。"
+    }
+  },
   "label": {
     "mode": {
       "local": "本機端路徑",
@@ -489,16 +504,41 @@
       "lastRequestAt": "最近請求",
       "expand": "展開",
       "collapse": "關閉",
+      "view": {
+        "cards": "卡片",
+        "compact": "精簡",
+        "missing": "缺件總覽"
+      },
+      "filter": {
+        "all": "全部",
+        "missing": "有缺",
+        "complete": "完整"
+      },
+      "totalMissingItems": "總缺件數",
+      "bagsUnit": "袋",
+      "allComplete": "全部完整,目前沒有缺件",
+      "noMatch": "沒有符合此篩選的袋",
       "status": {
         "complete": "完整",
         "missing": "未印 {n} 件"
       },
       "col": {
+        "packageSn": "袋號",
         "shippingNo": "物流單號",
         "provider": "簡碼",
         "printTime": "列印時間",
         "unprinted": "未列印"
       }
+    },
+    "clearanceProgress": {
+      "title": "清關進度",
+      "setRange": "設定日期區間",
+      "rangeHint": "依報關日,預設當日;可選日期區間。列印會即時遞減剩餘。",
+      "remainTotalHint": "數字為「剩餘 / 總數」",
+      "bags": "袋",
+      "parcels": "件",
+      "printed": "已印",
+      "remaining": "剩餘"
     },
     "alertLog": {
       "title": "查件異常",

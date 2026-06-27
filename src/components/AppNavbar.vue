@@ -1,6 +1,7 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useStatusStore } from '@/stores/status'
+import { useClearanceProgress } from '@/stores/clearanceProgress'
 import { useZoom } from '@/composables/useZoom'
 import { useUpdater } from '@/composables/useUpdater'
 import { localLanIps } from '@/api/tauri'
@@ -19,6 +20,7 @@ defineProps({
 const { t } = useI18n()
 const router = useRouter()
 const status = useStatusStore()
+const clearanceProgress = useClearanceProgress()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 const { zoom, zoomIn, zoomOut, zoomReset } = useZoom()
 const {
@@ -90,6 +92,16 @@ const copyAddr = async addr => {
       </VTooltip>
     </VChip>
     <VSpacer />
+    <VBtn
+      icon
+      size="small"
+      variant="text"
+      color="default"
+      @click="clearanceProgress.openWidget()"
+    >
+      <VIcon icon="tabler-clipboard-check" size="22" />
+      <VTooltip activator="parent" location="bottom">{{ $t('page.clearanceProgress.title') }}</VTooltip>
+    </VBtn>
     <VMenu :close-on-content-click="false" offset="8" location="bottom end">
       <template #activator="{ props: menuProps }">
         <VBtn icon size="small" variant="text" color="default" v-bind="menuProps">

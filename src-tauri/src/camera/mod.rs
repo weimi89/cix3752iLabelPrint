@@ -265,6 +265,9 @@ mod hw_tests {
             enabled: true,
             device_index: 0,
             jpeg_quality: 80,
+            zoom: 1.0,
+            captures_dir: String::new(),
+            keep_days: 90,
         });
 
         // 等相機暖機 + 抓到第一幀(權限對話框可能在此跳出,給到 ~10 秒)

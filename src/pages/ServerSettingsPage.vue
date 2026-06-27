@@ -194,6 +194,51 @@ const restart = async () => {
       </VCardText>
     </VCard>
 
+    <VCard v-if="config.sync" class="mb-4">
+      <VCardItem>
+        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('sync.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-caption text-wrap">{{ $t('sync.settings.desc') }}</VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <div class="d-flex align-center justify-space-between mb-1">
+          <div class="pe-2">
+            <div class="text-body-1 font-weight-medium">{{ $t('sync.settings.enable') }}</div>
+            <div class="text-caption text-medium-emphasis text-wrap">{{ $t('sync.settings.enableDesc') }}</div>
+          </div>
+          <VSwitch v-model="config.sync.enabled" hide-details color="primary" inset />
+        </div>
+
+        <VRow v-if="config.sync.enabled" dense class="mt-1">
+          <VCol cols="12" md="6">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.host') }}</VLabel>
+            <VTextField v-model="config.sync.reverb_host" :placeholder="$t('sync.settings.hostPlaceholder')" hide-details density="compact" variant="outlined" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.port') }}</VLabel>
+            <VNumberInput v-model="config.sync.reverb_port" :min="1" :max="65535" density="compact" />
+          </VCol>
+          <VCol cols="6" md="3">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.scheme') }}</VLabel>
+            <VSelect
+              v-model="config.sync.reverb_scheme"
+              :items="['wss', 'ws']"
+              hide-details
+              density="compact"
+              variant="outlined"
+            />
+          </VCol>
+          <VCol cols="12">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.appKey') }}</VLabel>
+            <VTextField v-model="config.sync.reverb_app_key" :placeholder="$t('sync.settings.appKeyPlaceholder')" hide-details density="compact" variant="outlined" />
+          </VCol>
+        </VRow>
+
+        <VAlert v-if="config.sync.enabled" type="info" variant="tonal" density="compact" class="mt-3" :icon="false">
+          <div class="text-caption">{{ $t('sync.settings.hint') }}</div>
+        </VAlert>
+      </VCardText>
+    </VCard>
+
     <VCard class="mb-4">
       <VCardItem>
         <VCardTitle class="text-body-1 font-weight-medium">{{ $t('label.settings.section') }}</VCardTitle>
