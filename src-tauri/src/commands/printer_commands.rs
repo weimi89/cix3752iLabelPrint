@@ -58,3 +58,60 @@ pub async fn print_image(
 
     printer::print_image_bytes(&req.printer_name, &bytes)
 }
+
+/// 入倉裝箱標籤一張(對齊雲端 WarehouseScannerService::generateLabelData 回傳欄位)
+#[derive(Debug, Deserialize)]
+pub struct BoxLabel {
+    #[serde(default)]
+    pub package_sn: String,
+    #[serde(default)]
+    pub provider_name: String,
+    #[serde(default)]
+    pub serial_number: String,
+    #[serde(default)]
+    pub package_date: String,
+    #[serde(default)]
+    pub warehouse_name: String,
+    #[serde(default)]
+    pub package_remarks: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WarehousePrintLabelsRequest {
+    pub printer_name: String,
+    pub labels: Vec<BoxLabel>,
+}
+
+/// 入倉驗單:箱標本地列印(由前端先打雲端 label-data 取回箱標資料,再逐張渲染 PNG 走本地印表機)。
+/// 任一張失敗即中止並回錯誤,讓現場人員知道是哪台/哪張沒印出。
+#[tauri::command]
+pub async fn warehouse_print_labels(
+    _state: State<'_, SharedState>,
+    req: WarehousePrintLabelsRequest,
+) -> AppResult<u32> {
+    if req.printer_name.trim().is_empty() {
+        return Err(AppError::Printer("未選擇印表機".into()));
+    }
+    if req.labels.is_empty() {
+        return Err(AppError::Printer("無箱標資料可列印".into()));
+    }
+
+    let mut printed = 0u32;
+    for label in &req.labels {
+        let bytes = crate::error_label::generate_box_label(
+            &label.provider_name,
+            &label.serial_number,
+            &label.package_date,
+            &label.package_sn,
+            &label.warehouse_name,
+            &label.package_remarks,
+        );
+        if bytes.is_empty() {
+            return Err(AppError::Printer(format!("箱標 {} 影像生成失敗", label.package_sn)));
+        }
+        printer::print_image_bytes(&req.printer_name, &bytes)
+            .map_err(|e| AppError::Printer(format!("箱標 {} 列印失敗: {e}", label.package_sn)))?;
+        printed += 1;
+    }
+    Ok(printed)
+}

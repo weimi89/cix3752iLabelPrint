@@ -83,6 +83,7 @@ declare global {
   const isToday: typeof import('./@core/utils/helpers.js')['isToday']
   const kFormatter: typeof import('./@core/utils/formatters.js')['kFormatter']
   const lengthValidator: typeof import('./@core/utils/validators.js')['lengthValidator']
+  const loadProcessed: typeof import('./composables/usePreGenProcessed.js')['loadProcessed']
   const makeDestructurable: typeof import('@vueuse/core')['makeDestructurable']
   const mapActions: typeof import('pinia')['mapActions']
   const mapGetters: typeof import('pinia')['mapGetters']
@@ -179,6 +180,7 @@ declare global {
   const urlValidator: typeof import('./@core/utils/validators.js')['urlValidator']
   const use2FA: typeof import('./@core/composable/use2FA.js')['use2FA']
   const useActiveElement: typeof import('@vueuse/core')['useActiveElement']
+  const useAmplifiedSound: typeof import('./composables/useAmplifiedSound.js')['useAmplifiedSound']
   const useAnimate: typeof import('@vueuse/core')['useAnimate']
   const useArrayDifference: typeof import('@vueuse/core')['useArrayDifference']
   const useArrayEvery: typeof import('@vueuse/core')['useArrayEvery']
@@ -469,6 +471,7 @@ declare module 'vue' {
     readonly isToday: UnwrapRef<typeof import('./@core/utils/helpers.js')['isToday']>
     readonly kFormatter: UnwrapRef<typeof import('./@core/utils/formatters.js')['kFormatter']>
     readonly lengthValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['lengthValidator']>
+    readonly loadProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['loadProcessed']>
     readonly makeDestructurable: UnwrapRef<typeof import('@vueuse/core')['makeDestructurable']>
     readonly mapActions: UnwrapRef<typeof import('pinia')['mapActions']>
     readonly mapGetters: UnwrapRef<typeof import('pinia')['mapGetters']>
@@ -565,6 +568,7 @@ declare module 'vue' {
     readonly urlValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['urlValidator']>
     readonly use2FA: UnwrapRef<typeof import('./@core/composable/use2FA.js')['use2FA']>
     readonly useActiveElement: UnwrapRef<typeof import('@vueuse/core')['useActiveElement']>
+    readonly useAmplifiedSound: UnwrapRef<typeof import('./composables/useAmplifiedSound.js')['useAmplifiedSound']>
     readonly useAnimate: UnwrapRef<typeof import('@vueuse/core')['useAnimate']>
     readonly useArrayDifference: UnwrapRef<typeof import('@vueuse/core')['useArrayDifference']>
     readonly useArrayEvery: UnwrapRef<typeof import('@vueuse/core')['useArrayEvery']>

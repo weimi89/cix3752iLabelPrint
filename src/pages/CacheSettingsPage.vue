@@ -116,8 +116,8 @@ const handleClear = async () => {
   errorMsg.value = ''
   try {
     await cacheClear()
-    // 連帶清掉面單預產的「已預產」前端去重記憶,否則清了後端快取、預產仍會把訂單判為已預產而略過、無法真正重跑
-    clearProcessed()
+    // 連帶清掉面單預產的「已預產」共用去重(後端 DB + 記憶體),否則清了後端快取、預產仍會把訂單判為已預產而略過、無法真正重跑
+    await clearProcessed()
     flashMsg.value = t('page.cache.clearedFlash')
     setTimeout(() => (flashMsg.value = ''), 3000)
     await load()

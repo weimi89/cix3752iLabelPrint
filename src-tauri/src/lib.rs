@@ -43,6 +43,8 @@ pub struct AppState {
     pub sync: sync::SyncManager,
     /// 面單預產自動排程的可觀測狀態(啟動 / 上次執行),供前端 get_pregen_status 查詢
     pub pregen_status: RwLock<pregen::PregenStatus>,
+    /// 面單預產「今日已預產的 order_sn」共用去重(自動排程 + 手動頁共讀共寫,persist 到 DB)
+    pub pregen_done: pregen::PregenDoneStore,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -95,10 +97,14 @@ pub fn run() {
             commands::config_commands::get_config,
             commands::config_commands::update_config,
             commands::config_commands::get_pregen_status,
+            commands::config_commands::pregen_done_snapshot,
+            commands::config_commands::pregen_mark_done,
+            commands::config_commands::pregen_clear_done,
             commands::camera_commands::camera_set_zoom,
             commands::camera_commands::camera_capture_now,
             commands::printer_commands::list_printers,
             commands::printer_commands::print_image,
+            commands::printer_commands::warehouse_print_labels,
             commands::server_commands::server_status,
             commands::server_commands::server_restart,
             commands::server_commands::local_lan_ips,
@@ -124,6 +130,12 @@ pub fn run() {
             commands::cloud_commands::progress_set_dates,
             commands::cloud_commands::cloud_clearance_store,
             commands::cloud_commands::cloud_clearance_dispatch,
+            commands::cloud_commands::warehouse_options,
+            commands::cloud_commands::warehouse_create_package,
+            commands::cloud_commands::warehouse_examine,
+            commands::cloud_commands::warehouse_remove_goods,
+            commands::cloud_commands::warehouse_remove_package,
+            commands::cloud_commands::warehouse_label_data,
             commands::dispatch_commands::dispatch_provider_list,
             commands::dispatch_commands::dispatch_provider_upsert,
             commands::dispatch_commands::dispatch_provider_delete,
@@ -229,6 +241,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         camera,
         sync,
         pregen_status: RwLock::new(pregen::PregenStatus::default()),
+        pregen_done: pregen::PregenDoneStore::new(),
     });
 
     // 面單預產自動排程 worker(需完整 AppState,故在此啟動)

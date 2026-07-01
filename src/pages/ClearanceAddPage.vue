@@ -94,11 +94,10 @@ const handleSubmit = async () => {
     <VRow>
       <VCol cols="12" md="4">
         <VCard>
-          <VCardTitle class="d-flex align-center px-4 py-3">
+          <VCardTitle class="d-flex align-center px-4 py-3 bg-grey-300">
             <VIcon size="22" icon="tabler-clipboard-text" class="me-2" />
             <span>{{ $t('page.clearanceAdd.settingsTitle') }}</span>
           </VCardTitle>
-          <VDivider />
           <VCardText class="pa-5">
             <div class="text-body-2 text-medium-emphasis mb-1">{{ $t('page.clearanceAdd.clearanceDate') }}</div>
             <div class="mb-4">
@@ -145,7 +144,7 @@ const handleSubmit = async () => {
 
       <VCol cols="12" md="8">
         <VCard>
-          <VCardTitle class="d-flex align-center px-4 py-3">
+          <VCardTitle class="d-flex align-center px-4 py-3 bg-grey-300">
             <VIcon size="22" icon="tabler-scan" class="me-2" />
             <span>{{ $t('page.clearanceAdd.scanTitle') }}</span>
             <VSpacer />
@@ -153,7 +152,6 @@ const handleSubmit = async () => {
               <VIcon icon="tabler-trash" size="16" class="me-1" />{{ $t('common.clearAll') }}
             </VBtn>
           </VCardTitle>
-          <VDivider />
           <VCardText class="pa-5">
             <AppBulkInput
               ref="bulkRef"

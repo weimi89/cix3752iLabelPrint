@@ -1,0 +1,129 @@
+//! 面單預產「今日已預產的 order_sn」共用去重記憶。
+//!
+//! 過去自動排程(worker 記憶體區域變數)與手動頁(前端 localStorage)各記一份、互不同步 →
+//! 自動跑完後手動又全部重打雲端、全報「成功」。此模組把它統一到後端單一來源:
+//!   - 記憶體 `HashSet` 提供快查(自動排程 filter / 手動頁 skip)。
+//!   - 持久化到 DB `pregen_done` 表,撐過 App 重啟(同一快取日內仍記得)。
+//!   - 以「快取日(04:00 為界)」為範圍,跨日自動清空(對齊快取清理慣例與前端舊行為)。
+//! 自動排程與手動頁(經 command)共用同一份,接續執行時已預產的就真正略過、不重打雲端。
+
+use std::collections::HashSet;
+
+use tokio::sync::Mutex;
+
+use crate::db::DbPool;
+use crate::AppResult;
+
+/// 快取日字串:把現在往前推 4 小時讓 04:00 對齊午夜,再取年-月-日。
+/// 對齊前端 usePreGenProcessed 與快取約 04:00 清理的慣例。
+pub fn current_cache_day() -> String {
+    let shifted = chrono::Local::now() - chrono::Duration::hours(4);
+    shifted.format("%Y-%m-%d").to_string()
+}
+
+struct Inner {
+    /// 目前記憶體集合對應的快取日;與 `current_cache_day()` 不同 → 需重載/清舊
+    day: String,
+    sns: HashSet<String>,
+    /// 是否已從 DB 載入過(首次使用前為 false,強制走一次 ensure)
+    loaded: bool,
+}
+
+/// 「今日已預產」共用去重儲存。內含 async Mutex,可直接 `Arc` 共享於 AppState。
+pub struct PregenDoneStore {
+    inner: Mutex<Inner>,
+}
+
+impl PregenDoneStore {
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(Inner {
+                day: String::new(),
+                sns: HashSet::new(),
+                loaded: false,
+            }),
+        }
+    }
+
+    /// 確保記憶體集合對應「當前快取日」:首次使用或跨日時,清掉 DB 內非當日列並重載當日列。
+    /// 呼叫端須已持有 inner 鎖。
+    async fn ensure_current(inner: &mut Inner, db: &DbPool) {
+        let today = current_cache_day();
+        if inner.loaded && inner.day == today {
+            return;
+        }
+
+        // 跨快取日:刪掉所有非當日列(舊快取日的檔案已被清理,記憶失效)
+        if let Err(e) = sqlx::query("DELETE FROM pregen_done WHERE cache_day <> ?")
+            .bind(&today)
+            .execute(db)
+            .await
+        {
+            tracing::warn!(?e, "清理過期 pregen_done 失敗");
+        }
+
+        // 載入當日已預產集合
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT order_sn FROM pregen_done WHERE cache_day = ?",
+        )
+        .bind(&today)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+        inner.day = today;
+        inner.sns = rows.into_iter().collect();
+        inner.loaded = true;
+    }
+
+    /// 取當前快取日與已預產 order_sn 快照(供手動頁批次開始時一次取回、在前端記憶體 skip)。
+    pub async fn snapshot(&self, db: &DbPool) -> (String, Vec<String>) {
+        let mut inner = self.inner.lock().await;
+        Self::ensure_current(&mut inner, db).await;
+        (inner.day.clone(), inner.sns.iter().cloned().collect())
+    }
+
+    /// 此 order_sn 今日是否已預產(供自動排程 filter)。
+    pub async fn contains(&self, db: &DbPool, order_sn: &str) -> bool {
+        let mut inner = self.inner.lock().await;
+        Self::ensure_current(&mut inner, db).await;
+        inner.sns.contains(order_sn)
+    }
+
+    /// 標記一批 order_sn 為「今日已預產」(記憶體 + DB)。空字串略過。
+    pub async fn mark(&self, db: &DbPool, order_sns: &[String]) -> AppResult<()> {
+        let mut inner = self.inner.lock().await;
+        Self::ensure_current(&mut inner, db).await;
+        let day = inner.day.clone();
+        for sn in order_sns {
+            let sn = sn.trim();
+            if sn.is_empty() || inner.sns.contains(sn) {
+                continue;
+            }
+            sqlx::query("INSERT OR IGNORE INTO pregen_done (order_sn, cache_day) VALUES (?, ?)")
+                .bind(sn)
+                .bind(&day)
+                .execute(db)
+                .await?;
+            inner.sns.insert(sn.to_string());
+        }
+        Ok(())
+    }
+
+    /// 清除「已預產」記憶(記憶體 + DB 全表),讓所有訂單下次都重新抓取。
+    /// 供手動頁「清除已預產記錄」鈕與清空後端快取時連帶呼叫。
+    pub async fn clear(&self, db: &DbPool) -> AppResult<()> {
+        let mut inner = self.inner.lock().await;
+        sqlx::query("DELETE FROM pregen_done").execute(db).await?;
+        inner.sns.clear();
+        inner.day = current_cache_day();
+        inner.loaded = true;
+        Ok(())
+    }
+}
+
+impl Default for PregenDoneStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}

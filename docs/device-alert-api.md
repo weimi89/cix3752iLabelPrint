@@ -55,8 +55,7 @@ Content-Type: application/json
 ```json
 {
   "type": "PARCEL_JAM",
-  "message": "L2 通道卡件",
-  "repeat": 2
+  "message": "L2 通道卡件"
 }
 ```
 
@@ -66,9 +65,8 @@ Content-Type: application/json
 |---|---|---|---|
 | `type` | string | 否 | 異常分類碼（大寫）。中介機會自動轉大寫，工控機傳大小寫皆可。省略或空字串時當作 `ERROR`（通用設備異常） |
 | `message` | string | 否 | 補充細節（如卡在哪個通道）。顯示在畫面 toast；**語音廣播只唸固定的雙語分類文案，不唸自訂 `message`** |
-| `repeat` | integer | 否 | 雙語廣播重複次數。**預設 1**，中介機會自動限制在 **1～3** 之間（大於 3 取 3、小於 1 取 1） |
 
-三個欄位皆可省略。若 body 為空物件 `{}`，等同 `type=ERROR`、`repeat=1`。
+兩個欄位皆可省略。若 body 為空物件 `{}`，等同 `type=ERROR`。每次呼叫固定雙語廣播**一次**。
 
 ---
 
@@ -117,14 +115,14 @@ Content-Type: application/json
 ```bash
 curl -X POST http://192.168.1.100:18080/api/device-alert \
   -H "Content-Type: application/json" \
-  -d '{"type":"PARCEL_JAM","message":"L2 通道卡件","repeat":2}'
+  -d '{"type":"PARCEL_JAM","message":"L2 通道卡件"}'
 ```
 
 ## C#（.NET）
 
 ```csharp
 using var client = new HttpClient();
-var json = "{\"type\":\"USB_DISCONNECT\",\"repeat\":1}";
+var json = "{\"type\":\"USB_DISCONNECT\"}";
 var body = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 await client.PostAsync("http://192.168.1.100:18080/api/device-alert", body);
 ```
@@ -136,7 +134,7 @@ import requests
 
 requests.post(
     "http://192.168.1.100:18080/api/device-alert",
-    json={"type": "PARCEL_JAM", "message": "L2 通道卡件", "repeat": 2},
+    json={"type": "PARCEL_JAM", "message": "L2 通道卡件"},
     timeout=3,
 )
 ```
@@ -146,8 +144,9 @@ requests.post(
 # 工控機使用注意事項
 
 - 此為「通知」型端點，**與 `response_id`／查件流程無關**，可獨立在任何時機呼叫。
-- 同一異常**持續存在**時，工控機可自行決定重發頻率（例如每 30 秒重發一次直到排除）。App 端每次收到都會**重新廣播**，並會先停掉前一筆未播完的語音，避免聲音重疊。
-- `repeat` 用於「單次通知就重複喊幾遍」；持續性異常請改用「定時重發」而非把 `repeat` 設很大（上限就是 3）。
+- 每次呼叫固定雙語廣播**一次**。
+- **同型別 20 秒去抖**：同一 `type` 在 **20 秒內**只會廣播 + 顯示 toast **一次**，其餘重複訊號會被忽略（不打斷正在播的語音、不洗版）。因此工控機**狂丟同一訊號並不會造成聲音錯亂**，但也代表 20 秒內只提示一次。不同 `type` 各自獨立計算，不會互相蓋掉。
+- 同一異常**持續存在**時，工控機可自行決定重發頻率（例如每 30 秒重發一次直到排除）；重發間隔 > 20 秒才會每次都提示。App 端每次實際廣播前會先停掉前一筆未播完的語音，避免聲音重疊。
 - 中介機立即回 200，僅代表已接收。實際是否播出取決於桌面 App 是否運行、音量是否開啟。
 - **未錄音的自訂 `type` 才會退回系統 TTS**：此時越南語需中介機（Windows）自備越南語語音包，否則可能只唸得出中文。建議優先使用內建分類碼。
 
@@ -157,4 +156,6 @@ requests.post(
 
 | 日期 | 變更 |
 |---|---|
+| 2026-07-01 | 同型別 **20 秒去抖**：同一 `type` 在 20 秒內只廣播 + toast 一次，避免工控機狂丟訊號造成聲音錯亂／洗版 |
+| 2026-07-01 | 移除 `repeat` 欄位；改為固定每次廣播一次（舊工控機仍傳 `repeat` 不會報錯，會被忽略）。持續性異常請用「定時重發」 |
 | 2026-06-11 | 新增 `POST /api/device-alert` 端點；中／越雙語預錄音檔廣播；`type` 大寫正規化；`repeat` 次數控制（預設 1、上限 3） |

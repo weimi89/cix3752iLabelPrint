@@ -127,12 +127,13 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 ### 設備異常雙語語音廣播(`POST /api/device-alert`)
 
-工控機回報設備異常(卡包裹 / USB 斷線 / 掃描器 / 印表機故障)時,後端 `server/mod.rs` 的 `post_device_alert` **立即回 200**(不讓工控機等),emit `device-alert` 事件 `{ alert_type, message, repeat }`,前端 `useDeviceAlert` 廣播。設計細節:
+工控機回報設備異常(卡包裹 / USB 斷線 / 掃描器 / 印表機故障)時,後端 `server/mod.rs` 的 `post_device_alert` **立即回 200**(不讓工控機等),emit `device-alert` 事件 `{ alert_type, message }`,前端 `useDeviceAlert` 廣播。設計細節:
 
 - **預錄音檔,非即時 TTS** — 內建 5 種分類碼(`PARCEL_JAM` / `USB_DISCONNECT` / `SCANNER_ERROR` / `PRINTER_ERROR` / `ERROR`)的中越雙語語音**預先錄製**內嵌於 `public/sounds/alert/{type小寫}-zh.mp3` / `-vi.mp3`(中文 `HsiaoChen`、越南語 `HoaiMy` neural,以 edge-tts 產生)。**主因:Windows 工控機預設無越南語語音包**,即時 TTS 唸不出越南語且音色不可控;預錄內嵌 → 每台音色一致、離線可用、越南語免裝語音包。
 - **未知 type 才退回 TTS** — 工控機傳未錄音的自訂 `type` 時,`useDeviceAlert` 退回 `useSpeech`(瀏覽器 `speechSynthesis`),此時越南語仍需機器自備語音包。
 - **`type` 大寫正規化** — 後端 `to_uppercase()`,工控機傳大小寫皆可,canonical 一律大寫(對齊雲端機器碼風格)。
-- **`repeat` 次數控制** — 預設 1,後端 `clamp(1, 3)` 上限 3。
+- **固定廣播一次** — 每次呼叫雙語廣播一次(2026-07-01 移除 `repeat` 次數控制;舊工控機仍傳 `repeat` 會被 serde 忽略、不報錯)。持續性異常由工控機自行定時重發。
+- **前端去抖 20s** — 同一 `alert_type` 在 `useDeviceAlert` 的 `DEDUP_WINDOW_MS`(20s)內只廣播 + toast 一次(不同 type 各自計窗)。**根因**:持續性異常工控機會狂丟同一訊號,不去抖會讓每筆都 `stopCurrent()` 打斷前一筆語音 → 一個字都聽不完 + toast 洗版。後端仍每筆記 event_log(保留診斷)。
 - **`message` 只進 toast** — 自訂補充字無法即時合成語音,僅顯示於 toast。
 - 新增固定分類:在 `public/sounds/alert/` 補對應 mp3 + i18n `deviceAlert.{TYPE}`(zh-Hant / vi-VN)+ `useDeviceAlert` 的 `PRERECORDED` set,工控機端不需改。重產音檔用 edge-tts(venv 安裝)。
 - 廠商整合文件:`docs/device-alert-api.md`(+ `.docx`)。

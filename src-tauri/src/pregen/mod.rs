@@ -20,6 +20,9 @@ use tokio::task::JoinSet;
 use crate::commands::cloud_commands::pregen_label_to_cache;
 use crate::{event_log, SharedState};
 
+mod done;
+pub use done::PregenDoneStore;
+
 /// 巡檢間隔:每 30s tick 一次,比對當前 HH:MM 是否命中排程時間點
 const TICK_SECS: u64 = 30;
 /// 預下載並發數(對齊前端 worker 數,避免一次打爆雲端)
@@ -66,10 +69,11 @@ pub fn start_scheduler(state: SharedState) {
             ),
         );
 
-        // 當日狀態:done_date 為當前日期字串;切日時清空 fired / done_orders
+        // 當日狀態:done_date 為當前日期字串;切日時清空 fired(排程時間點以「日曆日」計)。
+        // 「今日已預產的 order_sn」去重改用共用儲存 state.pregen_done(快取日範圍、與手動頁共用、
+        // persist 到 DB),此處不再各記一份。
         let mut done_date = now.format("%Y-%m-%d").to_string();
         let mut fired: HashSet<String> = HashSet::new(); // 今日已觸發的時間點
-        let mut done_orders: HashSet<String> = HashSet::new(); // 今日已成功預產的 order_sn
 
         // 從 DB 重建今日已觸發的時間點 → 重啟後 catch-up 不會把已跑過的時段重跑
         fired.extend(load_fired_today(&state).await);
@@ -96,7 +100,7 @@ pub fn start_scheduler(state: SharedState) {
                     "啟動補跑",
                     format!("補跑今日已過、尚未執行的時間點 time={t}"),
                 );
-                run_pregen(&state, &cfg0, &mut done_orders, &format!("catch-up:{t}")).await;
+                run_pregen(&state, &cfg0, &format!("catch-up:{t}")).await;
             }
         }
 
@@ -110,7 +114,6 @@ pub fn start_scheduler(state: SharedState) {
             if today != done_date {
                 done_date = today;
                 fired.clear();
-                done_orders.clear();
             }
 
             if !cfg.enabled || cfg.times.is_empty() || cfg.sources.is_empty() {
@@ -132,7 +135,7 @@ pub fn start_scheduler(state: SharedState) {
                 format!("到點觸發自動預產 time={hhmm}"),
             );
 
-            run_pregen(&state, &cfg, &mut done_orders, &hhmm).await;
+            run_pregen(&state, &cfg, &hhmm).await;
         }
     });
 }
@@ -158,10 +161,10 @@ async fn load_fired_today(state: &SharedState) -> HashSet<String> {
 
 /// 跑一輪預產:對每個來源反查當日訂單 → 預下載快取,結果寫事件記錄並更新狀態。
 /// `trigger`:觸發來源描述("HH:MM" 或 "catch-up:HH:MM"),記入 PregenStatus。
+/// 去重用 state.pregen_done(與手動頁共用),已預產者跳過、成功者標記。
 async fn run_pregen(
     state: &SharedState,
     cfg: &crate::config::PreGenScheduleConfig,
-    done_orders: &mut HashSet<String>,
     trigger: &str,
 ) {
     let date = (chrono::Local::now().date_naive()
@@ -204,16 +207,19 @@ async fn run_pregen(
             continue;
         }
 
-        // 去重:略過今日已成功預產過的單(多時段重跑只抓新出現的)
+        // 去重:略過今日已預產過的單(與手動頁共用 state.pregen_done;多時段/接手動只抓新出現的)
         let total = res.order_sns.len();
+        let (day, done_sns) = state.pregen_done.snapshot(&state.db).await;
+        let done_set: HashSet<String> = done_sns.into_iter().collect();
         let fresh: Vec<String> = res
             .order_sns
             .into_iter()
-            .filter(|sn| !sn.trim().is_empty() && !done_orders.contains(sn))
+            .filter(|sn| !sn.trim().is_empty() && !done_set.contains(sn))
             .collect();
         let skipped = total - fresh.len();
 
         let (mut ok, mut empty, mut fail) = (0usize, 0usize, 0usize);
+        let mut ok_sns: Vec<String> = Vec::new();
         for batch in fresh.chunks(CONCURRENCY) {
             let mut set: JoinSet<(String, crate::AppResult<bool>)> = JoinSet::new();
             for sn in batch {
@@ -229,12 +235,18 @@ async fn run_pregen(
                     match r {
                         Ok(true) => {
                             ok += 1;
-                            done_orders.insert(sn);
+                            ok_sns.push(sn);
                         }
                         Ok(false) => empty += 1,
                         Err(_) => fail += 1,
                     }
                 }
+            }
+        }
+        // 成功者標記為「今日已預產」(共用儲存,手動頁接手時可略過)
+        if !ok_sns.is_empty() {
+            if let Err(e) = state.pregen_done.mark(&state.db, &ok_sns).await {
+                tracing::warn!(?e, day = %day, "標記 pregen_done 失敗");
             }
         }
 

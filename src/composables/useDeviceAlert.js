@@ -1,6 +1,10 @@
 // 工控機設備異常的全域語音廣播 + toast 提示。
-// 後端 server 端收到 POST /api/device-alert 時 emit 'device-alert' { alert_type, message, repeat },
-// 前端用「中文 + 越南語」雙語廣播 repeat 次(預設 1、上限 3),提示現場人員到場處理。
+// 後端 server 端收到 POST /api/device-alert 時 emit 'device-alert' { alert_type, message },
+// 前端用「中文 + 越南語」雙語廣播一次,提示現場人員到場處理。
+//
+// 去抖(重要):持續性異常(如卡包裹)工控機會**狂丟同一訊號**。若每筆都處理,新訊號會
+// 一直 stopCurrent() 打斷前一筆語音 → 一個字都聽不完,且 toast 洗版。因此**同一 alert_type
+// 在 DEDUP_WINDOW_MS 內只廣播 + toast 一次**(不同 type 各自獨立計窗,不會互相蓋掉)。
 //
 // 發聲策略:
 //   - 已知固定類型 → 播**預錄雙語 mp3**(public/sounds/alert/{type}-zh|vi.mp3,
@@ -27,8 +31,8 @@ const PRERECORDED = new Set([
 const ALERT_DIR = '/sounds/alert'
 // TTS fallback(未知類型)要唸的語言,對應 App i18n locale
 const BROADCAST_LOCALES = ['zh-Hant', 'vi-VN']
-// 廣播次數上限(與後端 clamp 一致,前端再防一層)
-const MAX_REPEAT = 3
+// 去抖時間窗:同一 alert_type 在此毫秒數內只提示 + 播一次(工控機狂丟訊號用)
+const DEDUP_WINDOW_MS = 20000
 
 export function useDeviceAlert() {
   const { t } = useI18n()
@@ -37,6 +41,9 @@ export function useDeviceAlert() {
   // 遞增令牌:新異常進來時讓進行中的播放序列在下一步自行中止
   let playToken = 0
   let currentAudio = null
+
+  // 去抖狀態:alert_type → 上次實際廣播的時間戳(ms)。單例(僅 DefaultLayout 呼叫一次)故可共用。
+  const lastAlertAt = new Map()
 
   // 取某 locale 的異常文案(找不到對應 type 時 fallback 到通用 ERROR 文案)
   const phraseFor = (alertType, locale) => {
@@ -81,13 +88,11 @@ export function useDeviceAlert() {
       }
     })
 
-  // 依序播 [中文, 越南語] × repeat 次
-  const playSequence = async (urls, repeat, token) => {
-    for (let i = 0; i < repeat; i++) {
-      for (const url of urls) {
-        if (token !== playToken) return
-        await playOnce(url, token)
-      }
+  // 依序播 [中文, 越南語] 一次
+  const playSequence = async (urls, token) => {
+    for (const url of urls) {
+      if (token !== playToken) return
+      await playOnce(url, token)
     }
     if (token === playToken) currentAudio = null
   }
@@ -95,8 +100,13 @@ export function useDeviceAlert() {
   const handle = payload => {
     const alertType = (payload?.alert_type || 'ERROR').toUpperCase()
     const extra = (payload?.message || '').trim()
-    let repeat = Number(payload?.repeat) || 1
-    repeat = Math.min(MAX_REPEAT, Math.max(1, repeat))
+
+    // 去抖:同一 type 在 20s 窗內狂丟 → 只認第一筆,其餘直接略過(不打斷正在播的語音、不洗 toast)。
+    // 窗以「上次實際廣播」為基準,持續洪水下約每 20s 才會再提示一次。
+    const now = Date.now()
+    const last = lastAlertAt.get(alertType)
+    if (last !== undefined && now - last < DEDUP_WINDOW_MS) return
+    lastAlertAt.set(alertType, now)
 
     // 先停掉前一筆未播完的,再開新的
     stopCurrent()
@@ -104,15 +114,13 @@ export function useDeviceAlert() {
 
     if (PRERECORDED.has(alertType)) {
       // 已知類型 → 預錄雙語音檔(穩定音色 + 越南語免裝語音包)
-      playSequence(audioUrls(alertType), repeat, token)
+      playSequence(audioUrls(alertType), token)
     } else if (isSpeechSupported()) {
       // 未知類型 → 退回系統 TTS(越南語需機器有 vi 語音包,否則只唸得出中文)
-      const segments = []
-      for (let i = 0; i < repeat; i++) {
-        for (const locale of BROADCAST_LOCALES) {
-          segments.push({ text: phraseFor(alertType, locale), lang: speechLangOf(locale) })
-        }
-      }
+      const segments = BROADCAST_LOCALES.map(locale => ({
+        text: phraseFor(alertType, locale),
+        lang: speechLangOf(locale),
+      }))
       speak(segments)
     }
 

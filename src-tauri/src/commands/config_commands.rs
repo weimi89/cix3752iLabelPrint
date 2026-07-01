@@ -55,3 +55,34 @@ pub async fn get_pregen_status(
 ) -> AppResult<crate::pregen::PregenStatus> {
     Ok(state.pregen_status.read().await.clone())
 }
+
+/// 面單預產「今日已預產的 order_sn」快照(cache_day + 清單)。
+/// 手動頁批次開始時取回,在前端記憶體判斷略過 —— 與自動排程共用同一份(見 pregen::PregenDoneStore)。
+#[derive(serde::Serialize)]
+pub struct PregenDoneSnapshot {
+    pub cache_day: String,
+    pub order_sns: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn pregen_done_snapshot(
+    state: State<'_, SharedState>,
+) -> AppResult<PregenDoneSnapshot> {
+    let (cache_day, order_sns) = state.pregen_done.snapshot(&state.db).await;
+    Ok(PregenDoneSnapshot { cache_day, order_sns })
+}
+
+/// 手動頁標記一批 order_sn 為「今日已預產」(寫入共用去重 + DB)。
+#[tauri::command]
+pub async fn pregen_mark_done(
+    state: State<'_, SharedState>,
+    order_sns: Vec<String>,
+) -> AppResult<()> {
+    state.pregen_done.mark(&state.db, &order_sns).await
+}
+
+/// 清除「今日已預產」記憶(記憶體 + DB)。供手動頁「清除已預產記錄」與清空快取連帶呼叫。
+#[tauri::command]
+pub async fn pregen_clear_done(state: State<'_, SharedState>) -> AppResult<()> {
+    state.pregen_done.clear(&state.db).await
+}

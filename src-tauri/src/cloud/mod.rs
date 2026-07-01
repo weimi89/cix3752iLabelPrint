@@ -55,6 +55,7 @@ struct CloudState {
     clearance_progress_path: String,
     clearance_store_path: String,
     clearance_dispatch_path: String,
+    warehouse_scanner_path: String,
     webhook_path: String,
 }
 
@@ -88,6 +89,7 @@ impl CloudClient {
             clearance_progress_path: config.cloud.clearance_progress_path.clone(),
             clearance_store_path: config.cloud.clearance_store_path.clone(),
             clearance_dispatch_path: config.cloud.clearance_dispatch_path.clone(),
+            warehouse_scanner_path: config.cloud.warehouse_scanner_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
         };
 
@@ -125,6 +127,7 @@ impl CloudClient {
         s.clearance_progress_path = config.cloud.clearance_progress_path.clone();
         s.clearance_store_path = config.cloud.clearance_store_path.clone();
         s.clearance_dispatch_path = config.cloud.clearance_dispatch_path.clone();
+        s.warehouse_scanner_path = config.cloud.warehouse_scanner_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
     }
 
@@ -551,6 +554,104 @@ impl CloudClient {
             ))
         })?;
         Ok(result)
+    }
+
+    // ===== 入倉驗單(warehouse-scanner)=====
+    // 邏輯全在雲端 WarehouseScannerService,中介端僅透傳 JSON;base path 下接子路由。
+
+    /// warehouse-scanner 子路由 GET(透傳雲端 JSON)
+    async fn warehouse_get(&self, suffix: &str, query: &[(&str, &str)]) -> AppResult<serde_json::Value> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().warehouse_scanner_path.clone();
+        let url = join_url(&base, &format!("{path}{suffix}"));
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .get(&url)
+            .query(query)
+            .bearer_auth(&token)
+            .send()
+            .await?
+            .error_for_status()?;
+        let text = resp.text().await?;
+        serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 warehouse-scanner{suffix} 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })
+    }
+
+    /// warehouse-scanner 子路由 POST(透傳雲端 JSON)
+    async fn warehouse_post(&self, suffix: &str, body: serde_json::Value) -> AppResult<serde_json::Value> {
+        let (base, token) = self.snapshot()?;
+        let path = self.inner.state.read().warehouse_scanner_path.clone();
+        let url = join_url(&base, &format!("{path}{suffix}"));
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?;
+        let text = resp.text().await?;
+        serde_json::from_str(&text).map_err(|e| {
+            AppError::Server(format!(
+                "雲端 warehouse-scanner{suffix} 回應解析失敗: {e}; body: {}",
+                text.chars().take(500).collect::<String>()
+            ))
+        })
+    }
+
+    /// 入倉驗單:下拉選項(倉庫 / 物流商)
+    pub async fn warehouse_options(&self) -> AppResult<serde_json::Value> {
+        self.warehouse_get("/options", &[]).await
+    }
+
+    /// 入倉驗單:建立 / 載入箱號
+    pub async fn warehouse_create_package(&self, body: serde_json::Value) -> AppResult<serde_json::Value> {
+        self.warehouse_post("/create-package", body).await
+    }
+
+    /// 入倉驗單:驗單入倉
+    pub async fn warehouse_examine(&self, body: serde_json::Value) -> AppResult<serde_json::Value> {
+        self.warehouse_post("/examine", body).await
+    }
+
+    /// 入倉驗單:移除單一商品
+    pub async fn warehouse_remove_goods(&self, shipment_no: &str) -> AppResult<serde_json::Value> {
+        self.warehouse_post("/remove-goods", json!({ "shipment_no": shipment_no })).await
+    }
+
+    /// 入倉驗單:刪除整個箱號
+    pub async fn warehouse_remove_package(&self, storage_warehouse: &str, package_sn: &str) -> AppResult<serde_json::Value> {
+        self.warehouse_post(
+            "/remove-package",
+            json!({ "storage_warehouse": storage_warehouse, "package_sn": package_sn }),
+        )
+        .await
+    }
+
+    /// 入倉驗單:取箱標列印資料(中介端拿到後走本地印表機列印)
+    pub async fn warehouse_label_data(
+        &self,
+        storage_warehouse: &str,
+        package_sn: &str,
+        end_num: u32,
+        continuous: bool,
+    ) -> AppResult<serde_json::Value> {
+        let end_num = end_num.to_string();
+        let continuous = if continuous { "1" } else { "0" };
+        self.warehouse_get(
+            "/label-data",
+            &[
+                ("storage_warehouse", storage_warehouse),
+                ("package_sn", package_sn),
+                ("end_num", &end_num),
+                ("continuous", continuous),
+            ],
+        )
+        .await
     }
 
     /// 自動印單用：打 cloud-print 端點，回應 schema 與 PrintViewResult 不同

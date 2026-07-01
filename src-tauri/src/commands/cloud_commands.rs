@@ -387,6 +387,87 @@ pub async fn progress_set_dates(
     Ok(())
 }
 
+// ===== 入倉驗單(warehouse-scanner)=====
+// 業務邏輯全在雲端 WarehouseScannerService;中介端僅透傳 JSON。
+
+#[derive(Debug, Deserialize)]
+pub struct WarehouseRemoveGoodsRequest {
+    pub shipment_no: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WarehouseRemovePackageRequest {
+    pub storage_warehouse: String,
+    pub package_sn: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WarehouseLabelDataRequest {
+    pub storage_warehouse: String,
+    pub package_sn: String,
+    #[serde(default)]
+    pub end_num: u32,
+    #[serde(default)]
+    pub continuous: bool,
+}
+
+/// 入倉驗單:下拉選項(倉庫 / 物流商)
+#[tauri::command]
+pub async fn warehouse_options(state: State<'_, SharedState>) -> AppResult<serde_json::Value> {
+    state.cloud.warehouse_options().await
+}
+
+/// 入倉驗單:建立 / 載入箱號(req 直接透傳整個表單物件給雲端)
+#[tauri::command]
+pub async fn warehouse_create_package(
+    state: State<'_, SharedState>,
+    req: serde_json::Value,
+) -> AppResult<serde_json::Value> {
+    state.cloud.warehouse_create_package(req).await
+}
+
+/// 入倉驗單:驗單入倉(req 直接透傳整個表單物件給雲端)
+#[tauri::command]
+pub async fn warehouse_examine(
+    state: State<'_, SharedState>,
+    req: serde_json::Value,
+) -> AppResult<serde_json::Value> {
+    state.cloud.warehouse_examine(req).await
+}
+
+/// 入倉驗單:移除單一商品
+#[tauri::command]
+pub async fn warehouse_remove_goods(
+    state: State<'_, SharedState>,
+    req: WarehouseRemoveGoodsRequest,
+) -> AppResult<serde_json::Value> {
+    state.cloud.warehouse_remove_goods(&req.shipment_no).await
+}
+
+/// 入倉驗單:刪除整個箱號
+#[tauri::command]
+pub async fn warehouse_remove_package(
+    state: State<'_, SharedState>,
+    req: WarehouseRemovePackageRequest,
+) -> AppResult<serde_json::Value> {
+    state
+        .cloud
+        .warehouse_remove_package(&req.storage_warehouse, &req.package_sn)
+        .await
+}
+
+/// 入倉驗單:取箱標列印資料(中介端拿到後走本地印表機列印)
+#[tauri::command]
+pub async fn warehouse_label_data(
+    state: State<'_, SharedState>,
+    req: WarehouseLabelDataRequest,
+) -> AppResult<serde_json::Value> {
+    state
+        .cloud
+        .warehouse_label_data(&req.storage_warehouse, &req.package_sn, req.end_num, req.continuous)
+        .await
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ClearanceStoreRequest {
     pub transport_package_sn: String,

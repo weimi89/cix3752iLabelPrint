@@ -97,6 +97,24 @@ export const getPregenStatus = async () => {
   return await invoke('get_pregen_status')
 }
 
+// 面單預產「今日已預產的 order_sn」快照(自動排程 + 手動頁共用去重,cache_day 範圍)
+export const pregenDoneSnapshot = async () => {
+  if (!isTauri) return { cache_day: new Date().toISOString().slice(0, 10), order_sns: [] }
+  return await invoke('pregen_done_snapshot')
+}
+
+// 標記一批 order_sn 為「今日已預產」(寫回後端共用去重)
+export const pregenMarkDone = async (orderSns) => {
+  if (!isTauri) return
+  return await invoke('pregen_mark_done', { orderSns })
+}
+
+// 清除「今日已預產」記憶(後端 DB + 記憶體)
+export const pregenClearDone = async () => {
+  if (!isTauri) return
+  return await invoke('pregen_clear_done')
+}
+
 // 雲端
 const MOCK_SESSION = { logged_in: false, api_base: '', user_label: null }
 export const cloudPing = () => invoke('cloud_ping')
@@ -188,6 +206,65 @@ export const cloudClearanceDispatch = async ({ transportPackageSn, driverName, s
   return await invoke('cloud_clearance_dispatch', {
     req: { transport_package_sn: transportPackageSn, driver_name: driverName, shipping_date: shippingDate, storage_code: storageCode },
   })
+}
+
+// 入倉驗單 — 邏輯全在雲端 WarehouseScannerService,中介端透傳。
+// 選項(倉庫 / 物流商)
+export const warehouseOptions = async () => {
+  if (!isTauri) {
+    return {
+      warehouses: { '41466': '台中', '33843': '桃園' },
+      providers: [
+        { value: '7', title: '7-ELEVEN' }, { value: 'F', title: 'FamilyMart' }, { value: 'O', title: '萊爾富' },
+        { value: 'M', title: 'OK超商' }, { value: 'C', title: '黑貓宅急便' }, { value: 'H', title: '新竹物流' },
+        { value: 'P', title: '宅配通' }, { value: 'E', title: '順豐速運' }, { value: 'S', title: '蝦皮店到店' },
+        { value: 'B', title: '自寄' }, { value: '4', title: '四海' }, { value: '8', title: '八方' },
+      ],
+    }
+  }
+  return await invoke('warehouse_options')
+}
+// 建立 / 載入箱號(payload = 整個表單物件)
+export const warehouseCreatePackage = async (payload) => {
+  if (!isTauri) {
+    const sn = (payload.return_provider || '7') + String(payload.serial_number || 1).padStart(3, '0') + (payload.return_date || '').replace(/-/g, '').slice(2)
+    return { respond_code: 'FIND-PACKAGE-GOODS', respond_message: '箱號載入成功', storage_warehouse: payload.storage_warehouse, package_sn: sn, goods_list: [], goods_total: 0 }
+  }
+  return await invoke('warehouse_create_package', { req: payload })
+}
+// 驗單入倉(payload = 整個表單物件)
+export const warehouseExamine = async (payload) => {
+  if (!isTauri) {
+    const sn = (payload.return_provider || '7') + String(payload.serial_number || 1).padStart(3, '0') + (payload.return_date || '').replace(/-/g, '').slice(2)
+    return {
+      respond_code: 'FIND-PACKAGE-GOODS', respond_message: '包裹入倉成功', storage_warehouse: payload.storage_warehouse, package_sn: sn,
+      goods_list: [{ log_id: Date.now(), shipment_no: payload.shipment_no, suppliers_seller: '測試賣家', log_time: new Date().toISOString().slice(0, 19).replace('T', ' '), scanner_user: payload.scanner_user }],
+      goods_total: 1,
+    }
+  }
+  return await invoke('warehouse_examine', { req: payload })
+}
+// 移除單一商品
+export const warehouseRemoveGoods = async (shipmentNo) => {
+  if (!isTauri) return { respond_code: 'FIND-PACKAGE-GOODS', respond_message: '商品已移除', goods_list: [], goods_total: 0 }
+  return await invoke('warehouse_remove_goods', { req: { shipment_no: shipmentNo } })
+}
+// 刪除整個箱號
+export const warehouseRemovePackage = async (storageWarehouse, packageSn) => {
+  if (!isTauri) return { respond_code: 'SUCCESS', respond_message: '箱號已刪除' }
+  return await invoke('warehouse_remove_package', { req: { storage_warehouse: storageWarehouse, package_sn: packageSn } })
+}
+// 取箱標列印資料
+export const warehouseLabelData = async (storageWarehouse, packageSn, endNum = 0, continuous = false) => {
+  if (!isTauri) {
+    return { labels: [{ package_sn: packageSn, provider_code: packageSn.slice(0, 1), provider_name: '7-11', serial_number: packageSn.slice(1, 4), date_part: packageSn.slice(4), package_date: '06-28', warehouse_name: '台中', package_remarks: '' }], error: null }
+  }
+  return await invoke('warehouse_label_data', { req: { storage_warehouse: storageWarehouse, package_sn: packageSn, end_num: endNum, continuous } })
+}
+// 箱標本地列印(labels 來自 warehouseLabelData)
+export const warehousePrintLabels = async (printerName, labels) => {
+  if (!isTauri) return labels.length
+  return await invoke('warehouse_print_labels', { req: { printer_name: printerName, labels } })
 }
 
 // 印表機

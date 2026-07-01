@@ -214,6 +214,9 @@ pub struct CloudConfig {
     /// 清關進度浮動框 — 指定報關日區間聚合(袋數/件數/已印/剩餘)path
     #[serde(default = "default_clearance_progress_path")]
     pub clearance_progress_path: String,
+    /// 入倉驗單 — 資源基底 path(子路由 /options /examine /create-package /remove-goods /remove-package /label-data)
+    #[serde(default = "default_warehouse_scanner_path")]
+    pub warehouse_scanner_path: String,
     /// 分揀完成 webhook path
     #[serde(default = "default_webhook_path")]
     pub webhook_path: String,
@@ -241,6 +244,7 @@ impl Default for CloudConfig {
             clearance_progress_path: default_clearance_progress_path(),
             clearance_store_path: default_clearance_store_path(),
             clearance_dispatch_path: default_clearance_dispatch_path(),
+            warehouse_scanner_path: default_warehouse_scanner_path(),
             webhook_path: default_webhook_path(),
         }
     }
@@ -396,6 +400,7 @@ fn default_clearance_options_path() -> String { "/api/v1/local-middleware/cleara
 fn default_clearance_progress_path() -> String { "/api/v1/local-middleware/clearance/progress".to_string() }
 fn default_clearance_store_path() -> String { "/api/v1/local-middleware/clearance/store".to_string() }
 fn default_clearance_dispatch_path() -> String { "/api/v1/local-middleware/clearance/dispatch".to_string() }
+fn default_warehouse_scanner_path() -> String { "/api/v1/local-middleware/warehouse-scanner".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 fn default_net_interval() -> u64 { 15 }
 fn default_net_degrade_interval() -> u64 { 60 }

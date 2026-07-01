@@ -18,6 +18,7 @@ import SortChannelsPage from '@/pages/SortChannelsPage.vue'
 import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
 import ClearanceAddPage from '@/pages/ClearanceAddPage.vue'
 import ClearanceDispatchPage from '@/pages/ClearanceDispatchPage.vue'
+import WarehouseScannerPage from '@/pages/WarehouseScannerPage.vue'
 
 const routes = [
   { path: '/', name: 'dashboard', component: DashboardPage,
@@ -36,6 +37,8 @@ const routes = [
     meta: { title: 'nav.clearanceAdd', icon: 'tabler-scan', group: 'nav.section.clearance' } },
   { path: '/clearance-dispatch', name: 'clearance-dispatch', component: ClearanceDispatchPage,
     meta: { title: 'nav.clearanceDispatch', icon: 'tabler-truck-delivery', group: 'nav.section.clearance' } },
+  { path: '/warehouse-scanner', name: 'warehouse-scanner', component: WarehouseScannerPage,
+    meta: { title: 'nav.warehouseScanner', icon: 'tabler-package-import', group: 'nav.section.clearance' } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,
     meta: { title: 'nav.dispatchProviders', icon: 'tabler-truck-delivery', group: 'nav.section.settings' } },
   { path: '/printer-settings', name: 'printer-settings', component: PrinterSettingsPage,

@@ -2,7 +2,7 @@
 import { cloudFetchLabel, cloudPackageOrders, cloudOrdersByDate, getConfig, updateConfig, getPregenStatus } from '@/api/tauri'
 import { useRouter } from 'vue-router'
 import { preGenInputMode as inputMode } from '@/composables/usePreGenState'
-import { isOrderProcessed, markOrderProcessed, persistProcessed, clearProcessed, processedCount } from '@/composables/usePreGenProcessed'
+import { loadProcessed, isOrderProcessed, markOrderProcessed, persistProcessed, clearProcessed, processedCount } from '@/composables/usePreGenProcessed'
 import {
   isDownloadable, statusLabel, statusIcon, errorMessageFromException,
 } from '@/composables/useLabelStatus'
@@ -127,6 +127,9 @@ const processOne = async (sn, index) => {
 const processShipments = async snList => {
   isProcessing.value = true
   abortRequested = false
+  // 批次開始前先與後端同步「今日已預產」快照:才能吃到自動排程(或其他機台)已做的部分,
+  // 已預產者直接略過、不重打雲端(這正是自動跑完後手動不再一堆「成功」的關鍵)。
+  if (!forceRerun.value) await loadProcessed()
   startElapsedTimer()
   const total = snList.length
   let cursor = 0
@@ -145,7 +148,7 @@ const processShipments = async snList => {
     )
   } finally {
     stopElapsedTimer()
-    persistProcessed()  // 本批新標記的已處理訂單一次寫入 localStorage(避免逐筆寫)
+    await persistProcessed()  // 本批新標記的已預產訂單一次寫回後端共用去重(避免逐筆 IPC)
     refreshProcessedCount()
     isProcessing.value = false
   }
@@ -154,8 +157,8 @@ const processShipments = async snList => {
 const stopProcessing = () => { abortRequested = true }
 
 // 清除本快取日「已預產」記憶,讓所有訂單下次查詢都重新抓取(配合或不配合「強制重跑」皆可用)
-const handleClearProcessed = () => {
-  clearProcessed()
+const handleClearProcessed = async () => {
+  await clearProcessed()
   refreshProcessedCount()
 }
 
@@ -271,6 +274,7 @@ const pageNextRunText = computed(() => {
 const goPregenLog = () => router.push({ name: 'event-log', query: { category: 'pregen' } })
 
 onMounted(async () => {
+  await loadProcessed()  // 從後端載入「今日已預產」快照(含自動排程成果)
   refreshProcessedCount()
   try { applyConfigSnapshot(await getConfig()) } catch { /* 頁面首載失敗不致命 */ }
   await refreshPregenStatus()

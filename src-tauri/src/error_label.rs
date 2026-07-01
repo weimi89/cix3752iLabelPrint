@@ -409,6 +409,68 @@ pub fn generate(query_no: &str, error_code: &str, height: LabelHeight) -> Vec<u8
     buf
 }
 
+/// 產生入倉裝箱標籤 PNG bytes(100mm×100mm = 800×800px @203dpi)。
+///
+/// 版面(由上到下):倉庫＋物流商(CJK)/ 超大箱序號 / 日期(m-d)/ 箱號條碼＋箱號 / 備註。
+/// 給「入倉驗單」桌面端走本地印表機列印(對齊雲端 generateLabelData 的欄位)。
+pub fn generate_box_label(
+    provider_name: &str,
+    serial_number: &str,
+    package_date: &str,
+    package_sn: &str,
+    warehouse_name: &str,
+    remarks: &str,
+) -> Vec<u8> {
+    const W: u32 = 800;
+    const H: u32 = 800;
+    let mut img = RgbaImage::from_pixel(W, H, WH);
+    let dv = dejavu();
+    let dvr = dejavu_regular();
+
+    // 標題:倉庫 物流商(CJK 大字)
+    let header = format!("{} {}", warehouse_name.trim(), provider_name.trim());
+    let header = header.trim();
+    if !header.is_empty() {
+        if let Some(cjk) = cjk_font() {
+            draw_centered(&mut img, header, cjk, PxScale::from(72.0), 30);
+        } else {
+            draw_centered(&mut img, header, dv, PxScale::from(60.0), 36);
+        }
+    }
+
+    // 分隔線
+    for y in 130..133 { for x in 20..W - 20 { img.put_pixel(x, y, GRAY); } }
+
+    // 超大箱序號(辨識主體)
+    draw_centered(&mut img, serial_number, dv, PxScale::from(280.0), 170);
+
+    // 日期(m-d)
+    if !package_date.is_empty() {
+        draw_centered(&mut img, package_date, dvr, PxScale::from(70.0), 470);
+    }
+
+    // 箱號條碼 + 文字
+    if !package_sn.is_empty() {
+        draw_barcode(&mut img, package_sn, 50, 560, 700, 110);
+        draw_centered(&mut img, package_sn, dv, PxScale::from(36.0), 675);
+    }
+
+    // 備註(若有,CJK)
+    if !remarks.trim().is_empty() {
+        if let Some(cjk) = cjk_font() {
+            draw_centered(&mut img, remarks.trim(), cjk, PxScale::from(34.0), 750);
+        } else {
+            draw_centered(&mut img, remarks.trim(), dv, PxScale::from(30.0), 752);
+        }
+    }
+
+    let mut buf = Vec::new();
+    if let Err(e) = img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png) {
+        tracing::error!(?e, "裝箱標籤 PNG 編碼失敗,回傳空緩衝");
+    }
+    buf
+}
+
 /// 比例換算：以基準值 * scale_factor，回傳像素（u32）
 #[inline]
 fn pf(base: f32, sf: f32) -> u32 { (base * sf) as u32 }

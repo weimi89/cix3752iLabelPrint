@@ -930,26 +930,22 @@ struct DeviceAlertReq {
     #[serde(rename = "type")]
     alert_type: Option<String>,
     message: Option<String>,
-    /// 廣播次數,可省略(預設 1);後端 clamp 到 1..=3
-    repeat: Option<u32>,
 }
 
 /// 工控機設備異常推給前端的提示。前端 useDeviceAlert 依 `alert_type` 取雙語文案,
-/// 播 `repeat` 次廣播提示現場人員,並顯示 toast。
+/// 廣播一次提示現場人員,並顯示 toast。
 #[derive(Serialize, Clone)]
 struct DeviceAlert {
     alert_type: String,
     message: String,
-    repeat: u32,
 }
 
 /// emit `device-alert` 給前端;失敗只記 warn,不影響回應工控機
-fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str, repeat: u32) {
+fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str) {
     use tauri::Emitter;
     let payload = DeviceAlert {
         alert_type: alert_type.to_string(),
         message: message.to_string(),
-        repeat,
     };
     if let Err(e) = app.emit("device-alert", payload) {
         tracing::warn!(?e, "emit device-alert 失敗");
@@ -1577,8 +1573,8 @@ async fn post_report(
 /// POST /api/device-alert — 工控機回報設備異常(卡包裹 / USB 斷線 …)
 ///
 /// 設計原則同 POST /api/report:**不讓工控機等** — 立即回 200,語音廣播由前端背景處理。
-/// 工控機只負責「喊一聲」,不需要等廣播放完;前端收到 `device-alert` 事件後用 TTS
-/// 雙語(中文 + 越南語)重複廣播 N 次提示現場人員,並顯示 toast。
+/// 工控機只負責「喊一聲」,不需要等廣播放完;前端收到 `device-alert` 事件後用
+/// 雙語(中文 + 越南語)廣播一次提示現場人員,並顯示 toast。
 async fn post_device_alert(
     State(state): State<ServerState>,
     Json(req): Json<DeviceAlertReq>,
@@ -1593,16 +1589,14 @@ async fn post_device_alert(
         .map(|s| s.to_uppercase())
         .unwrap_or_else(|| "ERROR".to_string());
     let message = req.message.unwrap_or_default();
-    // 廣播次數:省略 → 1;clamp 到 1..=3(上限 3,避免工控機誤帶大數造成連續廣播洗版)
-    let repeat = req.repeat.unwrap_or(1).clamp(1, 3);
 
-    // 立刻推給前端廣播(emit 失敗只 warn,不影響回應工控機)
-    emit_device_alert(&state.app, &alert_type, &message, repeat);
+    // 立刻推給前端廣播一次(emit 失敗只 warn,不影響回應工控機)
+    emit_device_alert(&state.app, &alert_type, &message);
 
     let detail = if message.trim().is_empty() {
-        format!("工控機設備異常 type={alert_type} repeat={repeat}")
+        format!("工控機設備異常 type={alert_type}")
     } else {
-        format!("工控機設備異常 type={alert_type} repeat={repeat} message={message}")
+        format!("工控機設備異常 type={alert_type} message={message}")
     };
     event_log::log_bg(state.db.clone(), "warn", "server", "設備異常", detail);
 
