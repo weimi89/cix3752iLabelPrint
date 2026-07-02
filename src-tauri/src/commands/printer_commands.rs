@@ -98,6 +98,17 @@ pub async fn warehouse_print_labels(
 
     let mut printed = 0u32;
     for label in &req.labels {
+        // 欄位驗證:BoxLabel 全欄 #[serde(default)],雲端 label-data 若改欄位名 / 大小寫,
+        // 解析後會靜默變空字串 → 印出殘缺空白箱標卻仍回報成功。這裡先擋掉必要欄位皆空的箱標
+        //(package_remarks 為選填,不納入),寧可報錯讓現場知道,不印錯標。
+        if label.package_sn.trim().is_empty()
+            && label.serial_number.trim().is_empty()
+            && label.provider_name.trim().is_empty()
+        {
+            return Err(AppError::Printer(
+                "箱標資料缺關鍵欄位(箱號 / 箱序號 / 物流商皆空),疑為雲端回傳格式不符,已中止列印".into(),
+            ));
+        }
         let bytes = crate::error_label::generate_box_label(
             &label.provider_name,
             &label.serial_number,

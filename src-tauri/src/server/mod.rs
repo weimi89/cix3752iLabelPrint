@@ -1570,6 +1570,28 @@ async fn post_report(
     )
 }
 
+/// device-alert 後端 event_log 去洪窗:同一 (type|message) 在此窗內只寫一次事件記錄。
+/// 持續性異常工控機會狂丟同一訊號,不節流會把 event_log 灌爆、淹掉其他事件並撐大 DB。
+/// (前端另有 20s 廣播去抖;emit 仍每筆送出,只節流「寫 log」。)
+const DEVICE_ALERT_LOG_THROTTLE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// 回傳此 (type|message) 現在是否該寫 event_log(距上次 >= 窗、或首次),並更新時間戳。
+/// key 含 message,故「同 type 但不同故障」仍會各自記錄,只擋真正重複的洪水。
+fn should_log_device_alert(key: &str) -> bool {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    static GATE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    let mut gate = GATE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+    let now = Instant::now();
+    match gate.get(key) {
+        Some(&last) if now.duration_since(last) < DEVICE_ALERT_LOG_THROTTLE => false,
+        _ => {
+            gate.insert(key.to_string(), now);
+            true
+        }
+    }
+}
+
 /// POST /api/device-alert — 工控機回報設備異常(卡包裹 / USB 斷線 …)
 ///
 /// 設計原則同 POST /api/report:**不讓工控機等** — 立即回 200,語音廣播由前端背景處理。
@@ -1593,12 +1615,16 @@ async fn post_device_alert(
     // 立刻推給前端廣播一次(emit 失敗只 warn,不影響回應工控機)
     emit_device_alert(&state.app, &alert_type, &message);
 
-    let detail = if message.trim().is_empty() {
-        format!("工控機設備異常 type={alert_type}")
-    } else {
-        format!("工控機設備異常 type={alert_type} message={message}")
-    };
-    event_log::log_bg(state.db.clone(), "warn", "server", "設備異常", detail);
+    // event_log 去洪:同一 (type|message) 20s 內只記一次,避免持續性異常灌爆事件記錄。
+    // emit 仍每筆送(前端自行去抖顯示),此處只節流「寫入 event_log」。
+    if should_log_device_alert(&format!("{alert_type}|{message}")) {
+        let detail = if message.trim().is_empty() {
+            format!("工控機設備異常 type={alert_type}")
+        } else {
+            format!("工控機設備異常 type={alert_type} message={message}")
+        };
+        event_log::log_bg(state.db.clone(), "warn", "server", "設備異常", detail);
+    }
 
     (
         StatusCode::OK,

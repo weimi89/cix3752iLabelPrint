@@ -17,13 +17,14 @@ import { speak, speechLangOf } from '@/composables/useSpeech'
 import { useAmplifiedSound } from '@/composables/useAmplifiedSound'
 import AppHeader from '@/components/AppHeader.vue'
 import AppDatePicker from '@/components/AppDatePicker.vue'
+import { localTodayStr } from '@/utils/localDate'
 
 const { t, locale } = useI18n()
 
 const SCANNER_USER_KEY = 'cix3752iLabelPrint.scannerUser'
 const PRINTER_KEY = 'cix3752iLabelPrint.warehousePrinter'
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
+const todayStr = () => localTodayStr()
 
 // 選項(倉庫 / 物流商)由雲端帶回
 const options = reactive({ warehouses: {}, providers: [] })
@@ -47,6 +48,16 @@ watch(() => formData.scanner_user, v => localStorage.setItem(SCANNER_USER_KEY, v
 // 狀態
 const currentPackageSn = ref('')
 const currentStorageWarehouse = ref('')
+// 已建箱身分:建箱/載箱成功時記下當時的(倉庫/物流商/日期/箱號)。examine 以此 tuple 比對
+// 目前表單,判斷「箱號是否已建立且未被改動」——不再自行重算雲端 package_sn 字串格式,
+// 避免與雲端 WarehouseScannerService 的組法耦合(補零/日期切法一有差異就全擋、功能失效)。
+const builtBox = ref(null)
+const currentBoxTuple = () => ({
+  warehouse: formData.storage_warehouse,
+  provider: formData.return_provider,
+  date: formData.return_date,
+  serial: formData.serial_number,
+})
 const goodsList = ref([])
 const goodsTotal = ref(0)
 const enableSegment = ref(false)
@@ -162,11 +173,15 @@ const createPackage = async (printLabel = false) => {
     if (data.respond_code === 'FIND-PACKAGE-GOODS') {
       currentStorageWarehouse.value = data.storage_warehouse
       currentPackageSn.value = data.package_sn
+      builtBox.value = currentBoxTuple()  // 記下已建箱身分,供 examine 比對
       goodsList.value = data.goods_list || []
       goodsTotal.value = data.goods_total || 0
       toast(t('page.warehouseScanner.boxLoaded'), { type: 'success', timeout: 2000 })
 
       if (printLabel) await printLabels()
+    } else {
+      // 未映射的 respond_code(新錯誤碼 / 雲端未部署對應版本)→ 不可靜默,顯示原始碼+訊息
+      toast(data.respond_message || t('page.warehouseScanner.requestFailed') + `（${data.respond_code || '?'}）`, { type: 'error', timeout: 3000 })
     }
   } catch (e) {
     toast(errorMessageFromException(e) || t('page.warehouseScanner.requestFailed'), { type: 'error' })
@@ -180,11 +195,13 @@ const examinePackage = async () => {
   const errors = validateBase()
   if (!formData.scanner_user.trim()) errors.push(t('page.warehouseScanner.errScannerUserRequired'))
 
-  // 檢查箱號是否已建立(對齊雲端 packageSn 組法)
-  const expectedPackageSn = formData.return_provider +
-    String(formData.serial_number).padStart(3, '0') +
-    formData.return_date.replace(/-/g, '').slice(2)
-  if (currentPackageSn.value !== expectedPackageSn) errors.push(t('page.warehouseScanner.errBoxNotSaved'))
+  // 檢查箱號是否已建立且表單未被改動:比對 builtBox 身分 tuple(不重算雲端 package_sn 格式)
+  const b = builtBox.value
+  const cur = currentBoxTuple()
+  const boxReady = !!currentPackageSn.value && !!b &&
+    b.warehouse === cur.warehouse && b.provider === cur.provider &&
+    b.date === cur.date && b.serial === cur.serial
+  if (!boxReady) errors.push(t('page.warehouseScanner.errBoxNotSaved'))
 
   if (errors.length) { toast(errors.join('、'), { type: 'error', timeout: 3000 }); return }
 
@@ -212,14 +229,23 @@ const examinePackage = async () => {
       case 'REPEAT-PRIVATE':
         playSound('warning'); toast(t('page.warehouseScanner.repeat', { sn: data.package_sn || '' }), { type: 'warning', timeout: 2000 }); break
       case 'FIND-PACKAGE-GOODS':
-        // 入箱成功:播預錄箱號人聲「入第N箱」(帶箱號 → 走 box-{serial}.mp3)
-        playSound('success', formData.serial_number)
+        // 入箱成功:播預錄箱號人聲「入第N箱」。用**送出時的快照** payload.serial_number,
+        // 不用即時 formData.serial_number(連刷時可能已被下一次操作改動 → 報錯箱號)。
+        playSound('success', payload.serial_number)
         toast(t('page.warehouseScanner.intakeOk'), { type: 'success', timeout: 2000 })
         currentStorageWarehouse.value = data.storage_warehouse
         currentPackageSn.value = data.package_sn
+        builtBox.value = {
+          warehouse: payload.storage_warehouse, provider: payload.return_provider,
+          date: payload.return_date, serial: payload.serial_number,
+        }
         goodsList.value = data.goods_list || []
         goodsTotal.value = data.goods_total || 0
         break
+      default:
+        // 未映射的 respond_code(新碼 / 雲端結構變動)→ 播錯誤音 + 顯示原始碼+訊息,不可靜默漏件
+        playSound('error')
+        toast(data.respond_message || t('page.warehouseScanner.requestFailed') + `（${data.respond_code || '?'}）`, { type: 'error', timeout: 3000 })
     }
   } catch (e) {
     playSound('error')
@@ -235,6 +261,9 @@ const removeGoods = async (shipmentNo) => {
       goodsList.value = data.goods_list || []
       goodsTotal.value = data.goods_total || 0
       toast(t('page.warehouseScanner.goodsRemoved'), { type: 'success', timeout: 2000 })
+    } else {
+      // 未映射的 respond_code → 顯示原始碼+訊息,不靜默(避免以為移除成功)
+      toast(data.respond_message || t('page.warehouseScanner.removeFailed') + `（${data.respond_code || '?'}）`, { type: 'error', timeout: 3000 })
     }
   } catch (e) {
     toast(errorMessageFromException(e) || t('page.warehouseScanner.removeFailed'), { type: 'error' })
@@ -245,9 +274,16 @@ const removeGoods = async (shipmentNo) => {
 const removePackage = async () => {
   if (!currentPackageSn.value) return
   try {
-    await warehouseRemovePackage(currentStorageWarehouse.value, currentPackageSn.value)
+    const data = await warehouseRemovePackage(currentStorageWarehouse.value, currentPackageSn.value)
+    // 雲端明確回錯誤碼時不可靜默當成刪除成功:顯示原始碼+訊息且保留箱號狀態
+    const code = data?.respond_code
+    if (code && /ERROR|FAIL|NOT/i.test(code)) {
+      toast(data?.respond_message || t('page.warehouseScanner.removeFailed') + `（${code}）`, { type: 'error', timeout: 3000 })
+      return
+    }
     currentPackageSn.value = ''
     currentStorageWarehouse.value = ''
+    builtBox.value = null
     goodsList.value = []
     goodsTotal.value = 0
     toast(t('page.warehouseScanner.boxRemoved'), { type: 'success', timeout: 2000 })

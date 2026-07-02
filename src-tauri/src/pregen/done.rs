@@ -17,7 +17,13 @@ use crate::AppResult;
 /// 快取日字串:把現在往前推 4 小時讓 04:00 對齊午夜,再取年-月-日。
 /// 對齊前端 usePreGenProcessed 與快取約 04:00 清理的慣例。
 pub fn current_cache_day() -> String {
-    let shifted = chrono::Local::now() - chrono::Duration::hours(4);
+    cache_day_offset(0)
+}
+
+/// 相對當前快取日位移 `days` 天的快取日字串(days=-1 為前一快取日)。
+fn cache_day_offset(days: i64) -> String {
+    let shifted =
+        chrono::Local::now() - chrono::Duration::hours(4) + chrono::Duration::days(days);
     shifted.format("%Y-%m-%d").to_string()
 }
 
@@ -53,23 +59,34 @@ impl PregenDoneStore {
             return;
         }
 
-        // 跨快取日:刪掉所有非當日列(舊快取日的檔案已被清理,記憶失效)
-        if let Err(e) = sqlx::query("DELETE FROM pregen_done WHERE cache_day <> ?")
-            .bind(&today)
+        // 保留「今日 + 昨日」兩個快取日:夜班 00:00–04:00 產出的標記記在前一快取日,
+        // 04:00 換日後仍在保留窗內、不被清掉,避免那批訂單被重打雲端並誤報成功
+        //(對齊快取檔以天齡清理、非 04:00 硬刪的實情)。只刪早於昨日的列。
+        let yesterday = cache_day_offset(-1);
+        if let Err(e) = sqlx::query("DELETE FROM pregen_done WHERE cache_day < ?")
+            .bind(&yesterday)
             .execute(db)
             .await
         {
             tracing::warn!(?e, "清理過期 pregen_done 失敗");
         }
 
-        // 載入當日已預產集合
-        let rows = sqlx::query_scalar::<_, String>(
-            "SELECT order_sn FROM pregen_done WHERE cache_day = ?",
+        // 載入保留窗(今日 + 昨日)已預產集合
+        let rows = match sqlx::query_scalar::<_, String>(
+            "SELECT order_sn FROM pregen_done WHERE cache_day >= ?",
         )
-        .bind(&today)
+        .bind(&yesterday)
         .fetch_all(db)
         .await
-        .unwrap_or_default();
+        {
+            Ok(r) => r,
+            Err(e) => {
+                // 讀取失敗**不可**把空集合當成「今日已載入」快取 —— 否則當日所有訂單被判未預產、
+                // 全部重打雲端且一律誤報成功。保持 loaded=false,下次呼叫重試。
+                tracing::warn!(?e, "載入 pregen_done 失敗,保持未載入以便下次重試");
+                return;
+            }
+        };
 
         inner.day = today;
         inner.sns = rows.into_iter().collect();
@@ -92,21 +109,36 @@ impl PregenDoneStore {
 
     /// 標記一批 order_sn 為「今日已預產」(記憶體 + DB)。空字串略過。
     pub async fn mark(&self, db: &DbPool, order_sns: &[String]) -> AppResult<()> {
-        let mut inner = self.inner.lock().await;
-        Self::ensure_current(&mut inner, db).await;
-        let day = inner.day.clone();
-        for sn in order_sns {
-            let sn = sn.trim();
-            if sn.is_empty() || inner.sns.contains(sn) {
-                continue;
+        // 先在鎖內更新記憶體並挑出真正要寫入的新項,隨即**放鎖**;DB 寫入在鎖外做,
+        // 避免大批標記持鎖逐筆 await 卡住 snapshot()/contains()(預產頁看似卡死)。
+        let (day, to_insert) = {
+            let mut inner = self.inner.lock().await;
+            Self::ensure_current(&mut inner, db).await;
+            let day = inner.day.clone();
+            let mut to_insert = Vec::new();
+            for sn in order_sns {
+                let sn = sn.trim();
+                if sn.is_empty() || inner.sns.contains(sn) {
+                    continue;
+                }
+                inner.sns.insert(sn.to_string());
+                to_insert.push(sn.to_string());
             }
+            (day, to_insert)
+        };
+        if to_insert.is_empty() {
+            return Ok(());
+        }
+        // 一次交易批次寫入(單一 commit,不逐筆 autocommit)
+        let mut tx = db.begin().await?;
+        for sn in &to_insert {
             sqlx::query("INSERT OR IGNORE INTO pregen_done (order_sn, cache_day) VALUES (?, ?)")
                 .bind(sn)
                 .bind(&day)
-                .execute(db)
+                .execute(&mut *tx)
                 .await?;
-            inner.sns.insert(sn.to_string());
         }
+        tx.commit().await?;
         Ok(())
     }
 

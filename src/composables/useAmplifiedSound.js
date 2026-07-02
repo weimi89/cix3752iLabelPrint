@@ -48,9 +48,20 @@ export function useAmplifiedSound(soundMap, options = {}) {
 
       gainNode.connect(limiterNode)
       limiterNode.connect(audioCtx.destination)
+
+      // 一次性使用者手勢解鎖:macOS(WKWebView)/ Linux(WebKitGTK)要求 AudioContext.resume()
+      // 必須由使用者手勢觸發才生效;而播放都在網路 await 之後(手勢已失效)。故在建立當下掛一次
+      // pointerdown/keydown 監聽,首次互動即 resume,之後 await 後的播放才出得了聲(否則跨平台靜默無音)。
+      const unlock = () => {
+        audioCtx?.resume().catch(() => {})
+        window.removeEventListener('pointerdown', unlock)
+        window.removeEventListener('keydown', unlock)
+      }
+      window.addEventListener('pointerdown', unlock)
+      window.addEventListener('keydown', unlock)
     }
 
-    // 瀏覽器需使用者互動後才允許播放,play 時自動恢復(掃描槍 Enter 已構成互動)
+    // 播放前也嘗試恢復(掃描槍 Enter 本身即互動;搭配上面的手勢解鎖雙保險)
     if (audioCtx.state === 'suspended')
       audioCtx.resume().catch(() => {})
 
@@ -62,6 +73,12 @@ export function useAmplifiedSound(soundMap, options = {}) {
     if (!ctx) return
     try {
       const response = await fetch(path)
+      if (!response.ok) {
+        // 缺檔 / 路徑錯:404 的 fetch 仍 resolve,不檢查會拿到 HTML 錯誤頁去 decode 丟例外被吞,
+        // buffer 永不設定 → 之後 playSound 靜默無音。與 loadBoxBuffer 一致先擋掉。
+        console.warn(`音效載入失敗 [${name}]: HTTP ${response.status} ${path}`)
+        return
+      }
       const arrayBuffer = await response.arrayBuffer()
       buffers.value[name] = await ctx.decodeAudioData(arrayBuffer)
     } catch (e) {

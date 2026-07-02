@@ -101,12 +101,15 @@ export function useDeviceAlert() {
     const alertType = (payload?.alert_type || 'ERROR').toUpperCase()
     const extra = (payload?.message || '').trim()
 
-    // 去抖:同一 type 在 20s 窗內狂丟 → 只認第一筆,其餘直接略過(不打斷正在播的語音、不洗 toast)。
+    // 去抖:key 用「type + message」而非只用 type —— 真正的洪水是「同 type 同 message」
+    // (同一卡包位置持續回報),用完整 key 照樣擋掉;但「同 type 不同故障」(如 L2 與 R4 都卡、
+    // message 不同)會視為不同事件,第二筆仍會廣播 + toast,不被靜默吞掉。
     // 窗以「上次實際廣播」為基準,持續洪水下約每 20s 才會再提示一次。
+    const dedupKey = `${alertType}|${extra}`
     const now = Date.now()
-    const last = lastAlertAt.get(alertType)
+    const last = lastAlertAt.get(dedupKey)
     if (last !== undefined && now - last < DEDUP_WINDOW_MS) return
-    lastAlertAt.set(alertType, now)
+    lastAlertAt.set(dedupKey, now)
 
     // 先停掉前一筆未播完的,再開新的
     stopCurrent()

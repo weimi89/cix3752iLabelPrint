@@ -23,11 +23,13 @@ export const loadProcessed = async () => {
   try {
     const snap = await pregenDoneSnapshot()
     sns = new Set(Array.isArray(snap?.order_sns) ? snap.order_sns : [])
-    pending = new Set()
+    // 保留上批 persistProcessed 失敗、退回 pending 尚未寫回後端的標記 —— 否則會被判為
+    // 未預產而重打雲端。合併進 sns、且不清 pending(下次 persist 仍會嘗試寫回)。
+    for (const sn of pending) sns.add(sn)
   } catch {
-    // 取快照失敗不阻塞預產:退回空集合(頂多多打幾次雲端,後端 has_local 仍會免重抓)
-    sns = new Set()
-    pending = new Set()
+    // 取快照失敗不阻塞預產:退回「僅含尚未寫回的 pending」(至少不丟已標記的),
+    // 後端 has_local 仍會對真正已快取者免重抓。
+    sns = new Set(pending)
   }
 }
 
@@ -51,11 +53,13 @@ export const persistProcessed = async () => {
 }
 
 /** 清除「今日已預產」記憶(後端 DB + 前端記憶體),讓所有訂單下次查詢都重新抓取。
- *  供面單預產頁「清除已預產記錄」鈕,以及清空後端快取時連帶呼叫 —— 兩層一起歸零才能真正重跑。 */
+ *  供面單預產頁「清除已預產記錄」鈕,以及清空後端快取時連帶呼叫 —— 兩層一起歸零才能真正重跑。
+ *  **先清後端(單一來源),成功才清前端記憶體;後端失敗則拋出讓呼叫端提示** —— 不可只清前端,
+ *  否則 UI 顯示已清、下次 loadProcessed 又把 DB 舊清單載回(清了卻清不掉且無提示)。 */
 export const clearProcessed = async () => {
+  await pregenClearDone()
   sns = new Set()
   pending = new Set()
-  try { await pregenClearDone() } catch { /* 後端清除失敗時略過,前端記憶體已清 */ }
 }
 
 /** 目前記憶體內已預產(會被略過)的訂單數,供 UI 顯示「清除」鈕是否有意義 */

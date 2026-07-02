@@ -368,14 +368,26 @@ impl CloudClient {
         Ok(result)
     }
 
-    /// 面單預產用:袋號反查整袋訂單編號(對齊雲端 label/package-orders)
-    pub async fn fetch_package_orders(&self, package_sn: &str) -> AppResult<PackageOrdersResult> {
+    /// 帶 Bearer 的 GET,回傳已 error_for_status 的回應內文。HTTP 樣板集中一處
+    /// (snapshot → join_url → http clone → get+query → bearer → error_for_status → text)。
+    async fn authed_get(&self, path: &str, query: &[(&str, &str)]) -> AppResult<String> {
         let (base, token) = self.snapshot()?;
-        let path = self.inner.state.read().package_orders_path.clone();
-        let url = join_url(&base, &path);
+        let url = join_url(&base, path);
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .get(&url)
+            .query(query)
+            .bearer_auth(&token)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(resp.text().await?)
+    }
 
-        let body = json!({ "package_sn": package_sn });
-
+    /// 帶 Bearer 的 POST(JSON body),回傳已 error_for_status 的回應內文。
+    async fn authed_post(&self, path: &str, body: serde_json::Value) -> AppResult<String> {
+        let (base, token) = self.snapshot()?;
+        let url = join_url(&base, path);
         let http = self.inner.http.read().clone();
         let resp = http
             .post(&url)
@@ -384,15 +396,16 @@ impl CloudClient {
             .send()
             .await?
             .error_for_status()?;
+        Ok(resp.text().await?)
+    }
 
-        let text = resp.text().await?;
-        let result: PackageOrdersResult = serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 package-orders 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })?;
-        Ok(result)
+    /// 面單預產用:袋號反查整袋訂單編號(對齊雲端 label/package-orders)
+    pub async fn fetch_package_orders(&self, package_sn: &str) -> AppResult<PackageOrdersResult> {
+        let path = self.inner.state.read().package_orders_path.clone();
+        let text = self
+            .authed_post(&path, json!({ "package_sn": package_sn }))
+            .await?;
+        parse_cloud_json(&text, "package-orders")
     }
 
     /// 面單預產用:依日期反查整批訂單編號(對齊雲端 label/orders-by-date;source: clearance/transfer)
@@ -401,53 +414,18 @@ impl CloudClient {
         date: &str,
         source: &str,
     ) -> AppResult<PackageOrdersResult> {
-        let (base, token) = self.snapshot()?;
         let path = self.inner.state.read().orders_by_date_path.clone();
-        let url = join_url(&base, &path);
-
-        let body = json!({ "date": date, "source": source });
-
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let text = resp.text().await?;
-        let result: PackageOrdersResult = serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 orders-by-date 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })?;
-        Ok(result)
+        let text = self
+            .authed_post(&path, json!({ "date": date, "source": source }))
+            .await?;
+        parse_cloud_json(&text, "orders-by-date")
     }
 
     /// 清關作業:取得選項(倉庫 / 清關公司 / 司機 歷史清單),對齊雲端 clearance/options
     pub async fn fetch_clearance_options(&self) -> AppResult<ClearanceOptions> {
-        let (base, token) = self.snapshot()?;
         let path = self.inner.state.read().clearance_options_path.clone();
-        let url = join_url(&base, &path);
-
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .get(&url)
-            .bearer_auth(&token)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let text = resp.text().await?;
-        let result: ClearanceOptions = serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 clearance/options 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })?;
-        Ok(result)
+        let text = self.authed_get(&path, &[]).await?;
+        parse_cloud_json(&text, "clearance/options")
     }
 
     /// 清關進度浮動框:GET clearance/progress?from&to,回傳雲端原始 JSON
@@ -457,26 +435,11 @@ impl CloudClient {
         from: &str,
         to: &str,
     ) -> AppResult<serde_json::Value> {
-        let (base, token) = self.snapshot()?;
         let path = self.inner.state.read().clearance_progress_path.clone();
-        let url = join_url(&base, &path);
-
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .get(&url)
-            .query(&[("from", from), ("to", to)])
-            .bearer_auth(&token)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let text = resp.text().await?;
-        serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 clearance/progress 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })
+        let text = self
+            .authed_get(&path, &[("from", from), ("to", to)])
+            .await?;
+        parse_cloud_json(&text, "clearance/progress")
     }
 
     /// 清關作業:新增清關包裹,對齊雲端 clearance/store
@@ -488,34 +451,19 @@ impl CloudClient {
         clearance_date: &str,
         storage_code: &str,
     ) -> AppResult<ClearanceStoreResult> {
-        let (base, token) = self.snapshot()?;
         let path = self.inner.state.read().clearance_store_path.clone();
-        let url = join_url(&base, &path);
-
-        let body = json!({
-            "transport_package_sn": transport_package_sn,
-            "clearance_company": clearance_company,
-            "clearance_date": clearance_date,
-            "storage_code": storage_code,
-        });
-
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let text = resp.text().await?;
-        let result: ClearanceStoreResult = serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 clearance/store 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })?;
-        Ok(result)
+        let text = self
+            .authed_post(
+                &path,
+                json!({
+                    "transport_package_sn": transport_package_sn,
+                    "clearance_company": clearance_company,
+                    "clearance_date": clearance_date,
+                    "storage_code": storage_code,
+                }),
+            )
+            .await?;
+        parse_cloud_json(&text, "clearance/store")
     }
 
     /// 清關作業:司機派工,對齊雲端 clearance/dispatch
@@ -526,81 +474,50 @@ impl CloudClient {
         shipping_date: &str,
         storage_code: &str,
     ) -> AppResult<ClearanceDispatchResult> {
-        let (base, token) = self.snapshot()?;
         let path = self.inner.state.read().clearance_dispatch_path.clone();
-        let url = join_url(&base, &path);
-
-        let body = json!({
-            "transport_package_sn": transport_package_sn,
-            "driver_name": driver_name,
-            "shipping_date": shipping_date,
-            "storage_code": storage_code,
-        });
-
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let text = resp.text().await?;
-        let result: ClearanceDispatchResult = serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 clearance/dispatch 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })?;
-        Ok(result)
+        let text = self
+            .authed_post(
+                &path,
+                json!({
+                    "transport_package_sn": transport_package_sn,
+                    "driver_name": driver_name,
+                    "shipping_date": shipping_date,
+                    "storage_code": storage_code,
+                }),
+            )
+            .await?;
+        parse_cloud_json(&text, "clearance/dispatch")
     }
 
     // ===== 入倉驗單(warehouse-scanner)=====
     // 邏輯全在雲端 WarehouseScannerService,中介端僅透傳 JSON;base path 下接子路由。
 
     /// warehouse-scanner 子路由 GET(透傳雲端 JSON)
-    async fn warehouse_get(&self, suffix: &str, query: &[(&str, &str)]) -> AppResult<serde_json::Value> {
-        let (base, token) = self.snapshot()?;
-        let path = self.inner.state.read().warehouse_scanner_path.clone();
-        let url = join_url(&base, &format!("{path}{suffix}"));
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .get(&url)
-            .query(query)
-            .bearer_auth(&token)
-            .send()
-            .await?
-            .error_for_status()?;
-        let text = resp.text().await?;
-        serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 warehouse-scanner{suffix} 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })
+    async fn warehouse_get(
+        &self,
+        suffix: &str,
+        query: &[(&str, &str)],
+    ) -> AppResult<serde_json::Value> {
+        let path = {
+            let p = self.inner.state.read().warehouse_scanner_path.clone();
+            format!("{p}{suffix}")
+        };
+        let text = self.authed_get(&path, query).await?;
+        parse_cloud_json(&text, &format!("warehouse-scanner{suffix}"))
     }
 
     /// warehouse-scanner 子路由 POST(透傳雲端 JSON)
-    async fn warehouse_post(&self, suffix: &str, body: serde_json::Value) -> AppResult<serde_json::Value> {
-        let (base, token) = self.snapshot()?;
-        let path = self.inner.state.read().warehouse_scanner_path.clone();
-        let url = join_url(&base, &format!("{path}{suffix}"));
-        let http = self.inner.http.read().clone();
-        let resp = http
-            .post(&url)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-        let text = resp.text().await?;
-        serde_json::from_str(&text).map_err(|e| {
-            AppError::Server(format!(
-                "雲端 warehouse-scanner{suffix} 回應解析失敗: {e}; body: {}",
-                text.chars().take(500).collect::<String>()
-            ))
-        })
+    async fn warehouse_post(
+        &self,
+        suffix: &str,
+        body: serde_json::Value,
+    ) -> AppResult<serde_json::Value> {
+        let path = {
+            let p = self.inner.state.read().warehouse_scanner_path.clone();
+            format!("{p}{suffix}")
+        };
+        let text = self.authed_post(&path, body).await?;
+        parse_cloud_json(&text, &format!("warehouse-scanner{suffix}"))
     }
 
     /// 入倉驗單:下拉選項(倉庫 / 物流商)
@@ -849,6 +766,16 @@ fn join_url(base: &str, path: &str) -> String {
     } else {
         format!("{base}/{p}")
     }
+}
+
+/// 統一把雲端回應內文 serde 成目標型別;失敗時帶上 endpoint 標籤與截斷 body 方便診斷。
+fn parse_cloud_json<T: serde::de::DeserializeOwned>(text: &str, label: &str) -> AppResult<T> {
+    serde_json::from_str(text).map_err(|e| {
+        AppError::Server(format!(
+            "雲端 {label} 回應解析失敗: {e}; body: {}",
+            text.chars().take(500).collect::<String>()
+        ))
+    })
 }
 
 fn load_token_from_keyring() -> AppResult<String> {

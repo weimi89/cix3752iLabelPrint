@@ -342,6 +342,7 @@
       "forceRerun": "Chạy lại bắt buộc",
       "forceRerunHint": "Bỏ qua ghi nhớ \"đã tạo\" và yêu cầu máy chủ tải lại từ cloud, ghi đè nhãn đã lưu trong bộ nhớ đệm",
       "clearProcessed": "Xóa ghi nhớ đã tạo ({n} mục)",
+      "clearProcessedFailed": "Xóa ghi nhớ đã tạo thất bại: {msg}",
       "elapsedSec": "{s} giây",
       "elapsedMin": "{m} phút {s} giây",
       "manyHint": "Tổng {n} đơn. Số lượng lớn nên không hiển thị từng ảnh nhãn để giữ hiệu năng; server sẽ tạo sẵn ảnh nhãn ở chế độ nền, hoàn tất có thể dùng trực tiếp ở Quét in / Tự động in / máy công nghiệp.",

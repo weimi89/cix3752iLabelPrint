@@ -8,10 +8,11 @@ import { useStickyValue } from '@/composables/useStickyValue'
 import AppHeader from '@/components/AppHeader.vue'
 import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppDatePicker from '@/components/AppDatePicker.vue'
+import { localTodayStr } from '@/utils/localDate'
 
 const { t } = useI18n()
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
+const todayStr = () => localTodayStr()
 
 // 司機 / 倉庫 本地記憶:切頁或重啟後沿用上次選擇,不需重選(倉庫兩頁共用同一實體倉)
 const driverName = useStickyValue('clearance.dispatch.driver', '')

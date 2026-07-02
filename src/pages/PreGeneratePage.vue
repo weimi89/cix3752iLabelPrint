@@ -9,6 +9,8 @@ import {
 import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import AppDatePicker from '@/components/AppDatePicker.vue'
+import { localTodayStr } from '@/utils/localDate'
+import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -157,8 +159,13 @@ const processShipments = async snList => {
 const stopProcessing = () => { abortRequested = true }
 
 // 清除本快取日「已預產」記憶,讓所有訂單下次查詢都重新抓取(配合或不配合「強制重跑」皆可用)
+// clearProcessed 先清後端、失敗會拋出;此處攔截並提示,不讓「清了卻沒清成」靜默發生。
 const handleClearProcessed = async () => {
-  await clearProcessed()
+  try {
+    await clearProcessed()
+  } catch (e) {
+    toast(t('page.preGenerate.clearProcessedFailed', { msg: errorMessageFromException(e) }), { type: 'error' })
+  }
   refreshProcessedCount()
 }
 
@@ -210,7 +217,7 @@ const handleQueryByPackage = async () => {
 }
 
 // 依清關日期執行:選日期 → 反查當日整批訂單編號 → 直接預產
-const clearanceDate = ref(new Date().toISOString().slice(0, 10))
+const clearanceDate = ref(localTodayStr())
 const dateLoading = ref(false)
 const dateError = ref('')
 
