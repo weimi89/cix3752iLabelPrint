@@ -3,13 +3,24 @@ import { toast } from 'vue3-toastify'
 import { cloudExaminePackage, cloudFetchCloudPrint, printImage } from '@/api/tauri'
 import { printErrorLabel } from '@/composables/useErrorLabelPrint'
 import { playSound } from '@/composables/useSoundEffects'
+import { usePrintAlertSoundSettings } from '@/composables/usePrintAlertSoundSettings'
 import { useScanDedup } from '@/composables/useScanDedup'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppHeader from '@/components/AppHeader.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
+import SoundSettingsDialog from '@/components/SoundSettingsDialog.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+
+// 提示音設定:全域 effect_* 對照表(本頁 + parcel-alert 全域監聽),與雲端 API 頁共用同一接線
+const {
+  events: printSoundEvents,
+  defaults: printSoundDefaults,
+  soundSettings,
+  isSoundSettingsDialogVisible,
+  handleSoundSettingsSave,
+} = usePrintAlertSoundSettings()
 
 const STORAGE_KEY = 'cix3752iLabelPrint.printerMap'
 
@@ -385,6 +396,15 @@ onMounted(() => {
   <div>
     <AppHeader :title="$t('page.auto.title')" :subtitle="$t('page.auto.subtitle')" icon="tabler-cloud-cog">
       <template #actions>
+        <VBtn
+          variant="text"
+          color="default"
+          class="me-2"
+          @click="isSoundSettingsDialogVisible = true"
+        >
+          <VIcon size="18" icon="tabler-volume" class="me-1" />
+          {{ $t('soundSettings.title') }}
+        </VBtn>
         <VSwitch
           v-model="form.enforce"
           :label="$t('page.scan.enforce')"
@@ -395,6 +415,15 @@ onMounted(() => {
         />
       </template>
     </AppHeader>
+
+    <!-- 提示音設定(全域 effect_* 對照表,含工控機查件失敗提示音) -->
+    <SoundSettingsDialog
+      v-model:is-dialog-visible="isSoundSettingsDialogVisible"
+      :sound-events="printSoundEvents"
+      :settings="soundSettings"
+      :defaults="printSoundDefaults"
+      @save="handleSoundSettingsSave"
+    />
 
     <VAlert v-if="!isAnyPrinterReady" type="error" variant="tonal" class="mb-3">
       {{ $t('page.auto.noPrinterAlert') }}

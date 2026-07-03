@@ -7,6 +7,10 @@
 export {}
 declare global {
   const EffectScope: typeof import('vue')['EffectScope']
+  const KNOWN_SOUND_PATHS: typeof import('./composables/soundLibrary.js')['KNOWN_SOUND_PATHS']
+  const PRINT_ALERT_SOUND_DEFAULTS: typeof import('./composables/useSoundEffects.js')['PRINT_ALERT_SOUND_DEFAULTS']
+  const PRINT_ALERT_SOUND_STORAGE_KEY: typeof import('./composables/useSoundEffects.js')['PRINT_ALERT_SOUND_STORAGE_KEY']
+  const SOUND_LIBRARY: typeof import('./composables/soundLibrary.js')['SOUND_LIBRARY']
   const STATUS_GROUP_ICON: typeof import('./composables/useLabelStatus.js')['STATUS_GROUP_ICON']
   const acceptHMRUpdate: typeof import('pinia')['acceptHMRUpdate']
   const alphaDashValidator: typeof import('./@core/utils/validators.js')['alphaDashValidator']
@@ -84,6 +88,7 @@ declare global {
   const kFormatter: typeof import('./@core/utils/formatters.js')['kFormatter']
   const lengthValidator: typeof import('./@core/utils/validators.js')['lengthValidator']
   const loadProcessed: typeof import('./composables/usePreGenProcessed.js')['loadProcessed']
+  const loadStoredSoundMap: typeof import('./composables/useSoundSettings.js')['loadStoredSoundMap']
   const makeDestructurable: typeof import('@vueuse/core')['makeDestructurable']
   const mapActions: typeof import('pinia')['mapActions']
   const mapGetters: typeof import('pinia')['mapGetters']
@@ -148,6 +153,7 @@ declare global {
   const rgbaToHex: typeof import('./@core/utils/colorConverter.js')['rgbaToHex']
   const setActivePinia: typeof import('pinia')['setActivePinia']
   const setMapStoreSuffix: typeof import('pinia')['setMapStoreSuffix']
+  const setPrintAlertSound: typeof import('./composables/useSoundEffects.js')['setPrintAlertSound']
   const setZoom: typeof import('./composables/useZoom.js')['setZoom']
   const shallowReactive: typeof import('vue')['shallowReactive']
   const shallowReadonly: typeof import('vue')['shallowReadonly']
@@ -299,6 +305,7 @@ declare global {
   const usePreferredLanguages: typeof import('@vueuse/core')['usePreferredLanguages']
   const usePreferredReducedMotion: typeof import('@vueuse/core')['usePreferredReducedMotion']
   const usePrevious: typeof import('@vueuse/core')['usePrevious']
+  const usePrintAlertSoundSettings: typeof import('./composables/usePrintAlertSoundSettings.js')['usePrintAlertSoundSettings']
   const useRafFn: typeof import('@vueuse/core')['useRafFn']
   const useRefHistory: typeof import('@vueuse/core')['useRefHistory']
   const useResizeObserver: typeof import('@vueuse/core')['useResizeObserver']
@@ -317,6 +324,7 @@ declare global {
   const useSkins: typeof import('./@core/composable/useSkins.js')['useSkins']
   const useSlots: typeof import('vue')['useSlots']
   const useSorted: typeof import('@vueuse/core')['useSorted']
+  const useSoundSettings: typeof import('./composables/useSoundSettings.js')['useSoundSettings']
   const useSpeechRecognition: typeof import('@vueuse/core')['useSpeechRecognition']
   const useSpeechSynthesis: typeof import('@vueuse/core')['useSpeechSynthesis']
   const useStepper: typeof import('@vueuse/core')['useStepper']
@@ -395,6 +403,10 @@ declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
+    readonly KNOWN_SOUND_PATHS: UnwrapRef<typeof import('./composables/soundLibrary.js')['KNOWN_SOUND_PATHS']>
+    readonly PRINT_ALERT_SOUND_DEFAULTS: UnwrapRef<typeof import('./composables/useSoundEffects.js')['PRINT_ALERT_SOUND_DEFAULTS']>
+    readonly PRINT_ALERT_SOUND_STORAGE_KEY: UnwrapRef<typeof import('./composables/useSoundEffects.js')['PRINT_ALERT_SOUND_STORAGE_KEY']>
+    readonly SOUND_LIBRARY: UnwrapRef<typeof import('./composables/soundLibrary.js')['SOUND_LIBRARY']>
     readonly STATUS_GROUP_ICON: UnwrapRef<typeof import('./composables/useLabelStatus.js')['STATUS_GROUP_ICON']>
     readonly acceptHMRUpdate: UnwrapRef<typeof import('pinia')['acceptHMRUpdate']>
     readonly alphaDashValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['alphaDashValidator']>
@@ -472,6 +484,7 @@ declare module 'vue' {
     readonly kFormatter: UnwrapRef<typeof import('./@core/utils/formatters.js')['kFormatter']>
     readonly lengthValidator: UnwrapRef<typeof import('./@core/utils/validators.js')['lengthValidator']>
     readonly loadProcessed: UnwrapRef<typeof import('./composables/usePreGenProcessed.js')['loadProcessed']>
+    readonly loadStoredSoundMap: UnwrapRef<typeof import('./composables/useSoundSettings.js')['loadStoredSoundMap']>
     readonly makeDestructurable: UnwrapRef<typeof import('@vueuse/core')['makeDestructurable']>
     readonly mapActions: UnwrapRef<typeof import('pinia')['mapActions']>
     readonly mapGetters: UnwrapRef<typeof import('pinia')['mapGetters']>
@@ -536,6 +549,7 @@ declare module 'vue' {
     readonly rgbaToHex: UnwrapRef<typeof import('./@core/utils/colorConverter.js')['rgbaToHex']>
     readonly setActivePinia: UnwrapRef<typeof import('pinia')['setActivePinia']>
     readonly setMapStoreSuffix: UnwrapRef<typeof import('pinia')['setMapStoreSuffix']>
+    readonly setPrintAlertSound: UnwrapRef<typeof import('./composables/useSoundEffects.js')['setPrintAlertSound']>
     readonly setZoom: UnwrapRef<typeof import('./composables/useZoom.js')['setZoom']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
@@ -686,6 +700,7 @@ declare module 'vue' {
     readonly usePreferredLanguages: UnwrapRef<typeof import('@vueuse/core')['usePreferredLanguages']>
     readonly usePreferredReducedMotion: UnwrapRef<typeof import('@vueuse/core')['usePreferredReducedMotion']>
     readonly usePrevious: UnwrapRef<typeof import('@vueuse/core')['usePrevious']>
+    readonly usePrintAlertSoundSettings: UnwrapRef<typeof import('./composables/usePrintAlertSoundSettings.js')['usePrintAlertSoundSettings']>
     readonly useRafFn: UnwrapRef<typeof import('@vueuse/core')['useRafFn']>
     readonly useRefHistory: UnwrapRef<typeof import('@vueuse/core')['useRefHistory']>
     readonly useResizeObserver: UnwrapRef<typeof import('@vueuse/core')['useResizeObserver']>
@@ -704,6 +719,7 @@ declare module 'vue' {
     readonly useSkins: UnwrapRef<typeof import('./@core/composable/useSkins.js')['useSkins']>
     readonly useSlots: UnwrapRef<typeof import('vue')['useSlots']>
     readonly useSorted: UnwrapRef<typeof import('@vueuse/core')['useSorted']>
+    readonly useSoundSettings: UnwrapRef<typeof import('./composables/useSoundSettings.js')['useSoundSettings']>
     readonly useSpeechRecognition: UnwrapRef<typeof import('@vueuse/core')['useSpeechRecognition']>
     readonly useSpeechSynthesis: UnwrapRef<typeof import('@vueuse/core')['useSpeechSynthesis']>
     readonly useStepper: UnwrapRef<typeof import('@vueuse/core')['useStepper']>

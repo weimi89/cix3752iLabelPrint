@@ -1,9 +1,21 @@
 <script setup>
 import { cloudLogin, cloudLogout, cloudSession, getConfig, updateConfig } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import SoundSettingsDialog from '@/components/SoundSettingsDialog.vue'
+import { usePrintAlertSoundSettings } from '@/composables/usePrintAlertSoundSettings'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+
+// 提示音設定:工控機查件失敗(門市關轉/未確認/查無/一般失敗)由雲端 API 回應觸發,
+// 在此設定與自動印單頁共用同一組全域 effect_*(單一 localStorage 來源,改一處全域生效)
+const {
+  events: printSoundEvents,
+  defaults: printSoundDefaults,
+  soundSettings,
+  isSoundSettingsDialogVisible,
+  handleSoundSettingsSave,
+} = usePrintAlertSoundSettings()
 
 const form = reactive({
   api_base: '',
@@ -112,6 +124,9 @@ const handleLogout = async () => {
   <div>
     <AppHeader :title="$t('page.cloud.title')" subtitle="API Base URL + Personal Access Token" icon="tabler-cloud-network">
       <template #actions>
+        <VBtn variant="text" color="default" class="d-none d-md-inline-flex" @click="isSoundSettingsDialogVisible = true">
+          <VIcon icon="tabler-volume" size="18" class="me-1" />{{ $t('soundSettings.title') }}
+        </VBtn>
         <VChip
           v-if="session.logged_in"
           color="success"
@@ -123,16 +138,18 @@ const handleLogout = async () => {
         <VChip v-else color="warning" variant="tonal" size="small">
           <VIcon icon="tabler-alert-triangle" size="14" class="me-1" />{{ $t('user.notLoggedIn') }}
         </VChip>
-        <div v-if="session.logged_in" class="d-none d-md-flex ga-2">
-          <VBtn color="error" size="small" @click="handleLogout">
-            <VIcon icon="tabler-logout" size="16" class="me-1" />{{ $t('user.logout') }}
-          </VBtn>
-        </div>
-        <VBtn v-if="session.logged_in" class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+        <VBtn v-if="session.logged_in" color="error" size="small" class="d-none d-md-inline-flex" @click="handleLogout">
+          <VIcon icon="tabler-logout" size="16" class="me-1" />{{ $t('user.logout') }}
+        </VBtn>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem @click="handleLogout">
+              <VListItem @click="isSoundSettingsDialogVisible = true">
+                <template #prepend><VIcon icon="tabler-volume" size="20" /></template>
+                <VListItemTitle>{{ $t('soundSettings.title') }}</VListItemTitle>
+              </VListItem>
+              <VListItem v-if="session.logged_in" @click="handleLogout">
                 <template #prepend><VIcon icon="tabler-logout" size="20" /></template>
                 <VListItemTitle>{{ $t('user.logout') }}</VListItemTitle>
               </VListItem>
@@ -141,6 +158,15 @@ const handleLogout = async () => {
         </VBtn>
       </template>
     </AppHeader>
+
+    <!-- 提示音設定(全域 effect_*,與自動印單頁共用;工控機查件失敗提示音) -->
+    <SoundSettingsDialog
+      v-model:is-dialog-visible="isSoundSettingsDialogVisible"
+      :sound-events="printSoundEvents"
+      :settings="soundSettings"
+      :defaults="printSoundDefaults"
+      @save="handleSoundSettingsSave"
+    />
 
     <VAlert
       type="info"

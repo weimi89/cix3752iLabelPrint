@@ -13,7 +13,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
  * @param {number} [options.volume=8.0] 音量倍率(>1.0 為放大)
  * @param {string} [options.boxSpeechPath='/sounds/speech'] 箱號語音目錄
  * @param {(boxNumber:number)=>void} [options.speakFallback] 缺預錄檔時的退回播報
- * @returns {{ playSound: Function, playBoxNumber: Function, setVolume: Function }}
+ * @returns {{ playSound: Function, playBoxNumber: Function, setVolume: Function, setSound: Function }}
  */
 export function useAmplifiedSound(soundMap, options = {}) {
   const {
@@ -106,6 +106,15 @@ export function useAmplifiedSound(soundMap, options = {}) {
     if (gainNode) gainNode.gain.value = Math.max(0, value)
   }
 
+  /**
+   * 執行時更換音效檔(重新載入 buffer),供使用者自訂提示音
+   *
+   * @param {string} name 音效名稱(對應 soundMap 的 key)
+   * @param {string} path 新音檔路徑
+   * @returns {Promise<void>}
+   */
+  const setSound = (name, path) => loadBuffer(name, path)
+
   // 播放單一 buffer(共用 gain pipeline)
   const playBuffer = (buffer) => {
     const ctx = ensureContext()
@@ -160,5 +169,5 @@ export function useAmplifiedSound(soundMap, options = {}) {
     }
   }
 
-  return { playSound, playBoxNumber, setVolume }
+  return { playSound, playBoxNumber, setVolume, setSound }
 }

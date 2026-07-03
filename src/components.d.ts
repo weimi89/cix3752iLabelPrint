@@ -20,6 +20,7 @@ declare module 'vue' {
     PersonnelCombobox: typeof import('./components/PersonnelCombobox.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SoundSettingsDialog: typeof import('./components/SoundSettingsDialog.vue')['default']
     TablePagination: typeof import('./components/TablePagination.vue')['default']
     UserProfileMenu: typeof import('./components/UserProfileMenu.vue')['default']
   }

@@ -4,7 +4,7 @@
 // 由 cix3752iWeb resources/js/pages/warehouse-scanner.vue 移植改寫(axios/route → invoke、
 // Inertia options prop → warehouseOptions();音效沿用雲端設計:useAmplifiedSound 放大 +
 // 入箱成功播預錄箱號人聲 box-{serial}.mp3,缺檔退回 useSpeech 雙語 TTS)。
-import { ref, reactive, watch, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
 import {
@@ -15,8 +15,10 @@ import {
 import { errorMessageFromException } from '@/composables/useLabelStatus'
 import { speak, speechLangOf } from '@/composables/useSpeech'
 import { useAmplifiedSound } from '@/composables/useAmplifiedSound'
+import { useSoundSettings } from '@/composables/useSoundSettings'
 import AppHeader from '@/components/AppHeader.vue'
 import AppDatePicker from '@/components/AppDatePicker.vue'
+import SoundSettingsDialog from '@/components/SoundSettingsDialog.vue'
 import { localTodayStr } from '@/utils/localDate'
 
 const { t, locale } = useI18n()
@@ -73,15 +75,33 @@ const shipmentNoInput = ref(null)
 const segmentBarcodeInput = ref(null)
 
 // 音效:忠實對齊雲端入倉頁 — Web Audio 放大(倉庫吵)+ 入箱成功播「預錄箱號人聲」。
-// beep 用中介端內建 effect-*.mp3;success 帶箱號時改播 box-{serial}.mp3(缺檔 > 500 才退回 TTS)。
-const { playSound } = useAmplifiedSound(
-  {
-    success: '/sounds/effect-10.mp3', // 僅在無箱號時作 beep(實務上入箱恆有箱號 → 播人聲)
-    error: '/sounds/effect-05.mp3',
-    warning: '/sounds/effect-08.mp3',
-    private: '/sounds/effect-09.mp3',
-    privateSupplier: '/sounds/effect-07.mp3',
-  },
+// beep 用中介端內建音效,可自訂(SoundSettingsDialog,選擇存 localStorage 各台獨立記憶);
+// success 帶箱號時改播 box-{serial}.mp3(缺檔 > 500 才退回 TTS),不受自訂影響。
+const WAREHOUSE_SOUND_DEFAULTS = {
+  success: '/sounds/effect-10.mp3', // 僅在無箱號時作 beep(實務上入箱恆有箱號 → 播人聲)
+  error: '/sounds/effect-05.mp3',
+  warning: '/sounds/effect-08.mp3', // 重複入箱提示
+  private: '/sounds/effect-09.mp3',
+  privateSupplier: '/sounds/effect-07.mp3',
+}
+
+// 不開放自訂 success:入箱成功恆帶箱號 → playSound('success', serial) 一律走箱號人聲 box-{serial}.mp3
+// 分支,success beep 永不播放。若列為可自訂事件,操作員改了卻毫無效果(設定與行為不一致),故不列入。
+const WAREHOUSE_SOUND_EVENTS = computed(() => [
+  { key: 'error', label: t('soundSettings.events.warehouseError') },
+  { key: 'warning', label: t('soundSettings.events.warehouseRepeat') },
+  { key: 'private', label: t('soundSettings.events.warehousePrivate') },
+  { key: 'privateSupplier', label: t('soundSettings.events.warehousePrivateSupplier') },
+])
+
+const { soundSettings, isSoundSettingsDialogVisible, handleSoundSettingsSave } = useSoundSettings(
+  'cix3752iLabelPrint.warehouseScannerSounds',
+  WAREHOUSE_SOUND_DEFAULTS,
+  (key, path) => setSound(key, path),
+)
+
+const { playSound, setSound } = useAmplifiedSound(
+  { ...soundSettings.value },
   {
     // 序號 > 500 無預錄檔時退回雙語 TTS(依當前 locale;越南語需機器自備語音包)
     speakFallback: (n) => {
@@ -318,6 +338,26 @@ const printLabels = async () => {
       :title="t('page.warehouseScanner.title')"
       :subtitle="t('page.warehouseScanner.subtitle')"
       icon="tabler-package-import"
+    >
+      <template #actions>
+        <VBtn
+          variant="text"
+          color="default"
+          @click="isSoundSettingsDialogVisible = true"
+        >
+          <VIcon size="18" icon="tabler-volume" class="me-1" />
+          {{ t('soundSettings.title') }}
+        </VBtn>
+      </template>
+    </AppHeader>
+
+    <!-- 提示音設定(入倉 beep;箱號人聲不受影響) -->
+    <SoundSettingsDialog
+      v-model:is-dialog-visible="isSoundSettingsDialogVisible"
+      :sound-events="WAREHOUSE_SOUND_EVENTS"
+      :settings="soundSettings"
+      :defaults="WAREHOUSE_SOUND_DEFAULTS"
+      @save="handleSoundSettingsSave"
     />
 
     <VRow>
