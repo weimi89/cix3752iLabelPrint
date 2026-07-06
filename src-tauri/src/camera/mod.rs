@@ -189,13 +189,21 @@ fn encode_jpeg(width: u32, height: u32, rgb: &[u8], quality: u8) -> Option<Vec<u
 /// key 形如 `74Z01114611_20260625204729.jpg`;檔名沿用面單 `@error` 的安全字元規則。
 /// 存證刻意不放面單快取下,因此**不受面單 keep_days 影響**,改由 [`cleanup_captures`] 依 camera.keep_days 清理。
 pub fn save_snapshot(captures_dir: &Path, query_no: &str, jpeg: &[u8]) -> Option<String> {
-    let safe_qn: String = query_no
+    // 時間格式 YYYYMMDDHHMMSS(無分隔、無毫秒),例 20260625204729。
+    // 檔名安全字元由 save_snapshot_named 統一處理,此處不需預先清洗。
+    let ts = chrono::Local::now().format("%Y%m%d%H%M%S");
+    save_snapshot_named(captures_dir, &format!("{query_no}_{ts}"), jpeg)
+}
+
+/// 用「呼叫端已組好的完整檔名主幹」寫存證快照(**不再自動附時間戳**),回傳相對 key `{stem}.jpg`。
+/// 供呼叫端需要自控唯一檔名時使用:例如 NoRead 沒有真實單號、僅靠秒級時間戳會在同秒多筆讀碼失敗時
+/// 互相覆蓋,故由呼叫端在 stem 內加序號保證唯一。檔名安全字元規則同 [`save_snapshot`]。
+pub fn save_snapshot_named(captures_dir: &Path, file_stem: &str, jpeg: &[u8]) -> Option<String> {
+    let safe: String = file_stem
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    // 時間格式 YYYYMMDDHHMMSS(無分隔、無毫秒),例 20260625204729
-    let ts = chrono::Local::now().format("%Y%m%d%H%M%S");
-    let key = format!("{safe_qn}_{ts}.jpg");
+    let key = format!("{safe}.jpg");
     if let Err(e) = std::fs::create_dir_all(captures_dir) {
         tracing::warn!(?e, "建立存證目錄失敗");
         return None;

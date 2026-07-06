@@ -36,11 +36,14 @@ const clearList = async () => {
   }
 }
 
-// 袋卡狀態:missing(有缺漏) / complete(完整)。
-// 載入失敗(散單 / 未登入 / 雲端失敗)後端不建卡,前端不需處理該狀態。
-const bagState = bag => ((bag.missing || 0) > 0 ? 'missing' : 'complete')
-const STATE_COLOR = { missing: 'warning', complete: 'success' }
-const STATE_ICON = { missing: 'tabler-alert-circle', complete: 'tabler-circle-check' }
+// 袋卡狀態:interrupted(中途被打斷,仍缺件) / missing(一般缺件) / complete(完整)。
+// 中途被打斷 = 此袋還沒印完就出現別的袋號(後端 active_bag 判定);回補齊(missing=0)後
+// 後端 recount 自動清旗標 → 轉回 complete。載入失敗(散單/未登入/雲端失敗)後端不建卡,不需處理。
+const isInterrupted = bag => !!bag.interrupted && (bag.missing || 0) > 0
+const bagState = bag =>
+  isInterrupted(bag) ? 'interrupted' : (bag.missing || 0) > 0 ? 'missing' : 'complete'
+const STATE_COLOR = { interrupted: 'error', missing: 'warning', complete: 'success' }
+const STATE_ICON = { interrupted: 'tabler-alert-triangle', missing: 'tabler-alert-circle', complete: 'tabler-circle-check' }
 
 // === 視圖模式 + 狀態篩選(記 localStorage,即時切換不重載)===
 // viewMode: 'cards'(詳細卡片,現狀)| 'compact'(精簡一行)| 'missing'(缺件總覽扁平清單)
@@ -400,10 +403,15 @@ onUnmounted(() => {
               {{ $t('page.bagCheck.lastRequestAt') }}:{{ formatTime(bag.last_request_at) }}
             </VCardSubtitle>
             <template #append>
-              <!-- 未印(missing)狀態的徽章與下方「未印」統計重複,故只在完整時顯示 -->
+              <!-- 完整 → 綠徽章;中途被打斷 → 紅徽章(此為異常,務必顯眼)。
+                   一般缺件不顯示徽章(與下方「未印」統計重複)。 -->
               <VChip v-if="bagState(bag) === 'complete'" :color="STATE_COLOR.complete" size="small" label>
                 <VIcon :icon="STATE_ICON.complete" size="15" start />
                 {{ $t('page.bagCheck.status.complete') }}
+              </VChip>
+              <VChip v-else-if="isInterrupted(bag)" :color="STATE_COLOR.interrupted" size="small" label>
+                <VIcon :icon="STATE_ICON.interrupted" size="15" start />
+                {{ $t('page.bagCheck.status.interrupted') }}
               </VChip>
             </template>
           </VCardItem>

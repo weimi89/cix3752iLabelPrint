@@ -75,7 +75,8 @@
     "not_proxy": "Không phải đơn ủy thác",
     "not_forward": "Không phải đơn chuyển tiếp",
     "unauthorized": "Chưa đăng nhập đám mây",
-    "error": "Yêu cầu nhãn thất bại"
+    "error": "Yêu cầu nhãn thất bại",
+    "noread": "Đọc mã thất bại (NoRead)"
   },
   "deviceAlert": {
     "PARCEL_JAM": "Chú ý, máy phân loại bị kẹt kiện hàng, nhân viên hiện trường xử lý ngay",
@@ -418,6 +419,7 @@
       "lanIpHint": "Máy công nghiệp hãy kết nối tới một trong các địa chỉ dưới đây (dịch vụ lắng nghe 0.0.0.0, cần dùng IP LAN thực tế)",
       "cloudConnection": "Kết nối đám mây",
       "todayRequests": "Số yêu cầu hôm nay",
+      "todayNoRead": "Đọc mã lỗi {n}",
       "todaySuccessRate": "Tỉ lệ thành công hôm nay ({ok}/{total})",
       "cacheHitRate": "Tỉ lệ hit cache ({hit} hit / {miss} miss)",
       "cachedLabels": "Nhãn đã cache / {size}",
@@ -659,7 +661,8 @@
       "noMatch": "Không có túi khớp bộ lọc này",
       "status": {
         "complete": "Đầy đủ",
-        "missing": "Chưa in {n} kiện"
+        "missing": "Chưa in {n} kiện",
+        "interrupted": "Bị gián đoạn giữa chừng"
       },
       "col": {
         "packageSn": "Số túi",

@@ -199,6 +199,31 @@ Host: <middleware-ip>:18080
 
 無論成功、錯誤面單或失敗，`daily_stats.request_count` 皆會 +1。
 
+### NoRead（相機讀不到單號 → 不打雲端 + HTTP 200 + `error_code=NOREAD`）
+
+工控機讀碼站**相機無法辨識條碼**時，請以 `queryNo = NoRead` 呼叫本 API（大小寫與底線/空白皆可，Middleware 正規化後比對 `noread`，故 `NoRead` / `NO_READ` / `no read` 皆可）。此時 Middleware：
+
+1. **不提交雲端**（沒有單號可查，避免雲端一律回「查無訂單」的噪音）。
+2. **仍拍照存證**：把收到請求當下釘住的讀碼站相機畫面存檔，檔名 `NoRead_{YYYYMMDDHHMMSS}_{序號}.jpg`（序號為進程內遞增值，確保同一秒多筆讀碼失敗不互相覆蓋），於桌面 App「請求記錄」頁可檢視。
+3. **計入統計**：`daily_stats.request_count +1`、`noread_count +1`（不計 `success_count`）。桌面儀表板「本日請求數」旁會顯示讀碼失敗件數。
+4. **袋件核對連續性不中斷**：NoRead 不帶袋號，不會打斷當前處理中袋的連續判定（等同「沒有袋號算含在連續次數內」）。
+
+回應為 **HTTP 200**，無面單、無通道：
+
+```json
+{
+  "data": {
+    "channel_code": null,
+    "print_profile": null,
+    "response_id": null,
+    "error_code": "NOREAD",
+    "message": "讀碼失敗,未提交雲端"
+  }
+}
+```
+
+**工控機處理規則**：收到 `error_code = "NOREAD"` 時，此件無面單可印、無通道可分揀（`label_path` 欄位不存在、`response_id` 為 `null`），**不需 `POST /api/report`**。該包裹請依現場異常流程處理（人工補讀 / 撿出重掃）。
+
 ## 面單路徑回傳模式
 
 `label_path` 的形態由 `config.toml` 中 `[label_path]` 區塊或設定頁「面單路徑回傳模式」決定,可在執行期熱套用(不需重啟 server)。四種模式:
@@ -534,8 +559,9 @@ HTTP 200 { "message": "OK" }
 | 欄位 | 說明 |
 |---|---|
 | `date` | PK，當日（local time） |
-| `request_count` | `/api/parcel` 當日呼叫次數（含成功與失敗） |
+| `request_count` | `/api/parcel` 當日呼叫次數（含成功、失敗與 NoRead） |
 | `success_count` | `/api/parcel` 當日成功次數 |
+| `noread_count` | 當日 NoRead（相機讀不到單號）件數（`request_count` 的失敗細分，不計入 `success_count`） |
 
 ---
 

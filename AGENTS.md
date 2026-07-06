@@ -1,7 +1,19 @@
+# AGENTS.md
+
+> 專案完整說明見 **`CLAUDE.md`**(架構大圖、重要設計細節、發版流程、規範);使用者 / 部署面向見 `README.md`;工控機 API 見 `docs/local-http-api.md`。以下只放給自動化 agent 的最小上手重點 + GitNexus 索引導引(下方區塊由 GitNexus 自動維護,勿手改)。
+
+**智配通 面單列印** — 跨平台 Tauri v2 桌面 App,「分揀工控機 ↔ 雲端 API」之間的本地中介服務(本地 axum HTTP server 給工控機 + 雲端 reqwest client + Vue 3 GUI,三者同一進程)。
+
+三大設計原則:①**不回 base64**(回本機路徑 / `/images` URL)②**不讓工控機等雲端**(`POST /api/report` 立即回 200,背景 worker 推 webhook)③**面單一律走本地**(未命中同步下載到完成)。
+
+規範:繁中回覆;禁止偷懶簡化、找真因;commit 不加 `Co-Authored-By`;測試放 `tests/`;檔案不直接刪除、改搬 `backups/{timestamp}/`。
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **cix3752iLabelPrint** (3496 symbols, 6018 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **cix3752iLabelPrint** (3918 symbols, 6880 relationships, 254 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

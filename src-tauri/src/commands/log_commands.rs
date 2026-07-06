@@ -115,6 +115,8 @@ pub struct DailyStatsItem {
     pub date: String,
     pub request_count: i64,
     pub success_count: i64,
+    /// 工控機讀碼失敗(NoRead)件數:不打雲端,但仍計入 request_count(此欄為其中的失敗細分)
+    pub noread_count: i64,
     pub cache_hit: i64,
     pub cache_miss: i64,
 }
@@ -127,7 +129,7 @@ pub async fn daily_stats(
     let days = req.days.clamp(1, 365);
     let cutoff = format!("-{} days", days - 1);
     let rows = sqlx::query(
-        "SELECT date, request_count, success_count, cache_hit, cache_miss
+        "SELECT date, request_count, success_count, noread_count, cache_hit, cache_miss
          FROM daily_stats
          WHERE date >= date('now', ?)
          ORDER BY date DESC",
@@ -142,6 +144,7 @@ pub async fn daily_stats(
             date: row.try_get("date").unwrap_or_default(),
             request_count: row.try_get("request_count").unwrap_or(0),
             success_count: row.try_get("success_count").unwrap_or(0),
+            noread_count: row.try_get("noread_count").unwrap_or(0),
             cache_hit: row.try_get("cache_hit").unwrap_or(0),
             cache_miss: row.try_get("cache_miss").unwrap_or(0),
         })

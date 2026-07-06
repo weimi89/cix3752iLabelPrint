@@ -72,12 +72,22 @@ watch([searchKeyword, msField, minMs], () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _unlisten = null
+let _reloadTimer = null
+// 去抖:高頻事件(連續 NoRead / 大量查詢)合併為單次 reload,
+// 避免每筆都全量重查 + 重繪造成畫面閃爍與捲動位置跳動。
+const scheduleReload = () => {
+  if (_reloadTimer) return
+  _reloadTimer = setTimeout(() => { _reloadTimer = null; load() }, 400)
+}
 onMounted(async () => {
   load()
   try { const cfg = await getConfig(); if (cfg?.server?.port) serverPort.value = cfg.server.port } catch {}
-  if (isTauriRuntime) try { _unlisten = await listen('parcel-query-logged', load) } catch {}
+  if (isTauriRuntime) try { _unlisten = await listen('parcel-query-logged', scheduleReload) } catch {}
 })
-onUnmounted(() => { if (_unlisten) { _unlisten(); _unlisten = null } })
+onUnmounted(() => {
+  if (_unlisten) { _unlisten(); _unlisten = null }
+  if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null }
+})
 
 const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 </script>

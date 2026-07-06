@@ -629,6 +629,7 @@ const MOCK_BAG_CHECK = [
     total: 3,
     printed: 2,
     missing: 1,
+    interrupted: true, // 中途被打斷示範:還缺 1 件就出現別的袋號(web preview 展示紅徽章)
     last_request_at: '2026-06-06 22:38:40',
     orders: [
       { shipping_no: '7108158650', order_sn: 'SO2606060051', shipping_provider: 'F', last_print_time: '2026-06-06 22:38:05' },

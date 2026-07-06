@@ -75,7 +75,8 @@
     "not_proxy": "非代寄訂單",
     "not_forward": "非轉寄訂單",
     "unauthorized": "雲端未登入",
-    "error": "面單請求失敗"
+    "error": "面單請求失敗",
+    "noread": "讀碼失敗(NoRead)"
   },
   "deviceAlert": {
     "PARCEL_JAM": "注意，分揀機台卡包裹，請現場人員立即處理",
@@ -418,6 +419,7 @@
       "lanIpHint": "工控機請以下列任一位址連線(服務監聽 0.0.0.0,需用實際 LAN IP)",
       "cloudConnection": "雲端連線",
       "todayRequests": "本日請求數",
+      "todayNoRead": "讀碼失敗 {n}",
       "todaySuccessRate": "本日成功率 ({ok}/{total})",
       "cacheHitRate": "Cache 命中率 ({hit} hit / {miss} miss)",
       "cachedLabels": "快取面單 / {size}",
@@ -659,7 +661,8 @@
       "noMatch": "沒有符合此篩選的袋",
       "status": {
         "complete": "完整",
-        "missing": "未印 {n} 件"
+        "missing": "未印 {n} 件",
+        "interrupted": "中途被打斷"
       },
       "col": {
         "packageSn": "袋號",

@@ -1061,6 +1061,146 @@ async fn run_direct_print_job(
     .await;
 }
 
+/// 每日統計 upsert:一次請求 `request_count` +1;`success` 時 `success_count` +1;`noread` 時 `noread_count` +1。
+/// 四個請求結局(成功 / 未登入 / 其他錯誤 / NoRead)共用此一函式,日後新增計數欄位只需改這一處,
+/// 避免多處手抄 SQL 漏改造成某分支少計。統計為次要,失敗只吞、不影響出單。
+/// 用匿名 `?`(SQLite 位置綁定)重複 bind,規避 `?N` 編號規則陷阱。
+async fn bump_daily_stats(db: &DbPool, success: bool, noread: bool) {
+    let s = success as i64;
+    let n = noread as i64;
+    let _ = sqlx::query(
+        "INSERT INTO daily_stats (date, request_count, success_count, noread_count)
+         VALUES (date('now'), 1, ?, ?)
+         ON CONFLICT(date) DO UPDATE SET
+            request_count = request_count + 1,
+            success_count = success_count + ?,
+            noread_count  = noread_count + ?",
+    )
+    .bind(s)
+    .bind(n)
+    .bind(s)
+    .bind(n)
+    .execute(db)
+    .await;
+}
+
+/// 判斷工控機傳入的查詢碼是否為「讀碼失敗」訊號。
+/// 正規化:僅保留英數字並轉小寫後比對 "noread",容錯 `NoRead` / `NO_READ` / `no read` / `NO-READ`。
+fn is_noread(query_no: &str) -> bool {
+    query_no
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect::<String>()
+        == "noread"
+}
+
+/// 處理 NoRead(相機讀不到單號):不打雲端,拍照存證 + 計數 + 記查詢紀錄(供回看照片),
+/// emit `parcel-alert`(kind=`noread`,前端只 toast 不出聲)。立即回 200,label_path=null。
+///
+/// 存證 key 為 `NoRead_{YYYYMMDDHHMMSS}_{seq}.jpg`;`seq` 為進程內單調遞增序號,
+/// 避免「同一秒多筆讀碼失敗」用固定字首 + 秒級時間戳產生相同檔名互相覆蓋(存證是本功能核心,不可遺失)。
+/// 該檔名(去副檔名)即作為這筆的 pseudo 單號(tracking_no),對齊「沒有單號就用 NoRead_時間」。
+async fn handle_noread(
+    state: &ServerState,
+    snapshot: Option<Vec<u8>>,
+    t_start: std::time::Instant,
+) -> Json<DataEnvelope<ParcelData>> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    // 進程內單調序號:保證同秒多筆 NoRead 檔名互異(不依賴時鐘解析度)。
+    static NOREAD_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = NOREAD_SEQ.fetch_add(1, Ordering::Relaxed);
+
+    // pseudo 單號 = 存證檔名主幹(時間 + 序號),兩者一致;無相機時仍有唯一 pseudo(僅無照片)。
+    let pseudo = format!(
+        "NoRead_{}_{}",
+        chrono::Local::now().format("%Y%m%d%H%M%S"),
+        seq
+    );
+
+    let total_ms = t_start.elapsed().as_millis() as i64;
+
+    // 1. 查詢紀錄先同步寫入(photo_path 先留 NULL):讓「請求記錄」頁立即看得到這筆;存證照片改由背景
+    //    寫檔完成後再 UPDATE 回填,**不讓工控機等磁碟 I/O**(對齊成功路徑「先記錄、背景寫照片」作法)。
+    //    負數 response_id 與雲端正數 ID 區隔;should_print=0;tracking_no=pseudo(唯一);工控機無需回報。
+    //    寫入失敗記 warn 不靜默吞。
+    if let Err(e) = sqlx::query(
+        "INSERT INTO parcel_query_log
+           (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, photo_path, created_at, cloud_ms, label_ms, total_ms)
+         VALUES (
+           (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
+           'NoRead', ?, NULL, NULL, NULL, 0, NULL, NULL, datetime('now','localtime'), 0, 0, ?)",
+    )
+    .bind(&pseudo)
+    .bind(total_ms)
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!(?e, pseudo = %pseudo, "NoRead 查詢紀錄寫入失敗");
+    }
+
+    // 2. 存證:背景寫檔 + 回填 photo_path(不阻塞回應)。無相機幀時略過,photo_path 保持 NULL。
+    //    以唯一的 tracking_no(pseudo)定位回填,寫完再 emit 讓頁面顯示照片。
+    if let Some(jpeg) = snapshot {
+        let dir = state.captures_dir.clone();
+        let db = state.db.clone();
+        let app = state.app.clone();
+        let pseudo_bg = pseudo.clone();
+        tokio::spawn(async move {
+            let stem = pseudo_bg.clone();
+            let key = tokio::task::spawn_blocking(move || {
+                crate::camera::save_snapshot_named(&dir, &stem, &jpeg)
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(key) = key {
+                let _ = sqlx::query(
+                    "UPDATE parcel_query_log SET photo_path = ? WHERE tracking_no = ?",
+                )
+                .bind(&key)
+                .bind(&pseudo_bg)
+                .execute(&db)
+                .await;
+                use tauri::Emitter;
+                let _ = app.emit("parcel-query-logged", ());
+            }
+        });
+    }
+
+    // 3. 統計:request_count 照計(仍是一次請求)、success 不計、noread_count +1。
+    bump_daily_stats(&state.db, false, true).await;
+
+    // 4. 通知前端:parcel-alert kind=noread(前端只 toast 不出聲)+ 刷新請求記錄頁。
+    //    message + query_no 皆傳空 → 前端顯示乾淨的在地化標題「讀碼失敗(NoRead)」(中/越雙語);
+    //    不附上 pseudo(那是內部存證檔名,操作員看不懂也無從處理,只會製造雜訊)。存證編號在請求記錄頁可查。
+    emit_parcel_alert(&state.app, "noread", "", "");
+    {
+        use tauri::Emitter;
+        let _ = state.app.emit("parcel-query-logged", ());
+    }
+
+    // 5. event_log 記一筆供診斷(NoRead 屬需人工處理的異常件)
+    event_log::log_bg(
+        state.db.clone(),
+        "warn",
+        "server",
+        "讀碼失敗",
+        format!("工控機讀碼失敗 NoRead,已存證 {pseudo}(未提交雲端)"),
+    );
+
+    // 立即回 200:無面單、無通道;error_code=NOREAD 讓工控機辨識此為讀碼失敗(不需 POST /api/report)。
+    Json(DataEnvelope::new(ParcelData {
+        channel_code: None,
+        print_profile: None,
+        label_path: None,
+        response_id: None,
+        is_error_label: false,
+        error_code: Some("NOREAD".to_string()),
+        message: Some("讀碼失敗,未提交雲端".to_string()),
+    }))
+}
+
 /// GET /api/parcel/:query_no — 工控機呼叫
 async fn get_parcel(
     State(state): State<ServerState>,
@@ -1071,6 +1211,13 @@ async fn get_parcel(
     // 收到請求的「當下」就釘住讀碼站相機最新一幀(離工控機實際讀碼僅約 20ms),
     // 不在這裡存檔(避免擋住回應),純記憶體複製;後續查得到訂單才丟背景寫檔 + 回寫 photo_path。
     let snapshot = state.camera.latest_jpeg();
+
+    // NoRead 短路:工控機相機讀不到單號(送 "NoRead")→ 不打雲端,只拍照存證 + 計數。
+    // 沒有單號、無面單、無通道,故不進 print_event / bag_check(active_bag 不變 = 連續不中斷)。
+    if is_noread(&query_no) {
+        return Ok(handle_noread(&state, snapshot, t_start).await);
+    }
+
     match state.cloud.fetch_parcel(&query_no).await {
         Ok(info) => {
             let cloud_ms = t_start.elapsed().as_millis() as i64;
@@ -1235,16 +1382,8 @@ async fn get_parcel(
                 }
             }
 
-            // 記一筆 daily request 統計
-            let _ = sqlx::query(
-                "INSERT INTO daily_stats (date, request_count, success_count)
-                 VALUES (date('now'), 1, 1)
-                 ON CONFLICT(date) DO UPDATE SET
-                    request_count = request_count + 1,
-                    success_count = success_count + 1",
-            )
-            .execute(&state.db)
-            .await;
+            // 記一筆 daily request 統計(成功:request +1、success +1)
+            bump_daily_stats(&state.db, true, false).await;
 
             // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
             // 失敗不影響 API 回應(統計次要,不能干擾正常出單)
@@ -1296,13 +1435,8 @@ async fn get_parcel(
             })))
         }
         Err(AppError::Unauthorized) => {
-            let _ = sqlx::query(
-                "INSERT INTO daily_stats (date, request_count)
-                 VALUES (date('now'), 1)
-                 ON CONFLICT(date) DO UPDATE SET request_count = request_count + 1",
-            )
-            .execute(&state.db)
-            .await;
+            // 未登入:只計 request(非成功、非 NoRead)
+            bump_daily_stats(&state.db, false, false).await;
             emit_parcel_alert(
                 &state.app,
                 "unauthorized",
@@ -1316,13 +1450,8 @@ async fn get_parcel(
         }
         Err(e) => {
             let cloud_ms = t_start.elapsed().as_millis() as i64;
-            let _ = sqlx::query(
-                "INSERT INTO daily_stats (date, request_count)
-                 VALUES (date('now'), 1)
-                 ON CONFLICT(date) DO UPDATE SET request_count = request_count + 1",
-            )
-            .execute(&state.db)
-            .await;
+            // 其他錯誤:只計 request(非成功、非 NoRead)
+            bump_daily_stats(&state.db, false, false).await;
             // 依雲端錯誤訊息分類,讓桌面前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
             let (kind, msg, err_code, err_provider, err_shipping_no) = match &e {
                 AppError::Cloud { code, message, shipping_provider, shipping_no } => (
@@ -1630,4 +1759,25 @@ async fn post_device_alert(
         StatusCode::OK,
         Json(serde_json::json!({ "message": "OK" })),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn noread_normalization_matches_variants() {
+        // 相機讀不到單號的各種寫法都應觸發 NoRead 短路(正規化:去非英數、小寫)
+        for q in ["NoRead", "noread", "NOREAD", "NO_READ", "no read", "NO-READ", " NoRead "] {
+            assert!(is_noread(q), "應判定為 NoRead: {q:?}");
+        }
+    }
+
+    #[test]
+    fn normal_query_no_is_not_noread() {
+        // 正常條碼不可誤判成 NoRead(否則會漏查雲端)
+        for q in ["SF0220862051573", "noread123", "read", "0STTJX9B1694", ""] {
+            assert!(!is_noread(q), "不應判定為 NoRead: {q:?}");
+        }
+    }
 }

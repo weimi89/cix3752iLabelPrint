@@ -172,7 +172,13 @@ const formatBytes = bytes => {
                 <VIcon icon="tabler-arrows-exchange" />
               </VAvatar>
             </template>
-            <VCardTitle>{{ status.today.request_count }}</VCardTitle>
+            <VCardTitle class="d-flex align-center ga-2">
+              {{ status.today.request_count }}
+              <!-- NoRead(相機讀不到單號)件數:請求數的失敗細分,>0 才顯示 -->
+              <VChip v-if="status.today.noread_count > 0" color="warning" size="x-small" label>
+                {{ $t('page.dashboard.todayNoRead', { n: status.today.noread_count }) }}
+              </VChip>
+            </VCardTitle>
             <VCardSubtitle>{{ $t('page.dashboard.todayRequests') }}</VCardSubtitle>
           </VCardItem>
         </VCard>
@@ -186,7 +192,7 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ status.successRate }}%</VCardTitle>
-            <VCardSubtitle>{{ $t('page.dashboard.todaySuccessRate', { ok: status.today.success_count, total: status.today.request_count }) }}</VCardSubtitle>
+            <VCardSubtitle>{{ $t('page.dashboard.todaySuccessRate', { ok: status.today.success_count, total: status.effectiveTodayRequests }) }}</VCardSubtitle>
           </VCardItem>
         </VCard>
       </VCol>

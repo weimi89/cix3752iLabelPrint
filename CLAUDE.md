@@ -54,14 +54,20 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<cert hash>"' >> ~/.zshrc
 lib.rs                    AppState + bootstrap(initial migration / server start / worker spawn)
 ├── config/               TOML 設定檔(熱套用機制)
 ├── db/                   sqlx Pool + 編譯期 migrations
-├── server/               axum HTTP server(給工控機)+ LabelPathResolver(local/share/http 三模式)
+├── models/               共用資料結構(ParcelData / envelopes …)
+├── server/               axum HTTP server(工控機 + 手機遙控)+ LabelPathResolver(local/share/http/direct_print 四模式)
 ├── cloud/                雲端 API client + LabelFetchMode(download/cloud_print/web_print)
 ├── cache/                面單快取(LRU 清理 + hit/miss 統計)
+├── camera/               讀碼站相機(nokhwa 擷取 + MJPEG 預覽 + 快照存證 captures)
 ├── queue/                report_queue + background worker(指數退避 retry)
+├── pregen/               面單預產(批次預下載 + pregen_done 去重單一來源)
+├── bag_check/            分揀袋件核對(常駐記憶體清單 + 袋件連續性偵測)
+├── sync/                 跨機同步(Reverb/WebSocket 訂閱:件數核對 / 清關進度即時廣播)
 ├── watermark.rs          列印次數浮水印(字型編譯期內嵌)
+├── error_label.rs        錯誤面單提示圖產生(雲端業務錯誤時)
 ├── printer/              系統印表機列舉與列印
 ├── health/               三層網路偵測(OS / Anchor / Cloud API)+ 抖動緩衝
-├── log/                  分類事件 log(category × level)
+├── log/ + event_log.rs   分類事件 log(category × level)
 └── commands/             Tauri IPC commands(前端可呼叫的 API)
 ```
 
@@ -70,7 +76,7 @@ lib.rs                    AppState + bootstrap(initial migration / server start 
 ### 前端(Vue 3)— `src/`
 
 ```
-pages/                    14 個功能頁(Dashboard / ScanPrint / AutoPrint / PrintStats / SortChannels …)
+pages/                    19 個功能頁(Dashboard / ScanPrint / AutoPrint / PreGenerate / BagCheck / SortChannels / ClearanceAdd / ClearanceDispatch / WarehouseScanner / PrintStats / ParcelQueryLog / ParcelAlertLog …)
 components/               共用元件(AppNavbar / NetworkStatusIndicator / LocaleSwitcher …)
 composables/              組合式邏輯(useNetworkStatus / useLabelStatus …)
 stores/                   Pinia(status.js 集中管理 server/cloud/queue/cache/today/printStats)
@@ -86,8 +92,11 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 2. **Server Push (事件)** — Rust `app.emit('event-name', payload)` → 前端 `listen('event-name', cb)`。目前事件:
    - `print-stats-updated`(三個寫入點 emit,前端 `DefaultLayout` listen,Navbar chip + 儀表板毫秒級同步)
    - `network-status`(`HealthChecker` worker 每輪檢查結束 emit)
-   - `parcel-alert`(`GET /api/parcel` 失敗時 emit,前端 `useParcelAlert` 依雲端 code 播提示音 + toast)
+   - `parcel-alert`(`GET /api/parcel` 失敗 / NoRead 時 emit,前端 `useParcelAlert` 依 kind 播提示音 + toast;`noread` kind 只 toast 不出聲)
    - `device-alert`(`POST /api/device-alert` 收到設備異常時 emit,前端 `useDeviceAlert` 播中越雙語語音 + toast)
+   - `bag-check-updated`(`bag_check` 清單每次變動時 emit 完整快照,前端 `BagCheckPage` 直接替換,不輪詢)
+   - `parcel-query-logged`(`/api/parcel` 寫入查詢紀錄後 emit,前端請求記錄頁去抖後 reload)
+   - 跨機同步:`sync` 訂閱雲端 Reverb/WebSocket 廣播(`ParcelPrinted` / 清關進度),套用到本機 `bag_check` / 清關浮動框
 
 **「不夠即時就 WebSocket」是錯方向** — 桌面 App 後端與前端在同一進程,Tauri IPC event 走進程內通道、毫秒級、不用 socket server。WebSocket 適合「跨網路、跨機器」,在這裡反而繞遠路。
 
@@ -97,14 +106,15 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 ## 重要設計細節
 
-### 面單路徑三模式(`label_path.mode`)
+### 面單路徑四模式(`label_path.mode`)
 
-工控機讀面單三種拓撲:
+工控機讀面單四種拓撲:
 - `local` — 回本機絕對路徑(同機部署)
 - `share` — 回 SMB / NFS 共用目錄路徑(跨機 + 共用 NAS)
 - `http` — 回 `http://{host}/images/{key}` URL(跨機,無檔案系統存取權)
+- `direct_print` — **中介 PC 本機直接列印**,回應不含 `label_path`;圖檔下載 + 浮水印 + 送印全丟背景有序佇列(單一 FIFO worker,保證列印順序 = 請求順序、不並發打 spooler)
 
-設定頁可熱切換,**不需重啟** server。實作在 `src-tauri/src/server/mod.rs` 的 `LabelPathResolver`。
+設定頁可熱切換,**不需重啟** server。實作在 `src-tauri/src/server/mod.rs` 的 `LabelPathResolver`(`direct_print` 走 `DirectPrintJob` 佇列,不經 resolver)。
 
 ### 印單統計即時推播
 
@@ -124,6 +134,19 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 ### 列印次數浮水印
 
 雲端回傳 `print_num > 1` 時,自動在面單右上角(順豐右下角)疊加 `(N)`。字型 **DejaVu Sans Bold**(OFL) 透過 `include_bytes!` 編譯期內嵌進 binary,**無須額外部署字型檔**。實作:`src-tauri/src/watermark.rs`。
+
+### 讀碼站快照存證 + NoRead 處理(`GET /api/parcel`)
+
+- **快照存證** — `get_parcel` 一收到請求就「釘住」`camera` 最新一幀(純記憶體複製,不擋回應),查得到訂單才丟背景寫檔到**存證目錄**(獨立於面單快取,`camera.keep_days` 單獨清理),回寫 `parcel_query_log.photo_path`,前端請求記錄頁以 `/captures/{key}` 檢視。相機由後端 `nokhwa` 獨佔,`/camera/preview/stream` 出 MJPEG 給設定頁預覽(預覽=存證同一畫面)。
+- **NoRead(相機讀不到單號)** — 工控機以 `queryNo=NoRead`(正規化去符號小寫比對 `noread`,容錯 `NO_READ`/`no read`)呼叫時 `is_noread` 短路:**不打雲端**、仍拍照存證(檔名 `NoRead_{時間}_{進程序號}.jpg`,序號避免同秒覆蓋)、記 `parcel_query_log`(負數 `response_id`、`photo_path`,先寫 NULL 背景回填不阻塞回應)、`daily_stats` `request_count + noread_count`(不計 success)、emit `parcel-alert` kind=`noread`(前端只 toast 不出聲、空 message 用 i18n 標題)、回 200 `error_code:"NOREAD"` 無面單無通道。實作:`server/mod.rs` 的 `is_noread` / `handle_noread`。
+
+### 分揀袋件核對(常駐清單 + 袋件連續性偵測)
+
+`bag_check/mod.rs` 維護袋件核對常駐清單(進程生命週期,切頁保留):新袋背景 `examine_package` 取整袋 manifest,舊袋就地更新列印時間,每次變動 emit `bag-check-updated`。
+
+- **保留策略** — 有未印件(missing>0)的袋全留;已完成的袋只留最新一個(`prune`),避免剛補印完的舊袋瞬間消失。
+- **袋件連續性偵測** — 追蹤 `active_bag`:成功查得換到不同袋號、且前一袋仍缺件 → 標前一袋 `interrupted`(前端紅色「中途被打斷」徽章)。NoRead / 雲端錯誤 / 散單不動 `active_bag`(= 連續不中斷,對齊「沒袋號含在連續次數內」)。**回補已完成袋(含已被 `prune` 淘汰、記於有界 `recently_completed`)不算開新袋**,不誤打斷;補齊(missing=0)`recount` 自動清旗標(最終補齊就算正確)。前一袋 entry 尚未建(背景 examine 未回)時記入有界 `abandoned`,待建立補標。
+- **跨機同步** — `sync` 訂閱雲端 `bag.{package_sn}` 廣播,別台印的件即時套用到本機清單(僅本機已持有該袋時)。
 
 ### 設備異常雙語語音廣播(`POST /api/device-alert`)
 
@@ -148,10 +171,12 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 當前 schema 重點表:
 - `print_event` — 三來源(scan/auto/ipc)印單事件,統計用 `COUNT(DISTINCT shipping_no)` 去重
-- `parcel_query_log` — `/api/parcel` 請求 log
+- `parcel_query_log` — `/api/parcel` 請求 log(含 `photo_path` 讀碼站存證、負數 `response_id` 表錯誤面單 / NoRead)
+- `parcel_alert` — 雲端查件異常記錄(門市關轉 / 未確認 …,供手機 + 桌面回看)
 - `report_queue` — 雲端回報佇列(pending / sending / success / failed)
-- `sort_channels` — 8 個固定通道(L1-L4 / R1-R4)
-- `daily_stats` — 每日 request / success / cache 統計
+- `sort_channels` / `sort_channel_dispatch` / `dispatch_provider` — 8 固定通道(L1-L4 / R1-R4)× 指派物流(多對多)
+- `daily_stats` — 每日 request / success / **noread** / cache 統計(NoRead 計入 request、獨立 noread、不計 success)
+- `pregen_done` — 面單預產去重單一來源(自動 + 手動共用,取代舊 localStorage)
 
 ## 發佈與 release
 
@@ -190,7 +215,7 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **cix3752iLabelPrint** (3496 symbols, 6018 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **cix3752iLabelPrint** (3918 symbols, 6880 relationships, 254 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

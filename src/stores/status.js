@@ -7,16 +7,21 @@ export const useStatusStore = defineStore('status', {
     server: { running: false, bind_addr: '' },
     queue: { pending: 0, sending: 0, success: 0, failed: 0 },
     cache: { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 },
-    today: { date: '', request_count: 0, success_count: 0, cache_hit: 0, cache_miss: 0 },
+    today: { date: '', request_count: 0, success_count: 0, noread_count: 0, cache_hit: 0, cache_miss: 0 },
     // Navbar chip 顯示:本場累計 + 過去 24 小時(對齊 PrintStatsPage 的新 KPI)
     printStats: { since_reset: 0, past_24h: 0, since_reset_at: '' },
     refreshingAt: null,
   }),
   getters: {
-    successRate(state) {
-      const req = state.today.request_count
-      if (!req) return 0
-      return Math.round((state.today.success_count / req) * 100)
+    // 有效請求數 = 總請求 − NoRead(讀碼失敗未打雲端,不計入雲端查詢成功率分母)。
+    // 成功率與儀表板「({ok}/{total})」共用此定義,避免兩處各算一份而不一致。
+    effectiveTodayRequests(state) {
+      return Math.max(0, state.today.request_count - (state.today.noread_count || 0))
+    },
+    successRate() {
+      const req = this.effectiveTodayRequests
+      if (req <= 0) return 0
+      return Math.round((this.today.success_count / req) * 100)
     },
     cacheHitRatePct(state) {
       return Math.round((state.cache.hit_rate || 0) * 100)
@@ -51,7 +56,7 @@ export const useStatusStore = defineStore('status', {
       if (d.status === 'fulfilled' && d.value.length > 0) {
         this.today = d.value[0]
       } else if (d.status === 'fulfilled') {
-        this.today = { date: '', request_count: 0, success_count: 0, cache_hit: 0, cache_miss: 0 }
+        this.today = { date: '', request_count: 0, success_count: 0, noread_count: 0, cache_hit: 0, cache_miss: 0 }
       }
       if (p.status === 'fulfilled' && p.value) {
         this.printStats = {

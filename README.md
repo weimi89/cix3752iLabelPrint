@@ -36,18 +36,25 @@
 | **本地 HTTP API** | 給工控機呼叫的四支 endpoint(健康檢查、查包裹、回報結果、設備異常通知)。詳見 [`docs/local-http-api.md`](docs/local-http-api.md) |
 | **掃描列印** | 操作員手動掃碼出單(對齊雲端 web 端 `scan-print` 體驗) |
 | **自動印單** | 掃包裹條碼 → 列訂單清單 → 逐筆呼叫 cloud-print + 浮水印 + 本機列印 |
-| **面單預產** | 批次預下載面單到本機快取 |
-| **分揀通道** | 8 個固定位置(L1–L4 / R1–R4),指派物流與貼標人員 |
+| **面單預產** | 批次預下載面單到本機快取(可自動排程 / 強制重跑,`pregen_done` 去重單一來源) |
+| **件數核對** | 工控機逐件 `GET /api/parcel` → 常駐袋件核對清單(整袋應印 / 已印 / 缺漏 + 袋件連續性異常標記);跨機經雲端 Reverb 即時同步 |
+| **分揀通道** | 8 個固定位置(L1–L4 / R1–R4),指派物流與貼標人員;支援手機遙控暫停 / 跳過本輪 |
+| **手機遙控分揀** | 同區網手機開 `/control` 網頁,暫停 / 恢復 / 跳過某通道,即時同步桌面 GUI |
+| **清關作業** | 包裹入廠 + 司機派工(跨 repo 契約);清關進度浮動框(袋 / 件 / 已印 / 剩餘 + WebSocket 即時遞減) |
+| **入倉驗單** | 掃碼入倉核對 + 本地箱標列印(薄客戶端對雲端 WarehouseScannerService) |
 | **指派物流** | 物流商主檔 + 對應的印表機 `print_profile` |
 | **印表機設定** | 列舉系統印表機、紙張尺寸、預覽列印 |
 | **三層網路偵測** | OS 網卡 → 公網 anchor → 雲端 API HEAD(帶 Bearer),頂部顯示綜合狀態 |
-| **印單統計** | 三來源(scan / auto / ipc)的 `shipping_no` 去重計數;每日 / 每小時 / 物流商 / 貼標人員四種拆分 |
+| **印單統計** | 三來源(scan / auto / ipc)的 `shipping_no` 去重計數;每日 / 每小時 / 物流商 / 貼標人員 / 通道 / 熱力圖等拆分 |
 | **佇列歷史** | `report_queue` 推送狀態(pending / sending / success / failed)與重試 |
-| **請求記錄** | `/api/parcel` 查詢 log(物流商、通道、追蹤號) |
+| **請求記錄** | `/api/parcel` 查詢 log(物流商、通道、追蹤號、耗時、讀碼站存證照片) |
+| **查件異常記錄** | 雲端查件失敗(門市關轉 / 未確認 / 找不到 …)記錄,供手機 + 桌面回看 |
+| **讀碼站存證** | 每次查件釘住讀碼站相機一幀存檔(獨立存證目錄);讀不到單號(NoRead)也存證計數 |
 | **事件記錄** | 系統各層級事件 log(category × level 篩選) |
-| **儀表板** | Middleware / 雲端 / 印單統計 三卡 + 當日 request / success / cache hit/miss + 網路狀態 |
+| **儀表板** | Middleware / 雲端 / 印單統計 三卡 + 當日 request / success率 / NoRead / cache hit/miss + 網路狀態 |
 | **全頁印單統計**| Navbar 右上常駐 chip(今日 / 昨日),任何頁面都看得到件數,點擊跳統計頁 |
 | **設備異常廣播** | 工控機回報異常(卡包裹 / USB 斷線 …),桌面 App 用中越雙語**預錄語音**喊話現場人員 + toast。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md) |
+| **提示音自訂** | 全域 effect_1~4(AutoPrint 設定頁,parcel-alert 共用)+ 入倉 beep,118 音效庫可指定 |
 | **雙語切換** | 繁體中文 + Tiếng Việt(vue-i18n,介面熱切換) |
 
 ---
@@ -131,22 +138,26 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 | 方法 | Path | 用途 |
 |---|---|---|
 | `GET` | `/healthz` | 服務存活檢查 |
-| `GET` | `/api/parcel/{queryNo}` | 掃碼查包裹 → 通道 / 列印 profile / 面單路徑 / `response_id` |
+| `GET` | `/api/parcel/{queryNo}` | 掃碼查包裹 → 通道 / 列印 profile / 面單路徑 / `response_id`;`queryNo=NoRead`(相機讀不到)不打雲端、只拍照存證 + 計數,回 `error_code:"NOREAD"` |
 | `POST` | `/api/report` | 回報執行結果(只需 `response_id`) |
 | `POST` | `/api/device-alert` | 回報設備異常 → 觸發中越雙語語音廣播 |
 | `GET` | `/images/{label_key}` | 面單圖檔靜態服務 |
+| `GET` | `/captures/{key}` | 讀碼站存證照片靜態服務(請求記錄頁用) |
+
+> **手機遙控分揀**(給現場手機、非工控機):`GET /control` 控制頁 + `GET /api/channels`、`POST /api/channels/{position}`(暫停/恢復)、`POST /api/channels/{position}/skip`(跳過本輪)、`GET /api/alerts`(查件異常清單);`GET /camera/preview/stream` 供設定頁看讀碼站 MJPEG 預覽。
 
 ---
 
 ## 重要功能細節
 
-### 面單路徑三模式(`label_path.mode`)
+### 面單路徑四模式(`label_path.mode`)
 
 | 模式 | 回傳內容 | 適用場景 |
 |---|---|---|
 | `local`(預設) | 本機絕對路徑 | 工控機與本 App 在同一台機器 |
 | `share` | 共用目錄路徑(SMB / NFS) | 跨機器、共用 NAS |
 | `http` | `http://{host}/images/{key}` URL | 內網部署、跨機器無檔案系統存取權 |
+| `direct_print` | **不回 `label_path`**,中介 PC 本機直接列印 | 工控機無印表機,由中介機出單(單一 FIFO 佇列保證列印順序 = 請求順序、不並發打 spooler) |
 
 設定頁可熱切換,**不需重啟** server。
 
@@ -154,12 +165,25 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 雲端回傳 `print_num > 1` 時,自動在面單右上角(順豐右下角)疊加 `(N)` 浮水印。字型使用 **DejaVu Sans Bold**(OFL 授權)於編譯期內嵌進 binary,**無須額外部署字型檔**。
 
+### 讀碼站存證 + NoRead 處理
+
+- **快照存證** — 每次 `GET /api/parcel` 一收到請求就釘住讀碼站相機最新一幀(純記憶體、不擋回應),查得到訂單才丟背景寫檔到獨立的**存證目錄**,回寫 `parcel_query_log.photo_path`,請求記錄頁以 `/captures/{key}` 檢視。相機由後端獨佔,設定頁的預覽畫面就是存證實際畫面。存證壽命由 `camera.keep_days` 單獨控制(與面單快取獨立)。
+- **NoRead(相機讀不到單號)** — 工控機以 `queryNo=NoRead` 呼叫時,**不提交雲端**(避免一律查無訂單的噪音),但**仍拍照存證**(檔名 `NoRead_{時間}_{序號}.jpg`),計入當日統計 `noread_count`(不計成功),回 `HTTP 200` 帶 `error_code:"NOREAD"`、無面單無通道(工控機不需回報,依現場異常流程處理)。桌面只跳 toast 不出聲,儀表板顯示今日讀碼失敗件數。
+
+### 分揀袋件核對(件數 + 連續性偵測)
+
+操作員不掃碼,工控機逐件 `GET /api/parcel`;後端維護常駐袋件核對清單(切頁保留):
+
+- **整袋件數核對** — 新袋背景取雲端整袋清單,顯示應印 / 已印 / 缺漏件數;有缺漏的袋永久保留(隨時回補),已完成只留最新一個。
+- **袋件連續性異常** — 某袋還沒印完就出現別的袋號 → 卡片標紅「中途被打斷」;NoRead / 散單不打斷連續;回補齊(缺漏歸 0)自動轉回正常。回頭補印已完成的袋不誤判為異常。
+- **跨機即時同步** — 多台中介機經雲端 Reverb / WebSocket 廣播,別台印的件即時反映到本機清單。
+
 ### 設備異常語音廣播
 
 工控機透過 `POST /api/device-alert` 回報設備異常(`PARCEL_JAM` 卡包裹、`USB_DISCONNECT` USB 斷線、`SCANNER_ERROR` / `PRINTER_ERROR` 故障等)。後端立即回 200(不讓工控機等),emit `device-alert` 事件,前端 `useDeviceAlert` 用**中文 + 越南語雙語語音**廣播喊話現場人員 + toast 顯示。
 
 - **預錄音檔,非即時 TTS** — 內建分類碼的中越語音已預錄內嵌(中文 `HsiaoChen`、越南語 `HoaiMy` neural,以 edge-tts 產生於 `public/sounds/alert/`)。每台機音色一致、發音標準、**離線可用、越南語免在 Windows 裝語音包**。僅未錄音的自訂 `type` 才退回系統 TTS(`useSpeech`)。
-- **次數可控** — body 的 `repeat` 控制廣播遍數,預設 1、後端 clamp 上限 3。
+- **固定廣播一次 + 前端 20s 去抖** — 每次呼叫雙語廣播一次(2026-07-01 起移除 `repeat` 次數控制;舊工控機仍傳 `repeat` 會被忽略、不報錯)。同一 `alert_type` 在 20s 內只廣播 + toast 一次,避免持續性異常狂丟同一訊號打斷語音、洗版 toast;持續性異常由工控機自行定時重發。
 - **自訂補充字** — `message` 欄位顯示於 toast(語音只唸固定雙語文案)。
 
 新增固定分類只需在 App 端補語音與 i18n,工控機端不需改動。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md)。
@@ -193,8 +217,9 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 ├── scripts/
 │   └── dev-codesign-run.sh     # cargo runner wrapper:固定 codesign + 包 dev .app bundle
 ├── docs/
-│   ├── local-http-api.md       # 工控機 API 規範(廠商整合文件)
-│   └── local-http-api.docx     # 同上 .docx 版
+│   ├── local-http-api.md       # 工控機 API 規範(廠商整合文件,亦含 .docx)
+│   ├── device-alert-api.md     # 設備異常通知 API(廠商整合文件,亦含 .docx)
+│   └── next-steps.md           # Roadmap + release iteration 經驗
 ├── src/                        # Vue 3 前端
 │   ├── pages/                  # 各功能頁(Dashboard、ScanPrint、SortChannels …)
 │   ├── components/             # 共用元件(AppNavbar、NetworkStatusIndicator …)
@@ -204,14 +229,22 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 │   └── @core / @layouts/       # Materio 樣板基礎
 ├── src-tauri/                  # Rust backend
 │   ├── src/
-│   │   ├── server/             # axum HTTP server(給工控機呼叫)
+│   │   ├── server/             # axum HTTP server(工控機 + 手機遙控)
 │   │   ├── cloud/              # 雲端 API client(Bearer + 重試)
 │   │   ├── cache/              # 面單快取(命中/補下載/LRU 清理)
+│   │   ├── camera/             # 讀碼站相機(nokhwa 擷取 + MJPEG 預覽 + 快照存證)
 │   │   ├── queue/              # 回報佇列 + 背景 worker
+│   │   ├── pregen/             # 面單預產(批次預下載 + 去重)
+│   │   ├── bag_check/          # 分揀袋件核對(常駐清單 + 連續性偵測)
+│   │   ├── sync/               # 跨機同步(Reverb/WebSocket 訂閱)
 │   │   ├── watermark.rs        # 列印次數浮水印(字型內嵌)
+│   │   ├── error_label.rs      # 錯誤面單提示圖產生
 │   │   ├── printer/            # 系統印表機列舉與列印
 │   │   ├── health/             # 三層網路健康偵測
 │   │   ├── db/                 # sqlx + migrations
+│   │   ├── config/             # TOML 設定(熱套用)
+│   │   ├── models/             # 共用資料結構
+│   │   ├── log/ + event_log.rs # 分類事件 log
 │   │   ├── commands/           # Tauri commands(前後端 IPC)
 │   │   └── …
 │   ├── migrations/             # SQLite migrations(編譯期執行)
@@ -228,16 +261,16 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 ## 發佈打包
 
-`.github/workflows/release.yml` 透過 GitHub Actions 自動 build 四平台、上傳到 draft release。
+`.github/workflows/release.yml` 透過 GitHub Actions 自動 build 四平台、上傳到 draft release。完整版本歷史見 [`CHANGELOG.md`](CHANGELOG.md);完整發版步驟(含 CHANGELOG / `latest.json` 自動更新機制)見 `CLAUDE.md` 的「發佈與 release」。
 
 ```bash
-# 1. 確認版本同步(Cargo.toml + tauri.conf.json + package.json)
-# 2. 打 tag 推上去
-git tag v0.2.0
-git push origin v0.2.0
+# 1. 先更新 CHANGELOG.md(release.yml 依 tag 抽對應 ## vX.Y.Z 段落注入 release notes)
+# 2. 三檔版本號一起改(Cargo.toml + tauri.conf.json + package.json)
+# 3. 打 tag 推上去(vX.Y.Z 為實際版本)
+git tag vX.Y.Z
+git push origin main && git push origin vX.Y.Z
 
-# 3. 至 https://github.com/weimi89/cix3752iLabelPrint/actions 看進度
-# 4. 完成後到 Releases 頁面,編輯 release notes 後按 Publish
+# 4. 至 GitHub Actions 看進度;產出為 draft release,需 gh release edit vX.Y.Z --draft=false 才公開
 ```
 
 | Runner | 產物 |
@@ -251,18 +284,18 @@ git push origin v0.2.0
 **Linux tarball 客戶端安裝**:
 
 ```bash
-# Ubuntu 20.04(離線可裝,內含完整 webkit2gtk-4.1 stack)
-tar xzf cix3752iLabelPrint-0.2.0-ubuntu-20.04.tar.gz
-cd cix3752iLabelPrint-0.2.0-ubuntu-20.04 && sudo bash install.sh
+# Ubuntu 20.04(離線可裝,內含完整 webkit2gtk-4.1 stack)。{version} 換成實際版本
+tar xzf cix3752iLabelPrint-{version}-ubuntu-20.04.tar.gz
+cd cix3752iLabelPrint-{version}-ubuntu-20.04 && sudo bash install.sh
 
 # Ubuntu 22.04 / 24.04(需網路,apt 自動解 webkit2gtk-4.1 等系統依賴)
-tar xzf cix3752iLabelPrint-0.2.0-ubuntu-22.04.tar.gz   # 或 ubuntu-24.04
-cd cix3752iLabelPrint-0.2.0-ubuntu-22.04 && sudo bash install.sh
+tar xzf cix3752iLabelPrint-{version}-ubuntu-22.04.tar.gz   # 或 ubuntu-24.04
+cd cix3752iLabelPrint-{version}-ubuntu-22.04 && sudo bash install.sh
 ```
 
 後續主程式升級只換主 `.deb`(`sudo dpkg -i` 或 `sudo apt install ./*.deb`)。
 
-### Release 實測狀態(v0.2.0)
+### Release 平台驗證基準
 
 | 平台 | GHA build | 本地實測 | 備註 |
 |---|---|---|---|
