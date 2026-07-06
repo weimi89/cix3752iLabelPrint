@@ -78,6 +78,9 @@
     "error": "Yêu cầu nhãn thất bại",
     "noread": "Đọc mã thất bại (NoRead)"
   },
+  "serverAlert": {
+    "bindFailed": "Dịch vụ cục bộ chưa khởi động (cổng có thể bị chiếm dụng), máy công nghiệp sẽ không thể kết nối! Vui lòng tắt chương trình chiếm cổng rồi khởi động lại dịch vụ trong trang「Cài đặt máy chủ」"
+  },
   "deviceAlert": {
     "PARCEL_JAM": "Chú ý, máy phân loại bị kẹt kiện hàng, nhân viên hiện trường xử lý ngay",
     "USB_DISCONNECT": "Chú ý, cổng USB bị ngắt kết nối bất thường, vui lòng kiểm tra kết nối thiết bị",
@@ -89,6 +92,12 @@
     "no_printer": "Không in được nhãn lỗi: không tìm thấy máy in khả dụng",
     "print_failed": "In nhãn lỗi thất bại",
     "cache_write_failed": "Lưu tạm nhãn lỗi thất bại, đã chuyển sang in cục bộ"
+  },
+  "directPrintFailed": {
+    "download_failed": "In trực tiếp thất bại: tải nhãn thất bại, kiện này thực tế chưa được in",
+    "no_printer": "In trực tiếp thất bại: nhà vận chuyển chưa cài máy in, kiện này thực tế chưa được in",
+    "read_failed": "In trực tiếp thất bại: đọc ảnh nhãn thất bại, kiện này thực tế chưa được in",
+    "print_failed": "In trực tiếp thất bại: gửi lệnh in thất bại, kiện này thực tế chưa được in"
   },
   "soundSettings": {
     "title": "Cài đặt âm báo",

@@ -14,17 +14,35 @@ import { useSkins } from '@core/composable/useSkins'
 import { useStatusStore } from '@/stores/status'
 import { useParcelAlert } from '@/composables/useParcelAlert'
 import { useDeviceAlert } from '@/composables/useDeviceAlert'
+import { useI18n } from 'vue-i18n'
+import { toast } from 'vue3-toastify'
+import { playSound } from '@/composables/useSoundEffects'
 
 const { layoutAttrs } = useSkins()
 const configStore = useLayoutConfigStore()
 const status = useStatusStore()
 const parcelAlert = useParcelAlert()
 const deviceAlert = useDeviceAlert()
+const { t } = useI18n()
 const appVersion = ref('')
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 let timer = null
 let unlistenPrintStats = null
+let unlistenBindFailed = null
+
+// 本機 HTTP server 未啟動(如 18080 被占用)的主動告警:持續性 toast + 警示音。
+// 後端 bootstrap 失敗時的 emit 發生在 webview 載入前、前端聽不到 → 掛載後以首查
+// server 狀態補上這個告警;另掛 listen 接住日後執行期的 emit(雙保險)。
+// 固定 toastId:5s 輪詢期間不重複洗版,server 恢復前保留一則常駐提示。
+const alertServerDown = () => {
+  playSound('effect_2')
+  toast(t('serverAlert.bindFailed'), {
+    type: 'error',
+    toastId: 'server-bind-failed',
+    autoClose: false, // 分揀線停擺級告警:不自動消失,操作員處理完自行關閉
+  })
+}
 
 onMounted(async () => {
   try {
@@ -37,6 +55,14 @@ onMounted(async () => {
     return
   }
   await status.refreshAll()
+  // 啟動時 server 綁定失敗(port 被占用)的死信補償:bootstrap 的 emit 前端聽不到,
+  // 以掛載後首查狀態主動告警,否則工控機整線連不上、操作員卻毫無提示。
+  if (!status.server.running) alertServerDown()
+  try {
+    unlistenBindFailed = await listen('server-bind-failed', alertServerDown)
+  } catch (e) {
+    console.warn('listen server-bind-failed 失敗', e)
+  }
   // system status 仍 5s 輪詢(server/queue/cache/today/cloud)
   timer = setInterval(() => status.refreshAll(), 5000)
   // 印單統計改用事件驅動:任何來源(scan/auto/ipc)寫入 print_event 後立即推送
@@ -65,6 +91,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   if (unlistenPrintStats) unlistenPrintStats()
+  if (unlistenBindFailed) unlistenBindFailed()
   parcelAlert.stop()
   deviceAlert.stop()
 })

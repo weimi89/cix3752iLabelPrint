@@ -46,6 +46,11 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     pos: loadPos(),
     _bagAll: new Map(),       // package_sn → Set(全部 shipping_no)
     _bagUnprinted: new Map(), // package_sn → Set(未印 shipping_no)
+    // 是否持有 parcels 明細:false = 雲端裁掉明細、退用總計數字(aggregate 模式)。
+    // aggregate 模式下兩個 Map 為空,增量數學(applyPrinted/-Added/-Removed)必然與總計互踩
+    //(剩餘凍結不遞減、_recount 把總數蓋成極小值)→ 一律改走「去抖重拉」。
+    _detail: false,
+    _refreshTimer: null,
   }),
   getters: {
     rangeLabel: s => (s.from === s.to ? s.from : `${s.from} ~ ${s.to}`),
@@ -90,10 +95,12 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
         }
         this._bagAll = all
         this._bagUnprinted = unp
-        if (parcels.length) {
+        this._detail = parcels.length > 0
+        if (this._detail) {
           this._recount()
         } else {
-          // 後端沒回 parcels 明細(例如裁切),退用雲端總計
+          // 後端沒回 parcels 明細(例如裁切),退用雲端總計;
+          // 此模式下 WS 事件改走 _scheduleAggregateRefresh 重拉(見 applyPrinted 等)
           this.bagTotal = r.bag_total || 0
           this.bagRemaining = r.bag_remaining || 0
           this.parcelTotal = r.parcel_total || 0
@@ -108,9 +115,33 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
       }
     },
 
+    // aggregate 模式(無明細)下的 WS 事件處理:無法做精準增量,改「去抖重拉」——
+    // 2.5s 合併一次 loadRange 重抓雲端總計,零重複計數風險(取代原本的凍結/互踩)。
+    // 計時器到期時若上一次 loadRange 還在跑(大區間查詢動輒數秒)→ **重排而非丟棄**:
+    // 丟棄會讓「該袋最後一件」的更新永久遺失,剩餘數字凍結在 1 不歸零。
+    _scheduleAggregateRefresh() {
+      if (this._refreshTimer) return
+      this._refreshTimer = setTimeout(() => {
+        this._refreshTimer = null
+        if (!this.open) return
+        if (this.loading) { this._scheduleAggregateRefresh(); return }
+        this.loadRange(this.from, this.to)
+      }, 2500)
+    },
+
+    // WS 重連成功(sync-reconnected):斷線窗內的 clearance-date 廣播已遺失且無補洞,
+    // 重拉基準校正(bag.* 另有後端 refresh_bag 補洞,不靠這裡)。
+    // loadRange 進行中則排入去抖重拉,不丟棄(丟棄=斷線窗內的遺失永不校正)。
+    reloadAfterReconnect() {
+      if (!this.open || !this.loaded) return
+      if (this.loading) { this._scheduleAggregateRefresh(); return }
+      this.loadRange(this.from, this.to)
+    },
+
     // 已印:件剩 -1(某袋最後一件印完 → 袋剩 -1);去重
     applyPrinted(shippingNo, packageSn) {
       if (!shippingNo || !this.loaded) return
+      if (!this._detail) { this._scheduleAggregateRefresh(); return }
       let pkg = packageSn
       if (!pkg || !this._bagUnprinted.has(pkg)) {
         pkg = null
@@ -132,6 +163,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     // 新增(報關日補上/改入本區間):件總/件剩 +;新袋則袋總/袋剩 +;去重(已知件略過)
     applyAdded(parcels) {
       if (!this.loaded || !Array.isArray(parcels)) return
+      if (!this._detail) { this._scheduleAggregateRefresh(); return }
       let changed = false
       for (const p of parcels) {
         const sn = p?.shipping_no; const pkg = p?.package_sn
@@ -152,6 +184,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     // 移除(報關日由本區間改走):扣回件;袋無剩餘件則袋總/袋剩同步收掉
     applyRemoved(parcels) {
       if (!this.loaded || !Array.isArray(parcels)) return
+      if (!this._detail) { this._scheduleAggregateRefresh(); return }
       let changed = false
       for (const p of parcels) {
         const sn = p?.shipping_no; const pkg = p?.package_sn
@@ -172,6 +205,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
 
     async close() {
       this.open = false
+      if (this._refreshTimer) { clearTimeout(this._refreshTimer); this._refreshTimer = null }
       try { await progressSetDates([]) } catch { /* 退訂失敗略過 */ }
     },
 

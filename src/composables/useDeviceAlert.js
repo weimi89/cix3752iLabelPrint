@@ -101,15 +101,21 @@ export function useDeviceAlert() {
     const alertType = (payload?.alert_type || 'ERROR').toUpperCase()
     const extra = (payload?.message || '').trim()
 
-    // 去抖:key 用「type + message」而非只用 type —— 真正的洪水是「同 type 同 message」
-    // (同一卡包位置持續回報),用完整 key 照樣擋掉;但「同 type 不同故障」(如 L2 與 R4 都卡、
-    // message 不同)會視為不同事件,第二筆仍會廣播 + toast,不被靜默吞掉。
+    // 去抖 key 一律用 alert_type(對齊檔頭與 CLAUDE.md 聲明的 per-type 語意):
+    // 工控機常在 message 夾變動內容(通道位置 / 重試計數 / 時間戳),若 key 含 message,
+    // 每筆都是新 key → 去抖完全失效 → 每筆 stopCurrent() 打斷前一筆語音、toast 洗版
+    // (正是 v0.10.0 引入去抖要修的原始故障),且 Map 以無限 message 為 key 無界增長。
+    // 代價:同 type 的第二個不同故障(L2 與 R4 都卡)在 20s 窗內只提示一次 —— 語音本來就唸
+    // 固定雙語文案不含 message,現場聽到「卡包裹」即會巡線,可接受。
     // 窗以「上次實際廣播」為基準,持續洪水下約每 20s 才會再提示一次。
-    const dedupKey = `${alertType}|${extra}`
     const now = Date.now()
-    const last = lastAlertAt.get(dedupKey)
+    // 順手清過期(key 空間 = type 集合,本就極小;清掉讓長班常駐記憶體恆定)
+    for (const [k, ts] of lastAlertAt) {
+      if (now - ts >= DEDUP_WINDOW_MS) lastAlertAt.delete(k)
+    }
+    const last = lastAlertAt.get(alertType)
     if (last !== undefined && now - last < DEDUP_WINDOW_MS) return
-    lastAlertAt.set(dedupKey, now)
+    lastAlertAt.set(alertType, now)
 
     // 先停掉前一筆未播完的,再開新的
     stopCurrent()

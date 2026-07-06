@@ -16,6 +16,7 @@ const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNA
 let unlistenPrinted = null
 let unlistenAdded = null
 let unlistenRemoved = null
+let unlistenReconnected = null
 onMounted(async () => {
   if (!isTauriRuntime) return
   unlistenPrinted = await listen('clearance-progress-printed', evt => {
@@ -27,11 +28,16 @@ onMounted(async () => {
   unlistenRemoved = await listen('clearance-progress-removed', evt => {
     store.applyRemoved(evt?.payload?.parcels)
   })
+  // WS 重連成功:斷線窗內 clearance-date 廣播已遺失且無補洞 → 重拉基準校正數字
+  unlistenReconnected = await listen('sync-reconnected', () => {
+    store.reloadAfterReconnect()
+  })
 })
 onUnmounted(() => {
   if (unlistenPrinted) { unlistenPrinted(); unlistenPrinted = null }
   if (unlistenAdded) { unlistenAdded(); unlistenAdded = null }
   if (unlistenRemoved) { unlistenRemoved(); unlistenRemoved = null }
+  if (unlistenReconnected) { unlistenReconnected(); unlistenReconnected = null }
 })
 
 // === 日期區間設定對話框(預設當日,有需要才開)===

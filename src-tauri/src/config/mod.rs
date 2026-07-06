@@ -29,7 +29,7 @@ pub struct AppConfig {
 
 /// 件數核對跨機同步設定 — 訂閱 Reverb(Pusher 相容)的 `bag.{package_sn}` 廣播,
 /// 讓「同一袋包裹拿到別台處理」時本機核對清單也即時更新。預設關閉。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncConfig {
     /// 總開關(預設關;填好 host/key 並確認雲端同環境廣播後再開)
     #[serde(default)]
@@ -64,7 +64,7 @@ fn default_reverb_port() -> u16 { 443 }
 fn default_reverb_scheme() -> String { "wss".to_string() }
 
 /// 讀碼站快照相機設定 — 收到工控機 GET /api/parcel 時抓 USB 相機當下一幀存證
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CameraConfig {
     /// 總開關(預設關;接好相機、選對 device_index 再開)
     #[serde(default)]
@@ -441,14 +441,17 @@ impl AppConfig {
         Ok(())
     }
 
-    /// 解析實際快取目錄；空字串會 fallback 到系統「圖片」資料夾（~/Pictures）
-    /// 若取不到（罕見：headless / 系統未定義 picture_dir），最後退回 app_data/cache/labels
+    /// 解析實際快取目錄；空字串會 fallback 到系統「圖片」資料夾下的**專屬子資料夾**
+    /// (`~/Pictures/cix3752iLabelPrint`)。
+    /// **絕不可直接用 ~/Pictures 根目錄當快取根**:快取清理(clean_expired / cache_clear)
+    /// 對快取根做遞迴刪檔,若根=使用者圖片資料夾,個人照片會被當過期快取刪除(不可回復)。
+    /// 若取不到 picture_dir(罕見:headless),最後退回 app_data/cache/labels。
     pub fn resolved_cache_dir(&self, handle: &AppHandle) -> AppResult<PathBuf> {
         if !self.cache.dir.is_empty() {
             return Ok(PathBuf::from(&self.cache.dir));
         }
         if let Ok(pic) = handle.path().picture_dir() {
-            return Ok(pic);
+            return Ok(pic.join("cix3752iLabelPrint"));
         }
         let app_data = handle
             .path()

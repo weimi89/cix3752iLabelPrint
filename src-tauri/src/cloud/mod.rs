@@ -603,8 +603,35 @@ impl CloudClient {
             .bearer_auth(&token)
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+
+        // 非 2xx:解析 dingo errorFormat 錯誤 body 成 AppError::Cloud(對齊 fetch_label_for_print)。
+        // 不可用 error_for_status()(那會變 AppError::Http):cloud_commands 依賴 AppError::Cloud
+        // 的機器碼合成失敗結果(記 print_failure_event + 產錯誤面單),Http 錯誤只會直接回 Err
+        // —— 否則自動印單的 4xx 業務錯誤永遠走不進失敗流程(該 match arm 形同死碼)。
+        let status = resp.status();
+        if !status.is_success() {
+            if status.as_u16() == 401 {
+                return Err(AppError::Unauthorized);
+            }
+            let body_text = resp.text().await.unwrap_or_default();
+            let json: Option<serde_json::Value> = serde_json::from_str(&body_text).ok();
+            let code = json
+                .as_ref()
+                .and_then(|v| v.get("code").and_then(|c| c.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| status.as_u16().to_string());
+            let message = json
+                .as_ref()
+                .and_then(|v| v.get("message").and_then(|m| m.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
+            let shipping_provider = parse_error_shipping_provider(json.as_ref());
+            let shipping_no = parse_error_shipping_no(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
+        }
 
         // 抓 raw text → 失敗時把 body 寫進 error message,協助診斷雲端回應 schema 不符
         let text = resp.text().await?;

@@ -231,18 +231,29 @@ pub async fn cloud_fetch_label(
         .await
     {
         Ok(r) => r,
-        Err(e) => {
-            if let AppError::Cloud { code, shipping_provider, .. } = &e {
-                crate::server::spawn_error_label_print(
-                    state.db.clone(),
-                    app.clone(),
-                    req.order_sn.clone(),
-                    to_error_label_code(code).to_string(),
-                    shipping_provider.clone(),
-                );
+        // 雲端 4xx 業務錯誤(dingo errorFormat 帶機器碼):合成失敗結果,落回與
+        // 「200 + 失敗狀態」**同一條失敗流程** —— 記 print_failure_event、產錯誤面單 URL
+        // 回前端用 printerMap 同台印表機印(單一出口,對齊 build_error_label_url 設計)。
+        // 舊行為(後端 spawn_error_label_print + find_any_printer)印表機來源與前端不一致:
+        // 只設前端 printerMap 的站點會印錯台或印不出;且 4xx 失敗完全沒進失敗統計。
+        // Download 模式(面單預產)下方流程整段跳過 → 預產失敗不再實體印錯誤面單(本就不該印)。
+        // **僅限帶機器碼的業務錯誤**:code 為純數字 = 雲端沒回 dingo body、僅 HTTP 狀態碼 fallback
+        //(502/503 部署重啟等暫時性故障)→ 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單。
+        Err(AppError::Cloud { code, message, shipping_provider, shipping_no })
+            if !code.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            PrintViewResult {
+                print_view_status: code,
+                print_shipping_no: shipping_no,
+                print_shipping_provider: shipping_provider,
+                print_file_path: None,
+                print_time: vec![],
+                print_num: None,
+                error_label_path: None, // 由下方失敗流程統一填
+                respond_message: Some(message), // 保留雲端解釋文字給操作員(對齊舊 Err 路徑可見性)
             }
-            return Err(e);
         }
+        Err(e) => return Err(e),
     };
 
     // Download / WebPrint 模式:下載到本地快取 + 套用列印次數浮水印,
@@ -530,7 +541,7 @@ pub async fn cloud_fetch_cloud_print(
     app: AppHandle,
     req: FetchCloudPrintRequest,
 ) -> AppResult<CloudPrintResult> {
-    let mut result = state
+    let mut result = match state
         .cloud
         .fetch_cloud_print_label(
             &req.order_sn,
@@ -540,7 +551,31 @@ pub async fn cloud_fetch_cloud_print(
             req.scanner_user.as_deref(),
             req.sticker_user.as_deref(),
         )
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        // 雲端 4xx 業務錯誤:合成失敗結果落回下方失敗流程(記 print_failure_event +
+        // 產錯誤面單 URL 回前端印)—— 對齊 cloud_fetch_label;舊行為此路徑完全不產
+        // 錯誤面單,自動印單遇同型錯誤時異常包裹撿不出來。
+        // 僅限帶機器碼的業務錯誤:code 純數字 = HTTP 狀態碼 fallback(502/503 暫時性故障)
+        // → 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單、灌失敗統計。
+        Err(AppError::Cloud { code, message, shipping_provider, shipping_no })
+            if !code.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            CloudPrintResult {
+                respond_code: code,
+                respond_message: Some(message),
+                shipment_no: shipping_no,
+                package_sn: None,
+                provider_code: shipping_provider,
+                image_path: None,
+                file_path: None,
+                print_num: None,
+                error_label_path: None, // 由下方失敗流程統一填
+            }
+        }
+        Err(e) => return Err(e),
+    };
 
     // PRINT-SUCCESS 才有 image_path / print_num,套用浮水印並改寫成 middleware URL
     if let Some(url) = result.image_path.clone() {

@@ -181,15 +181,21 @@ pub async fn start(
         let cache = cache.clone();
         let watermark = watermark.clone();
         let db = db.clone();
+        let app = app.clone();
         tokio::spawn(async move {
             while let Some(job) = direct_print_rx.recv().await {
-                run_direct_print_job(&cache, &watermark, &db, job).await;
+                run_direct_print_job(&cache, &watermark, &db, &app, job).await;
             }
         });
     }
 
     // 存證目錄:啟動時依 config 解析定版(與面單快取分離)。存檔與 /captures 服務共用同一份,確保一致。
     let captures_dir = config.resolved_captures_dir(&app)?;
+    // /images 服務目錄:用 CacheManager 同一套「安全解析」(驗證 + app_data fallback),
+    // **不可**各自 resolved_cache_dir —— 壞設定(legacy ~/Pictures / 拔除的磁碟)下會 split-brain:
+    // 下載寫 fallback、/images 供壞目錄 → 面單全 404,甚至把使用者資料夾以 HTTP 曝露給整個區網。
+    // 由 config(而非 cache.base_dir() 當下值)解析,讓「改快取目錄 → 重啟 server」直接供新目錄。
+    let images_dir = CacheManager::resolve_safe_dir(&app, config)?;
 
     let state = ServerState {
         db,
@@ -206,7 +212,7 @@ pub async fn start(
         direct_print_tx,
     };
 
-    let images_service = ServeDir::new(cache.base_dir());
+    let images_service = ServeDir::new(images_dir);
     let captures_service = ServeDir::new(&captures_dir);
 
     let app = Router::new()
@@ -852,21 +858,9 @@ fn spawn_print_error_label_bytes(
     });
 }
 
-/// 產生錯誤面單並背景列印（GUI 掃描 / 自動印單用：操作員在本機，直接送本機印表機）。
-pub(crate) fn spawn_error_label_print(
-    db: DbPool,
-    app: tauri::AppHandle,
-    query_no: String,
-    error_code: String,
-    provider: Option<String>,
-) {
-    let label_bytes = crate::error_label::generate(
-        &query_no,
-        &error_code,
-        crate::error_label::LabelHeight::H100mm,
-    );
-    spawn_print_error_label_bytes(db, app, query_no, label_bytes, provider);
-}
+// 註:原 spawn_error_label_print(GUI 掃描/自動印單的後端自印錯誤面單)已移除 ——
+// 雲端 4xx 業務錯誤改在 cloud_commands 合成失敗結果、回 error_label_path 讓前端以
+// printerMap 同台印表機印(單一出口);find_any_printer 與前端印表機來源不一致的問題不再存在。
 
 /// emit `error-label-print-failed` 給桌面前端（reason: "no_printer" / "print_failed" / "cache_write_failed"）。
 fn emit_error_label_failed(app: &tauri::AppHandle, query_no: &str, reason: &str) {
@@ -968,11 +962,27 @@ fn enqueue_direct_print(
         image_url,
         provider,
         print_num,
-        query_no,
+        query_no: query_no.clone(),
     };
     if let Err(e) = state.direct_print_tx.send(job) {
         tracing::warn!(?e, "direct_print 列印佇列已關閉,無法排入");
+        // 入列失敗 = 此件確定不會被印(worker 已死),與下載/列印失敗同屬
+        // 「工控機已收 200 但實體沒印」的靜默缺口,必須走同一條通報
+        report_direct_print_failed(&state.app, &state.db, &query_no, "print_failed");
     }
+}
+
+/// DirectPrint 失敗通報:emit `direct-print-failed`(前端 useParcelAlert 播音 + toast)+ 寫 event_log。
+/// **DirectPrint 的失敗不可靜默**:工控機在入列當下已拿到成功回應、print_event 已記、袋核對已標已印,
+/// 若這裡只 tracing::warn,分揀線整批漏印卻所有畫面都顯示正常(現場最難察覺的靜默故障)。
+fn report_direct_print_failed(app: &tauri::AppHandle, db: &DbPool, query_no: &str, reason: &str) {
+    use tauri::Emitter;
+    let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
+    if let Err(e) = app.emit("direct-print-failed", payload) {
+        tracing::warn!(?e, "emit direct-print-failed 失敗");
+    }
+    event_log::log_bg(db.clone(), "error", "printer", "直印失敗",
+        format!("DirectPrint 列印失敗 query_no={query_no} reason={reason}(工控機已收到成功回應,此件實際未印出)"));
 }
 
 /// DirectPrint worker 逐筆執行的單元:下載面單 → 套列印次數浮水印 → 送本機印表機。
@@ -981,6 +991,7 @@ async fn run_direct_print_job(
     cache: &CacheManager,
     watermark: &WatermarkRenderer,
     db: &DbPool,
+    app: &tauri::AppHandle,
     job: DirectPrintJob,
 ) {
     let DirectPrintJob {
@@ -1009,6 +1020,7 @@ async fn run_direct_print_job(
         }
     };
     if !original_ok {
+        report_direct_print_failed(app, db, &query_no, "download_failed");
         return;
     }
 
@@ -1041,6 +1053,7 @@ async fn run_direct_print_job(
 
     let Some(pname) = printer_name else {
         tracing::warn!(shipping_provider = %provider, "direct_print 模式但物流商未設定印表機");
+        report_direct_print_failed(app, db, &query_no, "no_printer");
         return;
     };
 
@@ -1049,16 +1062,27 @@ async fn run_direct_print_job(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(?e, "讀取面單圖失敗，無法列印");
+            report_direct_print_failed(app, db, &query_no, "read_failed");
             return;
         }
     };
     // await 此筆送印完成,才讓 worker 取下一筆 → 嚴格順序 + 不並發打 spooler
-    let _ = tokio::task::spawn_blocking(move || {
-        if let Err(e) = crate::printer::print_image_bytes(&pname, &bytes) {
-            tracing::warn!(?e, query_no = %query_no, "直接列印失敗");
-        }
+    let qn = query_no.clone();
+    let printed = tokio::task::spawn_blocking(move || {
+        crate::printer::print_image_bytes(&pname, &bytes)
     })
     .await;
+    match printed {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            tracing::warn!(?e, query_no = %qn, "直接列印失敗");
+            report_direct_print_failed(app, db, &qn, "print_failed");
+        }
+        Err(e) => {
+            tracing::warn!(?e, query_no = %qn, "直接列印 task 失敗");
+            report_direct_print_failed(app, db, &qn, "print_failed");
+        }
+    }
 }
 
 /// 每日統計 upsert:一次請求 `request_count` +1;`success` 時 `success_count` +1;`noread` 時 `noread_count` +1。
@@ -1232,12 +1256,24 @@ async fn get_parcel(
             // 避免空 URL 推出兜底 key 後發無謂請求 + 噪音警告(內容正確性已由 fetch_now source_url 校驗保證)。
             let has_image = !info.shipping_image.trim().is_empty();
 
+            // 先解析分揀通道(便宜的本地 DB 查詢,**必須在面單處理之前**):
+            // 未指派任何通道(has_assigned=false)時工控機無格口可分揀、不需面單 ——
+            // DirectPrint 不可入列送印(否則印出一疊無格口可分揀的面單),
+            // 其他模式也不必同步下載(白等雲端一趟、結果直接被丟棄)。四種模式行為一致。
+            let (channel_code, has_assigned) =
+                resolve_channel_code(&state.db, &state.rr, &info.shipping_provider).await;
+
             // DirectPrint 模式:工控機拿到 label_path=null(由中介機列印),不需要圖檔本身 ──
             // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
             // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
             let (label_path, label_ms) =
                 if !has_image {
                     tracing::warn!(query_no = %query_no, "雲端回空 shipping_image,視為無面單");
+                    (None, 0i64)
+                } else if !has_assigned {
+                    // 未指派通道:無格口可分揀 → 不印、不下載(label_path 一律 None)
+                    tracing::info!(query_no = %query_no, provider = %info.shipping_provider,
+                        "物流商未指派分揀通道,略過面單處理");
                     (None, 0i64)
                 } else if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
                     enqueue_direct_print(
@@ -1305,14 +1341,6 @@ async fn get_parcel(
                     };
                     (label_path, label_ms)
                 };
-
-            // 依雲端回的物流商代碼 (shipping_provider) 解析分揀通道
-            // 同物流商可能配多個通道,round-robin 輪流分配;未指派時退回 fallback 通道代碼
-            let (channel_code, has_assigned) =
-                resolve_channel_code(&state.db, &state.rr, &info.shipping_provider).await;
-
-            // 無指派物流通道時，面單路徑不回傳（工控機無通道可分揀，不需要面單）
-            let label_path = if has_assigned { label_path } else { None };
 
             // 從 dispatch_provider 取 print_profile (使用者在「指派物流」頁面設定)
             let print_profile = fetch_print_profile(&state.db, &info.shipping_provider).await;
@@ -1385,44 +1413,60 @@ async fn get_parcel(
             // 記一筆 daily request 統計(成功:request +1、success +1)
             bump_daily_stats(&state.db, true, false).await;
 
-            // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
-            // 失敗不影響 API 回應(統計次要,不能干擾正常出單)
-            let sticker_user: Option<String> = if let Some(code) = channel_code.as_deref() {
-                sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
-                    .bind(code)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten())
-            } else {
-                None
-            };
-            let insert_res = sqlx::query(
-                "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code)
-                 VALUES ('ipc', ?, ?, ?, ?)",
-            )
-            .bind(&info.shipping_no)
-            .bind(&info.shipping_provider)
-            .bind(&sticker_user)
-            .bind(&channel_code)
-            .execute(&state.db)
-            .await;
-            if insert_res.is_ok() {
-                crate::commands::print_stats_commands::emit_print_stats_updated(
-                    &state.app,
-                    "ipc",
-                    &info.shipping_no,
-                );
-            }
+            if has_assigned && has_image {
+                // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
+                // 失敗不影響 API 回應(統計次要,不能干擾正常出單)。
+                // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,
+                // 不可記 print_event / 標袋核對已印(統計必須與實物一致,同「未指派通道」原則)
+                let sticker_user: Option<String> = if let Some(code) = channel_code.as_deref() {
+                    sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
+                        .bind(code)
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten())
+                } else {
+                    None
+                };
+                let insert_res = sqlx::query(
+                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code)
+                     VALUES ('ipc', ?, ?, ?, ?)",
+                )
+                .bind(&info.shipping_no)
+                .bind(&info.shipping_provider)
+                .bind(&sticker_user)
+                .bind(&channel_code)
+                .execute(&state.db)
+                .await;
+                if insert_res.is_ok() {
+                    crate::commands::print_stats_commands::emit_print_stats_updated(
+                        &state.app,
+                        "ipc",
+                        &info.shipping_no,
+                    );
+                }
 
-            // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)
-            state.bag_check.on_parcel(
-                info.package_sn.clone(),
-                &info.order_sn,
-                &info.shipping_no,
-                &info.shipping_provider,
-            );
+                // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)
+                state.bag_check.on_parcel(
+                    info.package_sn.clone(),
+                    &info.order_sn,
+                    &info.shipping_no,
+                    &info.shipping_provider,
+                );
+            } else if !has_assigned {
+                // 未指派通道:此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None)
+                // → 不記 print_event、不標袋核對已印,統計必須與實物一致(否則儀表板全綠、
+                // 現場卻累積一批無面單包裹)。event_log 節流告警(同 provider 20s 一次,防洪),
+                // 提醒到「指派物流」頁補設定;工控機端仍收 200 + fallback 通道碼可分揀。
+                if should_log_throttled(&format!("unassigned|{}", info.shipping_provider)) {
+                    event_log::log_bg(state.db.clone(), "warn", "server", "未指派通道",
+                        format!("物流商 {} 未指派分揀通道,面單未產出(shipping_no={};請至「指派物流」頁設定)",
+                            info.shipping_provider, info.shipping_no));
+                }
+            }
+            // else(has_assigned && !has_image):雲端回空 shipping_image,上方已 warn,
+            // 無面單無列印 → 同樣不記統計,不需重複告警
 
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
@@ -1704,14 +1748,18 @@ async fn post_report(
 /// (前端另有 20s 廣播去抖;emit 仍每筆送出,只節流「寫 log」。)
 const DEVICE_ALERT_LOG_THROTTLE: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// 回傳此 (type|message) 現在是否該寫 event_log(距上次 >= 窗、或首次),並更新時間戳。
-/// key 含 message,故「同 type 但不同故障」仍會各自記錄,只擋真正重複的洪水。
-fn should_log_device_alert(key: &str) -> bool {
+/// 通用 event_log 去洪:回傳此 key 現在是否該寫 log(距上次 >= [`DEVICE_ALERT_LOG_THROTTLE`] 窗、
+/// 或首次),並更新時間戳。共用一張 static 表,呼叫端以 key 前綴區分用途
+///(`{type}|{message}` 設備異常、`unassigned|{provider}` 未指派通道)。
+fn should_log_throttled(key: &str) -> bool {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
     static GATE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
     let mut gate = GATE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
     let now = Instant::now();
+    // 順手清過期:key 可能含變動內容(message 夾通道/計數/時間戳)每筆都是新 key,
+    // 不清的話常駐數週的進程會無界累積
+    gate.retain(|_, last| now.duration_since(*last) < DEVICE_ALERT_LOG_THROTTLE);
     match gate.get(key) {
         Some(&last) if now.duration_since(last) < DEVICE_ALERT_LOG_THROTTLE => false,
         _ => {
@@ -1746,7 +1794,7 @@ async fn post_device_alert(
 
     // event_log 去洪:同一 (type|message) 20s 內只記一次,避免持續性異常灌爆事件記錄。
     // emit 仍每筆送(前端自行去抖顯示),此處只節流「寫入 event_log」。
-    if should_log_device_alert(&format!("{alert_type}|{message}")) {
+    if should_log_throttled(&format!("{alert_type}|{message}")) {
         let detail = if message.trim().is_empty() {
             format!("工控機設備異常 type={alert_type}")
         } else {

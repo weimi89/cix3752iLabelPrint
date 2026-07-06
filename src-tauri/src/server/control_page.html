@@ -179,6 +179,15 @@ async function skip(pos, clear) {
   }
 }
 
+// HTML escape:channel_code / job_sticker / last_tracking / dispatch_codes 皆為外部輸入
+//(工控機掃的條碼、桌面端輸入的人員名),不跳脫直接進 innerHTML 會被當標記解析
+//(版面錯亂,甚至 stored XSS 在所有開此頁的手機上執行)。
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+}
+
 function render() {
   const main = document.getElementById('list');
   main.innerHTML = '';
@@ -190,19 +199,19 @@ function render() {
     const info = document.createElement('div');
     info.className = 'info';
     const disp = (c.dispatch_codes && c.dispatch_codes.length)
-      ? c.dispatch_codes.map(d => '<span class="chip">' + d + '</span>').join('')
+      ? c.dispatch_codes.map(d => '<span class="chip">' + esc(d) + '</span>').join('')
       : '<span class="chip">' + tr('noDispatch') + '</span>';
     const sticker = (c.job_sticker && c.job_sticker.trim())
-      ? '<div class="sticker">👤 ' + tr('sticker') + ': ' + c.job_sticker + '</div>' : '';
+      ? '<div class="sticker">👤 ' + tr('sticker') + ': ' + esc(c.job_sticker) + '</div>' : '';
     const lt = (c.last_tracking && c.last_tracking.trim()) ? c.last_tracking.trim() : '';
     const track = lt
       ? '<div class="track">🏷️ ' +
-          (lt.length > 4 ? '<span class="t-head">' + lt.slice(0, -4) + '</span>' : '') +
-          '<span class="t-tail">' + (lt.length > 4 ? lt.slice(-4) : lt) + '</span></div>'
+          (lt.length > 4 ? '<span class="t-head">' + esc(lt.slice(0, -4)) + '</span>' : '') +
+          '<span class="t-tail">' + esc(lt.length > 4 ? lt.slice(-4) : lt) + '</span></div>'
       : '';
     info.innerHTML =
-      '<div class="pos">' + c.position + '</div>' +
-      '<div class="code">' + (configured ? c.channel_code : tr('unset')) + '</div>' +
+      '<div class="pos">' + esc(c.position) + '</div>' +
+      '<div class="code">' + (configured ? esc(c.channel_code) : tr('unset')) + '</div>' +
       '<div class="disp">' + disp + '</div>' +
       sticker +
       track +

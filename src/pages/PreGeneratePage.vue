@@ -107,14 +107,15 @@ const processOne = async (sn, index) => {
       markOrderProcessed(sn)  // 記住已成功,本快取日內不再重打
     } else {
       failCount.value++
-      pushFail(sn, code)
+      // 雲端 4xx 業務錯誤(middleware 合成失敗結果)帶人類可讀解釋 → 一併顯示
+      pushFail(sn, code, data.respond_message || '')
     }
     if (thumb) {
       thumb.code = code
       thumb.shipping_no = data.print_shipping_no || ''
       thumb.shipping_provider = data.print_shipping_provider || ''
       thumb.image = data.print_file_path || null
-      thumb.message = statusLabel(code)
+      thumb.message = data.respond_message || statusLabel(code)
     }
   } catch (e) {
     const msg = errorMessageFromException(e)

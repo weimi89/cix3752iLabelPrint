@@ -122,6 +122,10 @@ pub struct PrintViewResult {
     /// 成功或不需錯誤面單時為 None。由 middleware 填,雲端不回此欄位故需 default。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_label_path: Option<String>,
+    /// 雲端 4xx 業務錯誤的人類可讀訊息(middleware 由 AppError::Cloud 合成失敗結果時填,
+    /// 讓前端顯示雲端解釋文字而非只有機器碼;對齊 CloudPrintResult.respond_message)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub respond_message: Option<String>,
 }
 
 /// 包裹查詢結果（自動印單第一步：掃包裹條碼取訂單清單）

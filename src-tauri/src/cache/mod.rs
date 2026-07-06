@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use parking_lot::RwLock;
 use reqwest::Client;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::fs;
 
 use crate::config::AppConfig;
@@ -21,6 +21,92 @@ pub enum FetchOutcome {
     Downloaded,
 }
 
+/// 快取根目錄的識別 marker 檔名。
+///
+/// `clean_expired` 與 `clear_all_files` 會對快取根做**無差別遞迴刪檔**(需涵蓋 @repeat / @error
+/// 等不在 cache_meta 的孤兒檔),等於「這個資料夾整個屬於本 App」的強假設。兩道防線:
+/// 1. **初始化前拒絕受保護資料夾**([`assert_not_protected_dir`]):~/Pictures、~/Documents 等
+///    系統使用者資料夾**根本不允許被設成快取根**(new 退回 app_data、apply_config 回錯),
+///    marker 不會被蓋章 —— 這是主要防護,擋掉「誤設後被蓋章、清理照樣通過」的繞過。
+/// 2. **marker 憑證**:清理只對「有 marker(= 本 App 初始化過)」的目錄執行;手改設定檔
+///    指到任意舊目錄、或狀態異常時,缺 marker 即拒絕遞迴刪除(fail-safe 第二道)。
+pub const CACHE_MARKER: &str = ".cix3752i-cache";
+
+/// 檢查目錄是否為系統使用者資料夾(圖片 / 文件 / 下載 / 桌面 / 影音 / 家目錄**根**)。
+/// 這些資料夾被設成快取根 = 個人檔案納入清理刪除範圍 → 一律拒絕。
+/// 其「子資料夾」(如 ~/Pictures/cix3752iLabelPrint)不在此限。
+/// 比對用 canonicalize(取不到時退回原路徑)吸收大小寫 / symlink / 尾斜線差異。
+fn assert_not_protected_dir(handle: &AppHandle, dir: &Path) -> AppResult<()> {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let target = canon(dir);
+    // 磁碟根目錄(D:\、/)一律拒絕:整槽都會被清理器納入遞迴刪除範圍,
+    // Windows 現場「把快取設到資料槽根」是常見習慣,必須明確擋下
+    if target.parent().is_none() {
+        return Err(AppError::Config(format!(
+            "快取目錄不可設為磁碟根目錄({}):快取清理會遞迴刪除該目錄下的檔案,\
+             整個磁碟的資料都會被當過期快取刪掉。請改用子資料夾(例如 {}cix3752iLabelPrint)",
+            target.display(),
+            target.display(),
+        )));
+    }
+    // Unix 掛載點根(/Volumes/DATA、/mnt/data、/media/user/DATA …)同屬「整顆資料碟」:
+    // 有 parent、也不在受保護資料夾清單,但設為快取根 = 整碟納入清理刪除範圍。
+    // 以 device id 比較偵測:目錄與其 parent 分屬不同檔案系統 → 目錄是掛載點根 → 拒絕。
+    // (Windows 槽根已由上方 parent()==None 涵蓋;NTFS 資料夾掛載點極罕見,不在此防護範圍)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(m), Some(parent)) = (std::fs::metadata(&target), target.parent()) {
+            if let Ok(pm) = std::fs::metadata(parent) {
+                if m.dev() != pm.dev() {
+                    return Err(AppError::Config(format!(
+                        "快取目錄不可設為磁碟掛載點根目錄({}):快取清理會遞迴刪除該目錄下的檔案,\
+                         整顆資料碟的檔案都會被當過期快取刪掉。請改用其子資料夾(例如 {}/cix3752iLabelPrint)",
+                        target.display(),
+                        target.display(),
+                    )));
+                }
+            }
+        }
+    }
+    let r = handle.path();
+    let protected: [(&str, Option<std::path::PathBuf>); 8] = [
+        ("圖片", r.picture_dir().ok()),
+        ("文件", r.document_dir().ok()),
+        ("下載", r.download_dir().ok()),
+        ("桌面", r.desktop_dir().ok()),
+        ("音樂", r.audio_dir().ok()),
+        ("影片", r.video_dir().ok()),
+        ("公用", r.public_dir().ok()),
+        ("家目錄", r.home_dir().ok()),
+    ];
+    for (name, p) in protected {
+        if let Some(p) = p {
+            if canon(&p) == target {
+                return Err(AppError::Config(format!(
+                    "快取目錄不可設為系統「{name}」資料夾({}):快取清理會遞迴刪除該目錄下的檔案,\
+                     個人檔案會被當過期快取刪掉。請改用其專屬子資料夾(例如 {}/cix3752iLabelPrint)",
+                    p.display(),
+                    p.display(),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 在快取根寫入 marker(冪等,失敗只 warn —— marker 缺失時清理會被擋下,fail-safe)。
+/// 呼叫前必須先通過 [`assert_not_protected_dir`](受保護資料夾不可被蓋章)。
+fn ensure_marker(dir: &Path) {
+    let marker = dir.join(CACHE_MARKER);
+    if marker.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::write(&marker, "cix3752iLabelPrint cache root - do not delete\n") {
+        tracing::warn!(?e, dir = %dir.display(), "寫入快取 marker 失敗(清理將被安全擋下)");
+    }
+}
+
 /// 圖片快取管理 — 負責 local 判斷、補下載、清理過期、命中率統計
 #[derive(Clone)]
 pub struct CacheManager {
@@ -32,19 +118,64 @@ struct Inner {
     keep_days: RwLock<u32>,
     max_size_mb: RwLock<u64>,
     db: DbPool,
-    http: Client,
+    /// 面單下載 client。RwLock:apply_config 需跟隨 cloud 設定
+    ///(allow_invalid_certs / timeout_secs)重建,否則熱套用後
+    /// session API 生效、面單下載卻仍用舊 TLS 行為(自簽環境全數下載失敗)。
+    http: RwLock<Client>,
+}
+
+/// 依 cloud 設定建面單下載 client(TLS 跟隨 CloudClient 熱套用)。
+/// timeout 取 `max(cloud.timeout_secs, 30)`:圖檔下載(數 MB、跨境慢網)需要的餘裕
+/// 遠大於 API 呼叫,站點為了讓健康檢查快速失敗而調低 timeout_secs 時,
+/// 不可連帶把下載逾時砍短(歷史行為即固定 30s)。
+fn build_http(config: &AppConfig) -> AppResult<Client> {
+    Client::builder()
+        .timeout(Duration::from_secs(config.cloud.timeout_secs.max(30)))
+        .danger_accept_invalid_certs(config.cloud.allow_invalid_certs)
+        .build()
+        .map_err(|e| AppError::Other(format!("無法建立快取 HTTP client: {e}")))
 }
 
 impl CacheManager {
-    pub fn new(handle: &AppHandle, config: &AppConfig, db: DbPool) -> AppResult<Self> {
-        let base_dir = config.resolved_cache_dir(handle)?;
-        std::fs::create_dir_all(&base_dir).map_err(AppError::from)?;
+    /// 驗證設定解析出的快取目錄可用:非受保護使用者資料夾 + 可建立。
+    /// 回傳解析後的目錄。供 new / apply_config 與 update_config **儲存前預檢**共用
+    ///(預檢失敗即中止整個設定更新,不留「server 已重啟、設定已存、cache 套用失敗」的斷鏈)。
+    pub fn validate_dir(handle: &AppHandle, config: &AppConfig) -> AppResult<PathBuf> {
+        let dir = config.resolved_cache_dir(handle)?;
+        assert_not_protected_dir(handle, &dir)?;
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            AppError::Config(format!("無法建立快取目錄 {}: {e}", dir.display()))
+        })?;
+        Ok(dir)
+    }
 
-        let http = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(config.cloud.allow_invalid_certs)
-            .build()
-            .map_err(|e| AppError::Other(format!("無法建立快取 HTTP client: {e}")))?;
+    /// 解析「安全可用」的快取目錄:驗證失敗(受保護資料夾 / 磁碟根 / 建立失敗)時
+    /// 退回 `app_data/cache/labels` 安全預設(啟動不可因壞設定整個失敗,記 error 供診斷)。
+    /// **CacheManager::new 與 server 的 /images ServeDir 必須共用此函式** —— 各自解析會在
+    /// 壞設定下 split-brain:下載寫 app_data、/images 供壞目錄 → 面單全 404,
+    /// 甚至把使用者資料夾以 HTTP 曝露給整個區網。
+    pub fn resolve_safe_dir(handle: &AppHandle, config: &AppConfig) -> AppResult<PathBuf> {
+        match Self::validate_dir(handle, config) {
+            Ok(d) => Ok(d),
+            Err(e) => {
+                tracing::error!(%e, "快取目錄不可用,退回 app_data 安全預設");
+                let fallback = handle
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| AppError::Config(format!("無法取得 app_data 目錄: {e}")))?
+                    .join("cache")
+                    .join("labels");
+                std::fs::create_dir_all(&fallback).map_err(AppError::from)?;
+                Ok(fallback)
+            }
+        }
+    }
+
+    pub fn new(handle: &AppHandle, config: &AppConfig, db: DbPool) -> AppResult<Self> {
+        let base_dir = Self::resolve_safe_dir(handle, config)?;
+        ensure_marker(&base_dir);
+
+        let http = build_http(config)?;
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -52,23 +183,63 @@ impl CacheManager {
                 keep_days: RwLock::new(config.cache.keep_days),
                 max_size_mb: RwLock::new(config.cache.max_size_mb),
                 db,
-                http,
+                http: RwLock::new(http),
             }),
         })
     }
 
-    /// 套用新設定
+    /// 套用新設定(含依 cloud 設定重建下載 client —— 與 CloudClient.apply_config 對稱)。
+    /// - **先建 http client**(唯一真正可失敗的步驟),失敗即中止且未寫入任何欄位(無半套用窗)。
+    /// - 目錄驗證失敗 → **沿用現有 base_dir、只 warn 不回錯**:cache.dir「未變」時不可因
+    ///   legacy 壞設定卡死所有無關設定的儲存(runtime 本就跑在 new() 的安全 fallback 上);
+    ///   cache.dir「有變且壞」的情況由 update_config 的預檢在儲存前擋下,不會走到這裡。
     pub fn apply_config(&self, handle: &AppHandle, config: &AppConfig) -> AppResult<()> {
-        let new_dir = config.resolved_cache_dir(handle)?;
-        std::fs::create_dir_all(&new_dir)?;
-        *self.inner.base_dir.write() = new_dir;
+        let http = build_http(config)?;
+        match Self::validate_dir(handle, config) {
+            Ok(new_dir) => {
+                ensure_marker(&new_dir);
+                *self.inner.base_dir.write() = new_dir;
+            }
+            Err(e) => tracing::warn!(%e, "快取目錄不可用,沿用現有目錄(僅套用其餘設定)"),
+        }
         *self.inner.keep_days.write() = config.cache.keep_days;
         *self.inner.max_size_mb.write() = config.cache.max_size_mb;
+        *self.inner.http.write() = http;
         Ok(())
     }
 
     pub fn base_dir(&self) -> PathBuf {
         self.inner.base_dir.read().clone()
+    }
+
+    /// 清空快取根下所有檔案(遞迴;保留目錄結構與 marker)。
+    /// 帶 marker 安全鎖:目錄缺 marker(未經 CacheManager 初始化,可能是誤設的使用者資料夾)
+    /// 時**拒絕執行**並回錯誤,讓 UI 明確告知,而非默默清掉非快取檔案。
+    pub async fn clear_all_files(&self) -> AppResult<()> {
+        let base = self.base_dir();
+        if !base.exists() {
+            return Ok(());
+        }
+        if !base.join(CACHE_MARKER).exists() {
+            return Err(AppError::Other(format!(
+                "快取目錄缺少識別 marker({CACHE_MARKER}),為避免誤刪非快取檔案已拒絕清空;\
+                 請確認快取目錄設定是否指向專屬資料夾",
+            )));
+        }
+        let mut stack = vec![base];
+        while let Some(dir) = stack.pop() {
+            let mut entries = fs::read_dir(&dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let meta = entry.metadata().await?;
+                let path = entry.path();
+                if meta.is_dir() {
+                    stack.push(path);
+                } else if path.file_name().and_then(|n| n.to_str()) != Some(CACHE_MARKER) {
+                    let _ = fs::remove_file(&path).await;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn local_path_for_key(&self, label_key: &str) -> PathBuf {
@@ -261,8 +432,9 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
         fs::create_dir_all(parent).await?;
     }
 
-    let resp = inner
-        .http
+    // clone 出 client 再發請求(Client 內部 Arc,clone 便宜;不跨 await 持鎖)
+    let http = inner.http.read().clone();
+    let resp = http
         .get(source_url)
         .send()
         .await?
@@ -367,6 +539,13 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
 }
 
 async fn clean_expired(base: &Path, threshold: std::time::SystemTime) -> AppResult<()> {
+    // 安全鎖:無 marker 的目錄不做無差別遞迴刪除(可能是誤設的使用者資料夾,如 ~/Pictures)。
+    // 刪錯個人檔案不可回復,寧可不清理;marker 由 CacheManager 初始化時寫入。
+    if !base.join(CACHE_MARKER).exists() {
+        tracing::warn!(base = %base.display(),
+            "快取根缺少 marker({CACHE_MARKER}),跳過過期清理(避免誤刪非快取檔案)");
+        return Ok(());
+    }
     let mut stack = vec![base.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let mut entries = match fs::read_dir(&dir).await {
@@ -378,6 +557,10 @@ async fn clean_expired(base: &Path, threshold: std::time::SystemTime) -> AppResu
             let path = entry.path();
             if meta.is_dir() {
                 stack.push(path);
+                continue;
+            }
+            // marker 本身永不刪(刪了下一輪清理就被安全鎖擋下)
+            if path.file_name().and_then(|n| n.to_str()) == Some(CACHE_MARKER) {
                 continue;
             }
             if let Ok(modified) = meta.modified() {

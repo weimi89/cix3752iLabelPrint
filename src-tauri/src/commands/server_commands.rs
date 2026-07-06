@@ -23,8 +23,11 @@ pub async fn restart_server(
     if let Some(old) = guard.take() {
         old.shutdown().await;
     }
-    // 再綁新的;失敗則 guard 維持 None(server 未啟動),Err 上拋
-    let new = server::start(
+    // 再綁新的;失敗則 guard 維持 None(server 未啟動),Err 上拋。
+    // 失敗同時 emit `server-bind-failed`:重啟失敗 = 工控機整線連不上,設定頁的一次性
+    // 錯誤提示不夠,前端 listener(DefaultLayout)跳常駐告警 + 警示音
+    //(對齊 bootstrap 綁定失敗;此時 webview 已載入,emit 一定送達)。
+    let new = match server::start(
         config,
         state.db.clone(),
         state.cloud.clone(),
@@ -34,9 +37,17 @@ pub async fn restart_server(
         state.watermark.clone(),
         state.bag_check.clone(),
         state.camera.clone(),
-        app,
+        app.clone(),
     )
-    .await?;
+    .await
+    {
+        Ok(h) => h,
+        Err(e) => {
+            use tauri::Emitter;
+            let _ = app.emit("server-bind-failed", e.to_string());
+            return Err(e);
+        }
+    };
     *guard = Some(new);
     Ok(())
 }

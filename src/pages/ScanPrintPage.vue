@@ -3,6 +3,7 @@ import { toast } from 'vue3-toastify'
 import { useRouter } from 'vue-router'
 import { cloudFetchLabel, printImage } from '@/api/tauri'
 import { printErrorLabel } from '@/composables/useErrorLabelPrint'
+import { playSound } from '@/composables/useSoundEffects'
 import { isPrintable, statusLabel, statusIcon, statusGroupColor, errorMessageFromException } from '@/composables/useLabelStatus'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import AppBulkInput from '@/components/AppBulkInput.vue'
@@ -179,7 +180,8 @@ const processOne = async index => {
     item.shipping_no = data.print_shipping_no || ''
     item.shipping_provider = data.print_shipping_provider || ''
     item.image = data.print_file_path || null
-    item.message = statusLabel(item.code)
+    // 雲端 4xx 業務錯誤(middleware 合成失敗結果)帶人類可讀解釋 → 優先顯示;無則用狀態碼文案
+    item.message = data.respond_message || statusLabel(item.code)
     item.print_time = Array.isArray(data.print_time) ? data.print_time : []
     item.error_label_path = data.error_label_path || null
     if (item.code !== 'LABEL-PROCESS') {
@@ -222,14 +224,24 @@ const processShipments = async () => {
   await printErrorLabelsForFailed()
 }
 
-// 把本批查詢失敗、且 middleware 有回錯誤面單的訂單逐筆印出(逐筆排隊,不並發)
+// 把本批查詢失敗、且 middleware 有回錯誤面單的訂單逐筆印出(逐筆排隊,不並發)。
+// 印不出來(無印表機 / 列印失敗)**必須提示**:錯誤面單是撿出異常包裹的唯一實體線索,
+// 靜默失敗 = 「以為印了其實沒印」的盲區(音效整批一次、toast 依 reason 折疊,不洗版)。
 const printErrorLabelsForFailed = async () => {
+  let alerted = false
+  const alertFailed = reason => {
+    if (!alerted) { playSound('effect_2'); alerted = true }
+    const key = reason === 'no_printer' ? 'no_printer' : 'print_failed'
+    toast(t(`errorLabelFailed.${key}`), { type: 'error', toastId: `error-label-failed:${key}` })
+  }
   for (const item of printList) {
     if (!item.error_label_path) continue
     try {
-      await printErrorLabel(item.error_label_path, item.shipping_provider, printerMap.value)
+      const r = await printErrorLabel(item.error_label_path, item.shipping_provider, printerMap.value)
+      if (!r.printed) alertFailed(r.reason)
     } catch (e) {
       console.error('錯誤面單列印失敗', item.sn, e)
+      alertFailed('print_failed')
     }
   }
 }

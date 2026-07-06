@@ -91,7 +91,15 @@ pub fn start_scheduler(state: SharedState) {
                 .collect();
             missed.sort();
             missed.dedup();
+            let catchup_date = now.format("%Y-%m-%d").to_string();
             for t in missed {
+                // 跨午夜守門(同主迴圈):補跑批次跨過 00:00 後剩餘時段不可再執行 ——
+                // run_pregen 以「執行當下」日期+offset 取目標日,過午夜再跑會整批預產錯日訂單
+                if chrono::Local::now().format("%Y-%m-%d").to_string() != catchup_date {
+                    event_log::log_bg(state.db.clone(), "warn", "pregen", "跨日漏跑",
+                        format!("啟動補跑跨過午夜,剩餘時段不執行 time={t}(目標日已過,避免錯日預產)"));
+                    continue;
+                }
                 fired.insert(t.clone());
                 event_log::log_bg(
                     state.db.clone(),
@@ -104,6 +112,12 @@ pub fn start_scheduler(state: SharedState) {
             }
         }
 
+        // 視窗掃描的下界:上輪檢查時刻的 "HH:MM"。每輪處理 [last_hhmm, now] 視窗內全部排程點
+        //(fired 防重複觸發)—— run_pregen 為 inline await,批次跑數十分鐘會停 tick;
+        // 舊做法用「當下分鐘 == 排程點」精確比對,批次跑過頭該時段永不相等 → 當日靜默漏跑。
+        // 視窗掃描讓恢復 tick 後把錯過的時段一次補上。"HH:MM" 固定寬度全數字,字典序即時序。
+        let mut last_hhmm = now.format("%H:%M").to_string();
+
         loop {
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
 
@@ -112,30 +126,73 @@ pub fn start_scheduler(state: SharedState) {
             let now = chrono::Local::now();
             let today = now.format("%Y-%m-%d").to_string();
             if today != done_date {
+                // 跨日:昨日 last_hhmm 之後、尚未觸發的排程點已無法補跑
+                //(run_pregen 以「當日」為目標,過了午夜再跑目標日就錯了)——
+                // 至少記 warn 讓漏跑**可觀測**,不與修正前一樣靜默消失。
+                let missed: Vec<String> = cfg
+                    .times
+                    .iter()
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| t.as_str() > last_hhmm.as_str() && !fired.contains(t))
+                    .collect();
+                for t in missed {
+                    event_log::log_bg(state.db.clone(), "warn", "pregen", "跨日漏跑",
+                        format!("批次執行跨過午夜,昨日排程時段未觸發 time={t}(目標日已過,不補跑)"));
+                }
                 done_date = today;
                 fired.clear();
+                // 跨日:視窗下界歸 00:00,當日排程重新起算
+                last_hhmm = "00:00".to_string();
             }
+            let now_hhmm = now.format("%H:%M").to_string();
 
             if !cfg.enabled || cfg.times.is_empty() || cfg.sources.is_empty() {
+                // 停用期間流逝的時段不補跑(對齊舊行為):下界跟著推進
+                last_hhmm = now_hhmm;
                 continue;
             }
 
-            let hhmm = now.format("%H:%M").to_string();
-            if !cfg.times.iter().any(|t| t.trim() == hhmm) || fired.contains(&hhmm) {
-                continue;
+            // 視窗內到期且未跑過的時段(含批次執行期間錯過的),依時序逐一觸發
+            let mut due: Vec<String> = cfg
+                .times
+                .iter()
+                .map(|t| t.trim().to_string())
+                .filter(|t| {
+                    last_hhmm.as_str() <= t.as_str()
+                        && t.as_str() <= now_hhmm.as_str()
+                        && !fired.contains(t)
+                })
+                .collect();
+            due.sort();
+            due.dedup();
+            last_hhmm = now_hhmm;
+
+            for (i, hhmm) in due.iter().enumerate() {
+                // 跨午夜守門:前一時段批次跑過 00:00 後,剩餘 due 時段不可再執行 ——
+                // run_pregen 以「執行當下」日期+offset 取目標日,過午夜再跑會整批預產**錯日**訂單
+                // (灌錯快取 + pregen_done 標錯批)。剩餘時段**就地**逐一記「跨日漏跑」event_log
+                // (不可依賴下個 tick 的 rollover 補記:last_hhmm 已推進到 now_hhmm,
+                //  rollover 的 `t > last_hhmm` 過濾對這些時段恆為 false,會靜默無痕)。
+                if chrono::Local::now().format("%Y-%m-%d").to_string() != done_date {
+                    for miss in &due[i..] {
+                        event_log::log_bg(state.db.clone(), "warn", "pregen", "跨日漏跑",
+                            format!("批次執行跨過午夜,時段未執行 time={miss}(目標日已過,避免錯日預產)"));
+                    }
+                    break;
+                }
+                fired.insert(hhmm.clone());
+
+                // 先寫「到點觸發」— 即使後續整批失敗,也留下「確實有跑」的證據
+                event_log::log_bg(
+                    state.db.clone(),
+                    "info",
+                    "pregen",
+                    "到點觸發",
+                    format!("到點觸發自動預產 time={hhmm}"),
+                );
+
+                run_pregen(&state, &cfg, hhmm).await;
             }
-            fired.insert(hhmm.clone());
-
-            // 先寫「到點觸發」— 即使後續整批失敗,也留下「確實有跑」的證據
-            event_log::log_bg(
-                state.db.clone(),
-                "info",
-                "pregen",
-                "到點觸發",
-                format!("到點觸發自動預產 time={hhmm}"),
-            );
-
-            run_pregen(&state, &cfg, &hhmm).await;
         }
     });
 }

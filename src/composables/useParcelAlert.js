@@ -32,6 +32,7 @@ export function useParcelAlert() {
   const { t } = useI18n()
   let unlisten = null
   let unlistenLabelFailed = null
+  let unlistenDirectPrint = null
 
   const handle = payload => {
     const kind = payload?.kind || 'error'
@@ -72,6 +73,31 @@ export function useParcelAlert() {
     toast(text, { type: 'error' })
   }
 
+  // DirectPrint(中介機直印)失敗:工控機已拿到成功回應、統計已記,若不主動提示,
+  // 分揀線整批漏印而所有畫面顯示正常 —— 最難察覺的靜默故障,必須出聲 + toast。
+  // 防洪(印表機離線時分揀線每分鐘數十件、每件都 emit):同 reason 折疊成單一常駐 toast
+  //(toastId 就地更新,不堆疊),音效 20s 節流(對齊 useDeviceAlert 慣例),避免 UI 不可用。
+  let lastDirectPrintSoundAt = 0
+  const handleDirectPrintFailed = payload => {
+    const reason = payload?.reason || 'print_failed'
+    const queryNo = payload?.query_no || ''
+    const now = Date.now()
+    if (now - lastDirectPrintSoundAt >= 20000) {
+      lastDirectPrintSoundAt = now
+      playSound('effect_2')
+    }
+    let text = t(`directPrintFailed.${reason}`)
+    if (queryNo) text += `(${queryNo})`
+    // vue3-toastify 對已存在的 toastId 是「丟棄後續呼叫」而非更新 —— 必須顯式 update,
+    // 否則後續失敗件的單號不會顯示,操作員只看得到第一件
+    const id = `direct-print-failed:${reason}`
+    if (toast.isActive(id)) {
+      toast.update(id, { render: text, type: 'error', autoClose: false })
+    } else {
+      toast(text, { type: 'error', autoClose: false, toastId: id })
+    }
+  }
+
   const start = async () => {
     if (!unlisten) {
       unlisten = await listen('parcel-alert', evt => handle(evt.payload))
@@ -79,10 +105,14 @@ export function useParcelAlert() {
     if (!unlistenLabelFailed) {
       unlistenLabelFailed = await listen('error-label-print-failed', evt => handleLabelFailed(evt.payload))
     }
+    if (!unlistenDirectPrint) {
+      unlistenDirectPrint = await listen('direct-print-failed', evt => handleDirectPrintFailed(evt.payload))
+    }
   }
   const stop = () => {
     if (unlisten) { unlisten(); unlisten = null }
     if (unlistenLabelFailed) { unlistenLabelFailed(); unlistenLabelFailed = null }
+    if (unlistenDirectPrint) { unlistenDirectPrint(); unlistenDirectPrint = null }
   }
 
   return { start, stop }

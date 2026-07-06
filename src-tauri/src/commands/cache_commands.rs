@@ -55,29 +55,20 @@ pub async fn cache_stats(state: State<'_, SharedState>) -> AppResult<CacheStats>
     })
 }
 
-/// 清空快取(刪除目錄下所有檔案 + 清 cache_meta)
+/// 清空快取(刪除目錄下所有檔案 + 清 cache_meta + 連帶清面單預產去重)
 #[tauri::command]
 pub async fn cache_clear(state: State<'_, SharedState>) -> AppResult<u64> {
-    let base = state.cache.base_dir();
-    // 先刪檔
-    if base.exists() {
-        let mut stack = vec![base.clone()];
-        while let Some(dir) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&dir).await?;
-            while let Some(entry) = entries.next_entry().await? {
-                let meta = entry.metadata().await?;
-                let path = entry.path();
-                if meta.is_dir() {
-                    stack.push(path);
-                } else {
-                    let _ = tokio::fs::remove_file(&path).await;
-                }
-            }
-        }
-    }
-    // 再清 cache_meta
+    // 刪檔走 CacheManager(帶 marker 安全鎖:目錄未經初始化=可能誤設使用者資料夾 → 拒絕)
+    state.cache.clear_all_files().await?;
+    // 清 cache_meta
     let result = sqlx::query("DELETE FROM cache_meta")
         .execute(&state.db)
         .await?;
+    // 「清快取必須連帶清 pregen_done」是後端不變量,在此維護(不靠 UI 記得補第二個 IPC):
+    // 否則檔案已刪、pregen_done 仍標已預產 → 預產整批誤判略過、無法重跑。
+    // 失敗只 warn 不整體失敗(前端 clearProcessed 仍會再清一次 + 重置前端鏡像)。
+    if let Err(e) = state.pregen_done.clear(&state.db).await {
+        tracing::warn!(?e, "cache_clear 連帶清 pregen_done 失敗");
+    }
     Ok(result.rows_affected())
 }

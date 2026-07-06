@@ -78,6 +78,9 @@
     "error": "面單請求失敗",
     "noread": "讀碼失敗(NoRead)"
   },
+  "serverAlert": {
+    "bindFailed": "本機服務未啟動(連接埠可能被占用),工控機將無法連線!請關閉占用程式後,到「伺服器設定」頁重新啟動服務"
+  },
   "deviceAlert": {
     "PARCEL_JAM": "注意，分揀機台卡包裹，請現場人員立即處理",
     "USB_DISCONNECT": "注意，USB 接口異常斷線，請檢查設備連線",
@@ -89,6 +92,12 @@
     "no_printer": "錯誤面單無法列印：找不到可用印表機",
     "print_failed": "錯誤面單列印失敗",
     "cache_write_failed": "錯誤面單暫存失敗，已改用本機列印"
+  },
+  "directPrintFailed": {
+    "download_failed": "直印失敗：面單下載失敗,此件實際未印出",
+    "no_printer": "直印失敗：物流商未設定印表機,此件實際未印出",
+    "read_failed": "直印失敗：讀取面單圖失敗,此件實際未印出",
+    "print_failed": "直印失敗：列印送出失敗,此件實際未印出"
   },
   "soundSettings": {
     "title": "提示音設定",

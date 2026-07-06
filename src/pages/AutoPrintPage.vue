@@ -188,9 +188,7 @@ const enqueuePrint = task => {
 // 不負責更新 packageOrders / 清空欄位,由呼叫端按情境處理
 // (例外:ABNORMAL-PACKAGE 袋號本身異常,必須回到袋號欄重刷,故在此就近清空 shipment_no + 聚焦)
 const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
-  if (!form.scanner_user.trim()) { toast(t('page.scan.errScannerUserRequired'), { type: 'error' }); return { success: false } }
-  if (!form.sticker_user.trim()) { toast(t('page.scan.errStickerUserRequired'), { type: 'error' }); return { success: false } }
-  if (!form.print_types.length) { playSound('effect_2'); toast(t('page.auto.toast.errPrintTypeRequired'), { type: 'error' }); return { success: false } }
+  if (!validatePrintForm()) return { success: false }
 
   rememberUser(form.scanner_user)
   rememberUser(form.sticker_user)
@@ -240,12 +238,20 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
       case 'STORE-CLOSED': playSound('effect_3'); toast(t('page.auto.toast.storeClosed', { sn: data.shipment_no || orderSn }), { type: 'warning' }); break
       default: playSound('effect_2'); toast(t('page.auto.toast.unknownRespond', { code: data?.respond_code || t('page.auto.noCode'), msg: data?.respond_message || '' }), { type: 'error' })
     }
-    // 失敗時若 middleware 有回錯誤面單,用該物流商的同一台印表機印出(與正常面單同出口)
+    // 失敗時若 middleware 有回錯誤面單,用該物流商的同一台印表機印出(與正常面單同出口)。
+    // 印不出來必須提示(錯誤面單是撿出異常包裹的唯一實體線索,不可靜默失敗)
     if (data?.error_label_path) {
+      const alertLabelFailed = reason => {
+        const key = reason === 'no_printer' ? 'no_printer' : 'print_failed'
+        playSound('effect_2')
+        toast(t(`errorLabelFailed.${key}`), { type: 'error', toastId: `error-label-failed:${key}` })
+      }
       try {
-        await printErrorLabel(data.error_label_path, data.provider_code, printerMap.value)
+        const r = await printErrorLabel(data.error_label_path, data.provider_code, printerMap.value)
+        if (!r.printed) alertLabelFailed(r.reason)
       } catch (e) {
         console.error('錯誤面單列印失敗', e)
+        alertLabelFailed('print_failed')
       }
     }
     return { success: false, data }
@@ -260,8 +266,10 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
 const handleExaminePackage = () => {
   const value = form.shipment_no.trim()
   if (!value) return
-  // 只有「ON 反查 + 會自動印」時才前置驗證(焦點連刷停在本欄,失敗就不清欄位、不排隊,讓操作員補資料後重刷)。
-  // 關閉自動列印 = 純查件/查漏,不該被人員未填卡住;OFF 模式以「查清單」為主,人員未填時由 performPrintOrder 內部提示
+  // 只有「ON 反查 + 會自動印」時才前置驗證(該模式無清單概念,整筆即列印;焦點連刷停在本欄,
+  // 失敗就不清欄位、不排隊、不登記去重 —— useScanDedup 契約:被前置驗證擋下的掃描不該登記)。
+  // 預設模式(掃包裹條碼)不前置擋:清單照常載入(查件不被人員未填卡住),
+  // 列印前的驗證與去重補償在 FIND-PACKAGE-ORDER 分支內處理。
   if (examineByOrderSn.value && autoPrintOnScan.value && !validatePrintForm()) return
   // 掃描槍連刷防呆:同一條碼 5 秒內重複 → 略過。避免刷太快造成
   // 自動列印模式下重印一筆,或查件模式下重載清單清掉本場已刷標記
@@ -293,8 +301,11 @@ const handleExaminePackage = () => {
         )
         // 開啟自動列印時:刷入的條碼本身就是系統訂單編號(=包裹訂單條碼),載入清單後立即當訂單編號列印該筆,
         // 免去在系統訂單編號欄再刷一次同一個條碼;ON / OFF 兩模式一致。
-        // 人員/列印類型未填時 performPrintOrder 內部會擋下並提示,清單照常顯示,不影響查件
-        if (autoPrintOnScan.value) {
+        // 人員/列印類型未填時擋下列印並提示(清單照常顯示,不影響查件),
+        // 並 reset 掃描去重 —— 否則補完資料後 5 秒內重刷同碼會被誤判重複而印不出(useScanDedup 契約)
+        if (autoPrintOnScan.value && !validatePrintForm()) {
+          packageScanDedup.reset()
+        } else if (autoPrintOnScan.value) {
           const r = await performPrintOrder(value, { packageSn: data.package_sn || '' })
           if (r.success && r.data) {
             packageOrders.value = packageOrders.value.map(o =>

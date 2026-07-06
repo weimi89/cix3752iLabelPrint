@@ -56,7 +56,13 @@ pub async fn print_image(
         }
     };
 
-    printer::print_image_bytes(&req.printer_name, &bytes)
+    // GDI 列印為同步阻塞呼叫(Windows spooler 卡住時可達數十秒):包 spawn_blocking,
+    // 不占死 tokio worker —— 低核心數工控機上占滿 worker 會讓 axum server 無執行緒可跑,
+    // 工控機 GET /api/parcel 全部逾時(對齊 run_direct_print_job 的作法)。
+    let pname = req.printer_name.clone();
+    tokio::task::spawn_blocking(move || printer::print_image_bytes(&pname, &bytes))
+        .await
+        .map_err(|e| AppError::Printer(format!("列印 task 失敗: {e}")))?
 }
 
 /// 入倉裝箱標籤一張(對齊雲端 WarehouseScannerService::generateLabelData 回傳欄位)
@@ -120,8 +126,13 @@ pub async fn warehouse_print_labels(
         if bytes.is_empty() {
             return Err(AppError::Printer(format!("箱標 {} 影像生成失敗", label.package_sn)));
         }
-        printer::print_image_bytes(&req.printer_name, &bytes)
-            .map_err(|e| AppError::Printer(format!("箱標 {} 列印失敗: {e}", label.package_sn)))?;
+        // 同 print_image:GDI 阻塞呼叫包 spawn_blocking,連印多張箱標不占死 tokio worker
+        let pname = req.printer_name.clone();
+        let sn = label.package_sn.clone();
+        tokio::task::spawn_blocking(move || printer::print_image_bytes(&pname, &bytes))
+            .await
+            .map_err(|e| AppError::Printer(format!("箱標 {sn} 列印 task 失敗: {e}")))?
+            .map_err(|e| AppError::Printer(format!("箱標 {sn} 列印失敗: {e}")))?;
         printed += 1;
     }
     Ok(printed)
