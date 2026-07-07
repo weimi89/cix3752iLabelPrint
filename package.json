@@ -1,7 +1,7 @@
 {
   "name": "cix3752i-label-print",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "本地分揀中介服務與面單列印桌面工具（Tauri v2 + Vue 3）",
   "type": "module",
   "scripts": {

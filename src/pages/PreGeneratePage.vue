@@ -192,7 +192,8 @@ const rerunManualFailed = () => rerunSns([...manualFailedSns()])
 const autoFailedSns = computed(() => (pregenStatus.value?.last_failed_sns || []))
 const copyAutoFailed = () => copySns(autoFailedSns.value.map(f => f.sn))
 const rerunAutoFailed = () => rerunSns(autoFailedSns.value.map(f => f.sn))
-const showAutoFailed = ref(false)
+// 預設展開:失敗單號要能一眼看到,不必先點一下(仍可收合)
+const showAutoFailed = ref(true)
 
 // 清除本快取日「已預產」記憶,讓所有訂單下次查詢都重新抓取(配合或不配合「強制重跑」皆可用)
 // clearProcessed 先清後端、失敗會拋出;此處攔截並提示,不讓「清了卻沒清成」靜默發生。
@@ -698,6 +699,45 @@ const saveSchedule = async () => {
               </div>
               <VProgressLinear :model-value="progressPct" color="primary" height="8" rounded class="mb-4" />
 
+              <!-- 失敗清單:置於縮圖網格之前,失敗時第一眼就看得到,不必滑過大量縮圖 -->
+              <VCard v-if="downloadStatus.length > 0" border class="mb-4 fail-card">
+                <VCardText class="pa-3">
+                  <div class="d-flex align-center flex-wrap ga-2 mb-2">
+                    <div class="text-body-1">
+                      <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
+                      {{ $t('page.preGenerate.downloadWarnings') }}
+                      <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
+                    </div>
+                    <VSpacer />
+                    <VBtn size="small" variant="tonal" color="default" prepend-icon="tabler-copy" @click="copyManualFailed">
+                      {{ $t('page.preGenerate.copyFailed') }}
+                    </VBtn>
+                    <VBtn size="small" variant="tonal" color="primary" prepend-icon="tabler-refresh" :disabled="isProcessing" @click="rerunManualFailed">
+                      {{ $t('page.preGenerate.rerunFailed') }}
+                    </VBtn>
+                  </div>
+                  <div class="fail-table-scroll">
+                    <VTable density="compact">
+                      <thead>
+                        <tr>
+                          <th class="text-start">{{ $t('form.orderSn') }}</th>
+                          <th class="text-start">{{ $t('page.preGenerate.failReason') }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(f, i) in downloadStatus" :key="f.sn + i">
+                          <td class="sn-mono">{{ f.sn }}</td>
+                          <td>{{ f.message || f.code }}</td>
+                        </tr>
+                      </tbody>
+                    </VTable>
+                  </div>
+                  <div v-if="failCount > downloadStatus.length" class="text-caption text-medium-emphasis mt-2">
+                    {{ $t('page.preGenerate.failMore', { n: failCount - downloadStatus.length }) }}
+                  </div>
+                </VCardText>
+              </VCard>
+
               <!-- 全部 cell 都渲染,但靠 .cell 的 content-visibility + img loading=lazy,
                    只有捲到可視範圍的才真正 layout/paint 與下載圖片,上萬筆也不卡 -->
               <div class="label-grid">
@@ -723,42 +763,6 @@ const saveSchedule = async () => {
         </VCard>
       </VCol>
     </VRow>
-
-    <VCard v-if="downloadStatus.length > 0" class="mt-3" border>
-      <VCardText>
-        <div class="d-flex align-center flex-wrap ga-2 mb-2">
-          <div class="text-body-1">
-            <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
-            {{ $t('page.preGenerate.downloadWarnings') }}
-            <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
-          </div>
-          <VSpacer />
-          <VBtn size="small" variant="tonal" color="default" prepend-icon="tabler-copy" @click="copyManualFailed">
-            {{ $t('page.preGenerate.copyFailed') }}
-          </VBtn>
-          <VBtn size="small" variant="tonal" color="primary" prepend-icon="tabler-refresh" :disabled="isProcessing" @click="rerunManualFailed">
-            {{ $t('page.preGenerate.rerunFailed') }}
-          </VBtn>
-        </div>
-        <VTable density="compact">
-          <thead>
-            <tr>
-              <th class="text-start">{{ $t('form.orderSn') }}</th>
-              <th class="text-start">{{ $t('page.preGenerate.failReason') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(f, i) in downloadStatus" :key="f.sn + i">
-              <td>{{ f.sn }}</td>
-              <td>{{ f.message || f.code }}</td>
-            </tr>
-          </tbody>
-        </VTable>
-        <div v-if="failCount > downloadStatus.length" class="text-caption text-medium-emphasis mt-2">
-          {{ $t('page.preGenerate.failMore', { n: failCount - downloadStatus.length }) }}
-        </div>
-      </VCardText>
-    </VCard>
   </div>
 </template>
 
@@ -767,6 +771,20 @@ const saveSchedule = async () => {
   position: sticky;
   inset-block-start: 5rem;
   z-index: 1;
+}
+
+/* 失敗清單卡:置於縮圖前,紅色描邊醒目;表格限高捲動,避免大量失敗把縮圖擠到很下面 */
+.fail-card {
+  border-color: rgba(var(--v-theme-error), 0.4) !important;
+  background-color: rgba(var(--v-theme-error), 0.03);
+}
+.fail-table-scroll {
+  max-block-size: 300px;
+  overflow-y: auto;
+}
+.sn-mono {
+  font-family: 'Menlo', 'Consolas', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* 自動排程對話框 */
@@ -800,10 +818,6 @@ const saveSchedule = async () => {
   overflow-y: auto;
   border: 1px solid rgba(var(--v-theme-error), 0.25);
   border-radius: 8px;
-}
-.sn-mono {
-  font-family: 'Menlo', 'Consolas', monospace;
-  letter-spacing: 0.5px;
 }
 
 /* 書籤式分頁:平均寬、上圓角,選中頁籤白底高亮並與下方卡片連成一體 */
