@@ -80,6 +80,9 @@ pub struct SummaryResp {
     pub packages_last_30_days: i64,
     pub range_total: i64,
     pub packages_range_total: i64,
+    /// 區間內 NoRead(工控機相機讀不到單號)件數,來自 daily_stats.noread_count 加總。
+    /// NoRead 不打雲端、不進 print_event,故印單統計原本看不到,獨立於此呈現。
+    pub noread_range_total: i64,
     pub by_source: Vec<SourceCount>,
 }
 
@@ -190,6 +193,22 @@ pub async fn print_stats_summary(
         })
         .collect();
 
+    // 區間 NoRead 件數:NoRead 逐筆記在 parcel_query_log(query_no='NoRead'、created_at 為 localtime,
+    // 見 server::handle_noread),直接以 localtime created_at 計數 —— 與 range_total
+    // (print_event.created_at 亦 localtime)**同一時區基準**,日界對齊、旁邊兩數字不會錯位。
+    // 不從 daily_stats.noread_count 加總:daily_stats.date 是 UTC-day 聚合(≈本地 08:00 換日),
+    // 拿本地日期區間去比會差 ~8h,清晨 NoRead 被算到前一天、與 localtime 的 range_total 對不上。
+    let noread_range_total: i64 = sqlx::query(
+        "SELECT COUNT(*) AS n FROM parcel_query_log
+         WHERE query_no = 'NoRead' AND created_at >= ? AND created_at < ?",
+    )
+    .bind(&range_start)
+    .bind(&range_end)
+    .fetch_one(&state.db)
+    .await?
+    .try_get("n")
+    .unwrap_or(0);
+
     Ok(SummaryResp {
         since_reset_at,
         since_reset,
@@ -202,6 +221,7 @@ pub async fn print_stats_summary(
         packages_last_30_days: packages_last_30,
         range_total,
         packages_range_total,
+        noread_range_total,
         by_source,
     })
 }

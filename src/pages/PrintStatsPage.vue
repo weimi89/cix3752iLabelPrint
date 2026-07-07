@@ -592,6 +592,14 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
           </div>
           <VSpacer />
           <div class="d-flex align-center gap-3 flex-nowrap">
+            <!-- NoRead(相機讀不到單號)區間件數:不進 print_event,獨立呈現;>0 才顯示 -->
+            <div v-if="summary?.noread_range_total > 0" class="d-flex align-center ga-1 pe-3 noread-stat">
+              <VIcon icon="tabler-scan-eye" size="18" color="warning" />
+              <div>
+                <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.noreadRangeTotal') }}</div>
+                <div class="text-h5 font-weight-bold text-warning">{{ summary.noread_range_total }}</div>
+              </div>
+            </div>
             <div>
               <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.rangeTotal') }}</div>
               <div class="text-caption text-medium-emphasis">
@@ -1050,6 +1058,11 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
   &--primary {
     border-block-start: 3px solid rgb(var(--v-theme-primary));
   }
+}
+
+// NoRead 區間件數:與右側「區間總數」以細線分隔,視覺上獨立
+.noread-stat {
+  border-inline-end: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 
 .stat-rows {

@@ -28,6 +28,20 @@ const TICK_SECS: u64 = 30;
 /// 預下載並發數(對齊前端 worker 數,避免一次打爆雲端)
 const CONCURRENCY: usize = 4;
 
+/// 自動預產「上次執行失敗單號」保留上限(避免大批失敗時記憶體無界成長;
+/// 超出僅以 `last_fail` 計數呈現,清單截斷)。
+const FAILED_SN_CAP: usize = 200;
+
+/// 自動預產單筆失敗的單號 + 原因(供前端列出、複製、一鍵重跑)。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PregenFailedSn {
+    pub sn: String,
+    /// 來源(clearance / transfer),多來源時可辨識
+    pub source: String,
+    /// 失敗原因(pregen_label_to_cache 的錯誤字串)
+    pub reason: String,
+}
+
 /// 自動預產排程的可觀測狀態(記憶體,供前端 `get_pregen_status` 查詢)。
 /// 時間字串一律本地時區 "YYYY-MM-DD HH:MM:SS"。
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -45,6 +59,8 @@ pub struct PregenStatus {
     pub last_empty: u32,
     /// 上次是否有任何來源反查失敗或單筆失敗
     pub last_had_error: bool,
+    /// 上次執行的失敗單號清單(最多 FAILED_SN_CAP 筆;供前端列出 / 複製 / 重跑)
+    pub last_failed_sns: Vec<PregenFailedSn>,
 }
 
 /// 啟動排程 worker(在 AppState 建立後呼叫,持有 SharedState)
@@ -232,6 +248,8 @@ async fn run_pregen(
     // 跨來源加總,結束後一次性更新 PregenStatus
     let (mut g_ok, mut g_fail, mut g_skip, mut g_empty) = (0u32, 0u32, 0u32, 0u32);
     let mut had_error = false;
+    // 跨來源累積的失敗單號(截斷至 FAILED_SN_CAP;g_fail 仍為完整計數)
+    let mut g_failed: Vec<PregenFailedSn> = Vec::new();
 
     for source in &cfg.sources {
         let res = match state.cloud.fetch_orders_by_date(&date, source).await {
@@ -295,7 +313,16 @@ async fn run_pregen(
                             ok_sns.push(sn);
                         }
                         Ok(false) => empty += 1,
-                        Err(_) => fail += 1,
+                        Err(e) => {
+                            fail += 1;
+                            if g_failed.len() < FAILED_SN_CAP {
+                                g_failed.push(PregenFailedSn {
+                                    sn,
+                                    source: source.clone(),
+                                    reason: format!("{e}"),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -336,4 +363,5 @@ async fn run_pregen(
     st.last_skipped = g_skip;
     st.last_empty = g_empty;
     st.last_had_error = had_error;
+    st.last_failed_sns = g_failed;
 }

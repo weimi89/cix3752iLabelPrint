@@ -4,7 +4,7 @@
 //! 自動跑完後手動又全部重打雲端、全報「成功」。此模組把它統一到後端單一來源:
 //!   - 記憶體 `HashSet` 提供快查(自動排程 filter / 手動頁 skip)。
 //!   - 持久化到 DB `pregen_done` 表,撐過 App 重啟(同一快取日內仍記得)。
-//!   - 以「快取日(04:00 為界)」為範圍,跨日自動清空(對齊快取清理慣例與前端舊行為)。
+//!   - 以「快取日(06:00 為界)」為範圍,跨日自動清空(對齊快取清理慣例與前端舊行為)。
 //! 自動排程與手動頁(經 command)共用同一份,接續執行時已預產的就真正略過、不重打雲端。
 
 use std::collections::HashSet;
@@ -14,8 +14,8 @@ use tokio::sync::Mutex;
 use crate::db::DbPool;
 use crate::AppResult;
 
-/// 快取日字串:把現在往前推 4 小時讓 04:00 對齊午夜,再取年-月-日。
-/// 對齊前端 usePreGenProcessed 與快取約 04:00 清理的慣例。
+/// 快取日字串:把現在往前推 6 小時讓 06:00 對齊午夜,再取年-月-日。
+/// 對齊前端 usePreGenProcessed 與快取約 06:00 清理的慣例。
 pub fn current_cache_day() -> String {
     cache_day_offset(0)
 }
@@ -23,7 +23,7 @@ pub fn current_cache_day() -> String {
 /// 相對當前快取日位移 `days` 天的快取日字串(days=-1 為前一快取日)。
 fn cache_day_offset(days: i64) -> String {
     let shifted =
-        chrono::Local::now() - chrono::Duration::hours(4) + chrono::Duration::days(days);
+        chrono::Local::now() - chrono::Duration::hours(6) + chrono::Duration::days(days);
     shifted.format("%Y-%m-%d").to_string()
 }
 
@@ -59,9 +59,9 @@ impl PregenDoneStore {
             return;
         }
 
-        // 保留「今日 + 昨日」兩個快取日:夜班 00:00–04:00 產出的標記記在前一快取日,
-        // 04:00 換日後仍在保留窗內、不被清掉,避免那批訂單被重打雲端並誤報成功
-        //(對齊快取檔以天齡清理、非 04:00 硬刪的實情)。只刪早於昨日的列。
+        // 保留「今日 + 昨日」兩個快取日:夜班 00:00–06:00 產出的標記記在前一快取日,
+        // 06:00 換日後仍在保留窗內、不被清掉,避免那批訂單被重打雲端並誤報成功
+        //(對齊快取檔以天齡清理、非 06:00 硬刪的實情)。只刪早於昨日的列。
         let yesterday = cache_day_offset(-1);
         if let Err(e) = sqlx::query("DELETE FROM pregen_done WHERE cache_day < ?")
             .bind(&yesterday)

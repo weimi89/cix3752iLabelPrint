@@ -90,8 +90,12 @@ export const getPregenStatus = async () => {
       scheduler_started_at: '2026-06-17 09:00:00',
       last_run_at: '2026-06-17 13:00:12',
       last_trigger: '13:00',
-      last_ok: 128, last_fail: 0, last_skipped: 4, last_empty: 0,
-      last_had_error: false,
+      last_ok: 126, last_fail: 2, last_skipped: 4, last_empty: 0,
+      last_had_error: true,
+      last_failed_sns: [
+        { sn: 'SF1234567890', source: 'clearance', reason: '雲端逾時' },
+        { sn: 'YT9876543210', source: 'transfer', reason: '門市已關轉' },
+      ],
     }
   }
   return await invoke('get_pregen_status')
@@ -474,6 +478,7 @@ const MOCK_STATS_SUMMARY = {
   packages_last_30_days: 312,
   range_total: 124,
   packages_range_total: 12,
+  noread_range_total: 3,
   by_source: [
     { source: 'scan', count: 36, package_count: 0 },
     { source: 'auto', count: 78, package_count: 12 },

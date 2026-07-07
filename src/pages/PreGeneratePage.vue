@@ -19,8 +19,10 @@ const router = useRouter()
 const orderSnList = ref([])
 // 縮圖 cells:僅少量(<= THUMBNAIL_LIMIT)時建立並渲染;大量批次不建,避免上萬 DOM/img 把 webview 撐爆
 const downloadList = reactive([])
-// 失敗清單(限量保留),供下方列出
+// 失敗清單(限量保留),供下方表格列出(帶原因訊息,限 FAIL_LIST_LIMIT 筆避免大量 DOM)
 const downloadStatus = reactive([])
+// 全部失敗單號(僅字串、不截斷):供「複製 / 重跑」涵蓋所有失敗,不受顯示表格 300 上限影響
+const downloadFailedSns = reactive([])
 const isProcessing = ref(false)
 let abortRequested = false
 
@@ -72,6 +74,7 @@ const FAIL_LIST_LIMIT = 300  // 失敗清單最多保留筆數
 const startBatch = snList => {
   downloadList.splice(0)
   downloadStatus.splice(0)
+  downloadFailedSns.splice(0)
   totalCount.value = snList.length
   completedCount.value = 0
   successCount.value = 0
@@ -83,6 +86,8 @@ const startBatch = snList => {
 }
 
 const pushFail = (sn, code, message = '') => {
+  // 全部失敗單號都收(供複製/重跑涵蓋所有失敗);帶訊息的表格列則限量,避免上萬筆撐爆 DOM
+  downloadFailedSns.push(sn)
   if (downloadStatus.length < FAIL_LIST_LIMIT) {
     downloadStatus.push({ sn, code, message: message || statusLabel(code) })
   }
@@ -158,6 +163,36 @@ const processShipments = async snList => {
 }
 
 const stopProcessing = () => { abortRequested = true }
+
+// === 失敗單號:複製到剪貼簿 + 一鍵重跑 ===
+// 複製一批單號(每行一筆),成功/失敗都給 toast 回饋
+const copySns = async sns => {
+  const text = sns.join('\n')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast(t('page.preGenerate.copiedFailed', { n: sns.length }), { type: 'success' })
+  } catch {
+    toast(t('page.preGenerate.copyFailedErr'), { type: 'error' })
+  }
+}
+// 重跑指定單號:走與手動查詢相同的批次機制(失敗單未標記已預產,一般模式即會重抓)
+const rerunSns = async sns => {
+  if (!sns.length || isProcessing.value) return
+  startBatch(sns)
+  await processShipments(sns)
+}
+
+// 手動預產失敗清單:用不截斷的 downloadFailedSns(顯示表格 downloadStatus 限 300,但複製/重跑要涵蓋全部)
+const manualFailedSns = () => [...downloadFailedSns]
+const copyManualFailed = () => copySns(manualFailedSns())
+const rerunManualFailed = () => rerunSns([...manualFailedSns()])
+
+// 自動排程上次執行的失敗單號(後端 PregenStatus.last_failed_sns)
+const autoFailedSns = computed(() => (pregenStatus.value?.last_failed_sns || []))
+const copyAutoFailed = () => copySns(autoFailedSns.value.map(f => f.sn))
+const rerunAutoFailed = () => rerunSns(autoFailedSns.value.map(f => f.sn))
+const showAutoFailed = ref(false)
 
 // 清除本快取日「已預產」記憶,讓所有訂單下次查詢都重新抓取(配合或不配合「強制重跑」皆可用)
 // clearProcessed 先清後端、失敗會拋出;此處攔截並提示,不讓「清了卻沒清成」靜默發生。
@@ -393,6 +428,46 @@ const saveSchedule = async () => {
         </div>
         <div v-else-if="pageSched.enabled" class="text-caption text-medium-emphasis d-flex align-center ga-1">
           <VIcon icon="tabler-hourglass" size="15" />{{ $t('page.preGenerate.scheduleStatusNeverRun') }}
+        </div>
+
+        <!-- 上次執行的失敗單號:可展開列出、複製、一鍵重跑(排程只記數,單號在此才看得到) -->
+        <div v-if="autoFailedSns.length" class="sched-failed-block">
+          <div class="d-flex align-center flex-wrap ga-2">
+            <VBtn
+              size="x-small" variant="tonal" color="error"
+              :prepend-icon="showAutoFailed ? 'tabler-chevron-up' : 'tabler-chevron-down'"
+              @click="showAutoFailed = !showAutoFailed"
+            >
+              {{ $t('page.preGenerate.failedSnsToggle', { n: autoFailedSns.length }) }}
+            </VBtn>
+            <VBtn size="x-small" variant="text" color="default" prepend-icon="tabler-copy" @click="copyAutoFailed">
+              {{ $t('page.preGenerate.copyFailed') }}
+            </VBtn>
+            <VBtn size="x-small" variant="text" color="primary" prepend-icon="tabler-refresh" :disabled="isProcessing" @click="rerunAutoFailed">
+              {{ $t('page.preGenerate.rerunFailed') }}
+            </VBtn>
+          </div>
+          <VExpandTransition>
+            <div v-show="showAutoFailed" class="sched-failed-list mt-2">
+              <VTable density="compact">
+                <thead>
+                  <tr>
+                    <th class="text-start">{{ $t('form.orderSn') }}</th>
+                    <th class="text-start">{{ $t('page.preGenerate.failReason') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(f, i) in autoFailedSns" :key="f.sn + i">
+                    <td class="sn-mono">{{ f.sn }}</td>
+                    <td>{{ f.reason }}</td>
+                  </tr>
+                </tbody>
+              </VTable>
+              <div v-if="pregenStatus && pregenStatus.last_fail > autoFailedSns.length" class="text-caption text-medium-emphasis mt-1">
+                {{ $t('page.preGenerate.failMore', { n: pregenStatus.last_fail - autoFailedSns.length }) }}
+              </div>
+            </div>
+          </VExpandTransition>
         </div>
 
         <VSpacer />
@@ -651,10 +726,19 @@ const saveSchedule = async () => {
 
     <VCard v-if="downloadStatus.length > 0" class="mt-3" border>
       <VCardText>
-        <div class="text-body-1 mb-2">
-          <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
-          {{ $t('page.preGenerate.downloadWarnings') }}
-          <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
+        <div class="d-flex align-center flex-wrap ga-2 mb-2">
+          <div class="text-body-1">
+            <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
+            {{ $t('page.preGenerate.downloadWarnings') }}
+            <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
+          </div>
+          <VSpacer />
+          <VBtn size="small" variant="tonal" color="default" prepend-icon="tabler-copy" @click="copyManualFailed">
+            {{ $t('page.preGenerate.copyFailed') }}
+          </VBtn>
+          <VBtn size="small" variant="tonal" color="primary" prepend-icon="tabler-refresh" :disabled="isProcessing" @click="rerunManualFailed">
+            {{ $t('page.preGenerate.rerunFailed') }}
+          </VBtn>
         </div>
         <VTable density="compact">
           <thead>
@@ -705,6 +789,21 @@ const saveSchedule = async () => {
   padding: 6px 12px;
   border-radius: 8px;
   background-color: rgba(var(--v-theme-primary), 0.08);
+}
+
+/* 排程失敗單號區:在 flex-wrap 狀態列中獨占整行 */
+.sched-failed-block {
+  flex-basis: 100%;
+}
+.sched-failed-list {
+  max-block-size: 260px;
+  overflow-y: auto;
+  border: 1px solid rgba(var(--v-theme-error), 0.25);
+  border-radius: 8px;
+}
+.sn-mono {
+  font-family: 'Menlo', 'Consolas', monospace;
+  letter-spacing: 0.5px;
 }
 
 /* 書籤式分頁:平均寬、上圓角,選中頁籤白底高亮並與下方卡片連成一體 */
