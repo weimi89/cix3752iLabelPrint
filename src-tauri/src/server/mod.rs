@@ -1497,15 +1497,17 @@ async fn get_parcel(
             // 其他錯誤:只計 request(非成功、非 NoRead)
             bump_daily_stats(&state.db, false, false).await;
             // 依雲端錯誤訊息分類,讓桌面前端播放對應提示音(門市關轉 / 未確認 / 找不到 / 一般失敗)
-            let (kind, msg, err_code, err_provider, err_shipping_no) = match &e {
-                AppError::Cloud { code, message, shipping_provider, shipping_no } => (
+            let (kind, msg, err_code, err_provider, err_shipping_no, err_package_sn, err_order_sn) = match &e {
+                AppError::Cloud { code, message, shipping_provider, shipping_no, package_sn, order_sn } => (
                     classify_parcel_alert(code),
                     message.clone(),
                     code.clone(),
                     shipping_provider.clone(),
                     shipping_no.clone(),
+                    package_sn.clone(),
+                    order_sn.clone(),
                 ),
-                other => ("error", other.to_string(), "ERROR".to_string(), None, None),
+                other => ("error", other.to_string(), "ERROR".to_string(), None, None, None, None),
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
 
@@ -1535,6 +1537,20 @@ async fn get_parcel(
             .bind(&err_shipping_no)
             .execute(&state.db)
             .await;
+
+            // 有跑 recordNotOutboundPrint 的業務錯誤(雲端已記 is_outbound=0)→ 件數核對也標記已印,
+            // 對齊成功列印的 on_parcel;僅這 3 種 code 雲端會回 package_sn / order_sn。
+            if matches!(err_code.as_str(), "UNCONFIRMED" | "STORE_CLOSED" | "STATUS_ABNORMAL") {
+                if let Some(sn) = err_shipping_no.as_deref() {
+                    // package_sn 為 Option;散單(空 / "0")由 on_parcel 內部自行略過
+                    state.bag_check.on_parcel(
+                        err_package_sn.clone(),
+                        err_order_sn.as_deref().unwrap_or(""),
+                        sn,
+                        err_provider.as_deref().unwrap_or(""),
+                    );
+                }
+            }
 
             // 錯誤面單(取向 A):產生提示圖,依面單路徑模式決定出口 —
             //   direct_print : 中介 PC 本機直接列印(label_path 回 null)

@@ -47,6 +47,11 @@ pub enum AppError {
         /// 雲端錯誤 body 帶出的物流單號(查得到訂單的業務錯誤才有)。
         /// 工控機掃的 query_no 是條碼原值(可能經正規化),這裡記錄雲端精確的物流單號供異常清單對單。
         shipping_no: Option<String>,
+        /// 雲端錯誤 body 帶出的袋號(有跑 recordNotOutboundPrint 的業務錯誤才有:UNCONFIRMED / STORE_CLOSED / STATUS_ABNORMAL)。
+        /// 供設備端件數核對把此件標記為已印(對齊成功列印的 on_parcel)。
+        package_sn: Option<String>,
+        /// 雲端錯誤 body 帶出的訂單編號(同 package_sn)。
+        order_sn: Option<String>,
     },
 
     #[error("印表機錯誤: {0}")]

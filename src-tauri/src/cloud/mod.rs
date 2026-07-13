@@ -235,7 +235,9 @@ impl CloudClient {
             // 供錯誤面單照正常流程解析分揀通道;NOT_FOUND 等查無訂單時為 None
             let shipping_provider = parse_error_shipping_provider(json.as_ref());
             let shipping_no = parse_error_shipping_no(json.as_ref());
-            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
+            let package_sn = parse_error_package_sn(json.as_ref());
+            let order_sn = parse_error_order_sn(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no, package_sn, order_sn });
         }
 
         let envelope: CloudOrderResponse = resp.json().await?;
@@ -327,7 +329,9 @@ impl CloudClient {
                 .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
             let shipping_provider = parse_error_shipping_provider(json.as_ref());
             let shipping_no = parse_error_shipping_no(json.as_ref());
-            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
+            let package_sn = parse_error_package_sn(json.as_ref());
+            let order_sn = parse_error_order_sn(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no, package_sn, order_sn });
         }
 
         let mut result: PrintViewResult = resp.json().await?;
@@ -630,7 +634,9 @@ impl CloudClient {
                 .unwrap_or_else(|| format!("雲端回應 HTTP {}", status.as_u16()));
             let shipping_provider = parse_error_shipping_provider(json.as_ref());
             let shipping_no = parse_error_shipping_no(json.as_ref());
-            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no });
+            let package_sn = parse_error_package_sn(json.as_ref());
+            let order_sn = parse_error_order_sn(json.as_ref());
+            return Err(AppError::Cloud { code, message, shipping_provider, shipping_no, package_sn, order_sn });
         }
 
         // 抓 raw text → 失敗時把 body 寫進 error message,協助診斷雲端回應 schema 不符
@@ -766,6 +772,16 @@ fn parse_error_shipping_provider(json: Option<&serde_json::Value>) -> Option<Str
 /// 從雲端錯誤 body 解析 `shipping_no`(failResp 在 400 帶出,查得到訂單才有)。
 fn parse_error_shipping_no(json: Option<&serde_json::Value>) -> Option<String> {
     parse_error_str_field(json, "shipping_no")
+}
+
+/// 從雲端錯誤 body 解析 `package_sn`(有跑 recordNotOutboundPrint 的業務錯誤才有,供件數核對標記已印)。
+fn parse_error_package_sn(json: Option<&serde_json::Value>) -> Option<String> {
+    parse_error_str_field(json, "package_sn")
+}
+
+/// 從雲端錯誤 body 解析 `order_sn`(同 package_sn)。
+fn parse_error_order_sn(json: Option<&serde_json::Value>) -> Option<String> {
+    parse_error_str_field(json, "order_sn")
 }
 
 /// 從錯誤 body 取指定欄位並轉成非空字串;數字型也容忍(雲端常數可能是 int)。

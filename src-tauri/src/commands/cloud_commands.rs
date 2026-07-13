@@ -239,7 +239,7 @@ pub async fn cloud_fetch_label(
         // Download 模式(面單預產)下方流程整段跳過 → 預產失敗不再實體印錯誤面單(本就不該印)。
         // **僅限帶機器碼的業務錯誤**:code 為純數字 = 雲端沒回 dingo body、僅 HTTP 狀態碼 fallback
         //(502/503 部署重啟等暫時性故障)→ 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單。
-        Err(AppError::Cloud { code, message, shipping_provider, shipping_no })
+        Err(AppError::Cloud { code, message, shipping_provider, shipping_no, .. })
             if !code.chars().all(|c| c.is_ascii_digit()) =>
         {
             PrintViewResult {
@@ -559,7 +559,7 @@ pub async fn cloud_fetch_cloud_print(
         // 錯誤面單,自動印單遇同型錯誤時異常包裹撿不出來。
         // 僅限帶機器碼的業務錯誤:code 純數字 = HTTP 狀態碼 fallback(502/503 暫時性故障)
         // → 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單、灌失敗統計。
-        Err(AppError::Cloud { code, message, shipping_provider, shipping_no })
+        Err(AppError::Cloud { code, message, shipping_provider, shipping_no, .. })
             if !code.chars().all(|c| c.is_ascii_digit()) =>
         {
             CloudPrintResult {
