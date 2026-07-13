@@ -12,6 +12,7 @@ import {
   printStatsSummary,
   printStatsDaily,
   printStatsHourly,
+  printStatsHourlyRange,
   printStatsByProvider,
   printStatsBySticker,
   printStatsByScanner,
@@ -91,7 +92,7 @@ const SOURCE_LABEL_KEY = {
 }
 const sourceDisplay = code => t(SOURCE_LABEL_KEY[code] || 'page.printStats.sourceUnknown')
 
-// 日期區間:預設今天往前 6 天(含今天共 7 天)
+// 日期區間:預設今日(start = end = 今天)
 const todayStr = () => {
   const d = new Date()
   const y = d.getFullYear()
@@ -108,7 +109,7 @@ const dateOffsetStr = days => {
   return `${y}-${m}-${dd}`
 }
 
-const startDate = ref(dateOffsetStr(-6))
+const startDate = ref(todayStr())
 const endDate = ref(todayStr())
 
 // 日期彈窗開關
@@ -140,6 +141,7 @@ const endDateObj = computed({
 const summary = ref(null)
 const daily = ref([])
 const hourly = ref([])
+const hourlyDay = ref([]) // 選取區間為 1 天時,該日的小時趨勢(取代每日趨勢折線)
 const providers = ref([])
 const stickers = ref([])
 const scanners = ref([])
@@ -256,7 +258,16 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
-// 每日趨勢 line chart option(隨資料 / theme 變動自動 reactive)
+// 選取區間為 1 天 → 每日趨勢改顯示該日「小時趨勢」(避免單日折線只剩一個孤立點)
+const isSingleDay = computed(() => !!startDate.value && startDate.value === endDate.value)
+// 趨勢圖資料點(label + count):單日用小時(hourlyDay),多日用每日(daily)
+const trendPoints = computed(() =>
+  isSingleDay.value
+    ? hourlyDay.value.map(p => ({ label: p.hour, count: p.count }))
+    : daily.value.map(p => ({ label: p.date.slice(5), count: p.count })),
+)
+
+// 趨勢 line chart option(隨資料 / theme 變動自動 reactive;單日=小時、多日=每日)
 const dailyOption = computed(() => ({
   grid: { top: 16, right: 16, bottom: 28, left: 40 },
   tooltip: {
@@ -269,7 +280,7 @@ const dailyOption = computed(() => ({
   xAxis: {
     type: 'category',
     boundaryGap: false,
-    data: daily.value.map(p => p.date.slice(5)),
+    data: trendPoints.value.map(p => p.label),
     axisLine: { lineStyle: { color: hexToRgba(onSurfaceColor.value, 0.12) } },
     axisLabel: { color: hexToRgba(onSurfaceColor.value, 0.6), fontSize: 11 },
     axisTick: { show: false },
@@ -287,7 +298,7 @@ const dailyOption = computed(() => ({
     smooth: true,
     showSymbol: true,
     symbolSize: 6,
-    data: daily.value.map(p => p.count),
+    data: trendPoints.value.map(p => p.count),
     itemStyle: { color: primaryColor.value },
     lineStyle: { width: 2, color: primaryColor.value },
     areaStyle: {
@@ -308,7 +319,7 @@ const reload = async () => {
   errorMsg.value = ''
   try {
     const args = { startDate: startDate.value, endDate: endDate.value }
-    const [s, d, h, p, st, sc, ch, hm, rp, ps, fl, cmp] = await Promise.all([
+    const [s, d, h, p, st, sc, ch, hm, rp, ps, fl, cmp, hd] = await Promise.all([
       printStatsSummary(args),
       printStatsDaily(args),
       printStatsHourly(),
@@ -321,10 +332,12 @@ const reload = async () => {
       printStatsProviderSource(args),
       printStatsFailure(args),
       printStatsCompare(),
+      printStatsHourlyRange(args),
     ])
     summary.value = s
     daily.value = d
-    hourly.value = h
+    hourly.value = [...h].reverse() // 最新時段在上(後端回傳為時序升序,顯示反轉)
+    hourlyDay.value = hd
     providers.value = p
     stickers.value = st
     scanners.value = sc
@@ -634,27 +647,37 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
       </VCardText>
     </VCard>
 
-    <!-- 每日趨勢 + 最新 4 小時 -->
+    <!-- 依分揀通道 + 最新 8 小時 -->
     <VRow dense class="mt-3">
       <VCol cols="12" md="7">
         <VCard class="card-shadow h-100">
           <VCardItem>
             <template #prepend>
-              <VAvatar color="primary" variant="tonal">
-                <VIcon icon="tabler-trending-up" />
+              <VAvatar color="info" variant="tonal">
+                <VIcon icon="tabler-arrows-split-2" />
               </VAvatar>
             </template>
-            <VCardTitle>{{ $t('page.printStats.dailyTrend') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.dailyTrendHint') }}</VCardSubtitle>
+            <VCardTitle>{{ $t('page.printStats.byChannel') }}</VCardTitle>
+            <VCardSubtitle>{{ $t('page.printStats.byChannelHint') }}</VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
-            <VChart
-              v-if="daily.length > 0"
-              :option="dailyOption"
-              autoresize
-              style="block-size: 240px;"
-            />
+            <div v-if="channels.length === 0" class="empty-state">
+              <VIcon icon="tabler-route-off" size="40" class="empty-state__icon" />
+              <div class="empty-state__text">{{ $t('page.printStats.noChannelData') }}</div>
+            </div>
+            <div v-else class="stat-rows">
+              <div v-for="c in channels" :key="c.channel_code" class="stat-row">
+                <div class="stat-row__label stat-row__label--wide">{{ c.channel_code }}</div>
+                <div class="stat-row__bar">
+                  <div class="stat-row__fill stat-row__fill--info" :style="{ inlineSize: pct(c.count, channelsMax) + '%' }" />
+                </div>
+                <div class="stat-row__value">
+                  {{ c.count }}
+                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(c.count, channelsTotal) }}%)</span>
+                </div>
+              </div>
+            </div>
           </VCardText>
         </VCard>
       </VCol>
@@ -759,37 +782,27 @@ onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = nul
       </VCol>
     </VRow>
 
-    <!-- 分揀通道排行(工控機分揀機出口,只統計 ipc 來源) -->
+    <!-- 每日趨勢 -->
     <VRow dense class="mt-3">
       <VCol cols="12">
         <VCard class="card-shadow h-100">
           <VCardItem>
             <template #prepend>
-              <VAvatar color="info" variant="tonal">
-                <VIcon icon="tabler-arrows-split-2" />
+              <VAvatar color="primary" variant="tonal">
+                <VIcon icon="tabler-trending-up" />
               </VAvatar>
             </template>
-            <VCardTitle>{{ $t('page.printStats.byChannel') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.byChannelHint') }}</VCardSubtitle>
+            <VCardTitle>{{ isSingleDay ? $t('page.printStats.hourlyTrend') : $t('page.printStats.dailyTrend') }}</VCardTitle>
+            <VCardSubtitle>{{ isSingleDay ? $t('page.printStats.hourlyTrendHint') : $t('page.printStats.dailyTrendHint') }}</VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
-            <div v-if="channels.length === 0" class="empty-state">
-              <VIcon icon="tabler-route-off" size="40" class="empty-state__icon" />
-              <div class="empty-state__text">{{ $t('page.printStats.noChannelData') }}</div>
-            </div>
-            <div v-else class="stat-rows">
-              <div v-for="c in channels" :key="c.channel_code" class="stat-row">
-                <div class="stat-row__label stat-row__label--wide">{{ c.channel_code }}</div>
-                <div class="stat-row__bar">
-                  <div class="stat-row__fill stat-row__fill--info" :style="{ inlineSize: pct(c.count, channelsMax) + '%' }" />
-                </div>
-                <div class="stat-row__value">
-                  {{ c.count }}
-                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(c.count, channelsTotal) }}%)</span>
-                </div>
-              </div>
-            </div>
+            <VChart
+              v-if="trendPoints.length > 0"
+              :option="dailyOption"
+              autoresize
+              style="block-size: 240px;"
+            />
           </VCardText>
         </VCard>
       </VCol>

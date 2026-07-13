@@ -22,6 +22,7 @@ const dispatchOptions = ref([])
 // 人員歷史名單(與掃描/自動列印頁共用同一份)
 const { history: stickerHistory, reload: reloadStickerHistory, add: addStickerHistory, remove: removeSticker } = useStickerHistory()
 const dirty = ref(new Set()) // 紀錄哪些 position 被改過
+const originalCodes = ref(new Map()) // load 時各 position 的原始 channel_code,供「代碼有變更才驗證」的 grandfather
 const loading = ref(false)
 const savingAll = ref(false)
 const errorMsg = ref('')
@@ -62,6 +63,7 @@ const load = async () => {
       reloadStickerHistory(),
     ])
     channels.value = list
+    originalCodes.value = new Map(list.map(c => [c.position, (c.channel_code || '').trim()]))
     dispatchOptions.value = dispatch
     unassignedCode.value = uCode ?? ''
     dirty.value = new Set()
@@ -113,11 +115,21 @@ const saveAll = async () => {
   if (!dirty.value.size) return
   savingAll.value = true
   errorMsg.value = ''
-  try {
-    const positions = Array.from(dirty.value)
-    for (const pos of positions) {
-      const ch = findChannel(pos)
-      if (!ch) continue
+  const positions = Array.from(dirty.value)
+  const errors = []
+  let savedCount = 0
+  // 逐筆獨立儲存:單一筆失敗(格式/衝突/網路)不中斷其他有效編輯。
+  for (const pos of positions) {
+    const ch = findChannel(pos)
+    if (!ch) { dirty.value.delete(pos); continue }
+    const code = (ch.channel_code || '').trim()
+    // 通道代碼是分揀機格口機器碼(工控機讀它路由),限英數與 - _、長度 ≤ 16。
+    // 只在代碼「有變更」時前端預檢(對齊後端 grandfather:既有不合規舊值不擋,仍可改其他欄位)。
+    if (code && code !== (originalCodes.value.get(pos) || '') && !/^[A-Za-z0-9_-]{1,16}$/.test(code)) {
+      errors.push(t('page.sort.channelCodeInvalid', { code }))
+      continue // 保留 dirty 供修正,不影響其他筆
+    }
+    try {
       await sortChannelSave({
         position: ch.position,
         channelCode: ch.channel_code,
@@ -125,14 +137,19 @@ const saveAll = async () => {
         jobSticker: ch.job_sticker,
       })
       dirty.value.delete(pos)
+      savedCount++
+    } catch (e) {
+      errors.push(String(e?.message || e))
     }
-    flash(t('page.sort.savedFlash', { n: positions.length }))
-    await load() // 重新拉,讓 channel_code 衝突等狀態同步
-  } catch (e) {
-    errorMsg.value = String(e?.message || e)
-  } finally {
-    savingAll.value = false
   }
+  if (savedCount > 0) flash(t('page.sort.savedFlash', { n: savedCount }))
+  if (errors.length) {
+    // 有失敗:顯示錯誤且不 reload,保留未存的編輯供使用者修正後重存
+    errorMsg.value = errors.join('\n')
+  } else {
+    await load() // 全部成功才重拉,讓 channel_code 衝突等狀態同步
+  }
+  savingAll.value = false
 }
 
 // 分揀進行中的快速暫停 / 啟用(即時生效,獨立於整列儲存)

@@ -154,6 +154,7 @@ pub fn run() {
             commands::print_stats_commands::print_stats_summary,
             commands::print_stats_commands::print_stats_daily,
             commands::print_stats_commands::print_stats_hourly,
+            commands::print_stats_commands::print_stats_hourly_range,
             commands::print_stats_commands::print_stats_by_provider,
             commands::print_stats_commands::print_stats_by_sticker,
             commands::print_stats_commands::print_stats_by_scanner,

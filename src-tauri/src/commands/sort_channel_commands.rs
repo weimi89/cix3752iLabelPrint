@@ -112,6 +112,29 @@ pub async fn sort_channel_save(
     }
 
     let channel_code = normalize(req.channel_code);
+    // 通道代碼是分揀機格口機器碼(工控機讀它路由格口,如 L1/R4/A01),必為 ASCII 機器碼。
+    // 限英數與 - _、長度 ≤ 16,擋下把貼標人員名等中文/長字串誤填進通道代碼 ——
+    // 誤填會被工控機當格口碼、且污染「依分揀通道」統計(歷史以當時 channel_code 歸戶,事後難清)。
+    // 只在「代碼有變更」時驗證:既有(驗證上線前)存入的不合規舊值放行,讓操作員仍能改該通道
+    // 其他欄位(物流指派/貼標),不被舊資料把整列存檔卡死。
+    if let Some(code) = channel_code.as_deref() {
+        let current: Option<String> = sqlx::query(
+            "SELECT channel_code FROM sort_channels WHERE position = ?",
+        )
+        .bind(&req.position)
+        .fetch_optional(&state.db)
+        .await?
+        .and_then(|r| r.try_get::<Option<String>, _>("channel_code").ok().flatten());
+        if current.as_deref() != Some(code) {
+            let ok = code.chars().count() <= 16
+                && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            if !ok {
+                return Err(AppError::Server(format!(
+                    "通道代碼 \"{code}\" 格式不符:僅允許英數字與 - _(長度 ≤ 16),請勿填入人名等文字"
+                )));
+            }
+        }
+    }
     let job_sticker = normalize(req.job_sticker);
     // 指派物流去重 + 去空白,保持原始順序
     let mut dispatch_codes: Vec<String> = Vec::new();

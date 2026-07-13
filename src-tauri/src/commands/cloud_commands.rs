@@ -593,11 +593,19 @@ pub async fn cloud_fetch_cloud_print(
     if result.respond_code == "PRINT-SUCCESS" {
         if let Some(no) = result.shipment_no.as_deref() {
             if !no.is_empty() {
+                // 與 bag_check / ipc 同規則:trim 後排除散單(空 / "0"),避免空字串被
+                // COUNT(DISTINCT package_sn) 當成假袋、灌高袋數。
                 let package_sn_for_db: Option<&str> = result
                     .package_sn
                     .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .or_else(|| req.package_sn.as_deref().filter(|s| !s.is_empty()));
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && *s != "0")
+                    .or_else(|| {
+                        req.package_sn
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty() && *s != "0")
+                    });
                 let insert_res = sqlx::query(
                     "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, scanner_user, package_sn)
                      VALUES ('auto', ?, ?, ?, ?, ?)",

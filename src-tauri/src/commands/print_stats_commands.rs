@@ -90,7 +90,7 @@ pub struct SummaryResp {
 pub struct SourceCount {
     pub source: String,
     pub count: i64,
-    /// 該來源的分袋數(僅 auto 來源有意義,scan / ipc 永遠 0)
+    /// 該來源的分袋數(auto / ipc 來源會帶袋號;scan 未記袋號故永遠 0)
     pub package_count: i64,
 }
 
@@ -171,7 +171,7 @@ pub async fn print_stats_summary(
 
     // 來源拆分:同一張單在 scan/auto/ipc 多次發生,
     // 各 source 內各自 DISTINCT(可能加總 > range_total,屬正常);
-    // package_count 只 auto 來源有值,scan/ipc 因 package_sn 為 NULL 自動為 0
+    // package_count:auto / ipc 來源記袋號故有值;scan 未記袋號、其 package_sn 為 NULL 故為 0
     let rows = sqlx::query(
         "SELECT source,
                 COUNT(DISTINCT shipping_no) AS n,
@@ -277,14 +277,18 @@ pub async fn print_stats_daily(
         .unwrap_or(end - chrono::Duration::days(6));
     let (start, end) = if start <= end { (start, end) } else { (end, start) };
 
-    let s_str = format!("{} 00:00:00", start.format("%Y-%m-%d"));
-    let e_str = format!("{} 00:00:00", (end + chrono::Duration::days(1)).format("%Y-%m-%d"));
+    // 每日趨勢的「日」採業務日 06:00~次日 05:59(對齊現場作息:凌晨 00:00–05:59 算前一天):
+    // 範圍對齊到 06:00,分組 date(created_at,'-6 hours') 把時間往前推 6 小時再取日 →
+    // 06:00 起算當日、05:59 歸前一日。created_at 存 localtime,故 06:00 為本地時間。
+    // 註:僅此「每日趨勢」查詢用此日界;其他統計(summary/通道/…)維持各自既有邊界。
+    let s_str = format!("{} 06:00:00", start.format("%Y-%m-%d"));
+    let e_str = format!("{} 06:00:00", (end + chrono::Duration::days(1)).format("%Y-%m-%d"));
 
     let rows = sqlx::query(
-        "SELECT date(created_at) AS d, COUNT(DISTINCT shipping_no) AS n
+        "SELECT date(created_at, '-6 hours') AS d, COUNT(DISTINCT shipping_no) AS n
          FROM print_event
          WHERE created_at >= ? AND created_at < ?
-         GROUP BY date(created_at)
+         GROUP BY date(created_at, '-6 hours')
          ORDER BY d",
     )
     .bind(&s_str)
@@ -359,6 +363,69 @@ pub async fn print_stats_hourly(state: State<'_, SharedState>) -> AppResult<Vec<
     let mut points = Vec::with_capacity(8);
     let mut cur = start_hour;
     while cur < end_hour {
+        let key = cur.format("%Y-%m-%d %H").to_string();
+        let label = cur.format("%H:00").to_string();
+        let count = map.get(&key).copied().unwrap_or(0);
+        points.push(HourlyPoint { hour: label, count });
+        cur += chrono::Duration::hours(1);
+    }
+    Ok(points)
+}
+
+/// 指定區間內逐小時的印單數(單日趨勢用):前端在選取區間恰為 1 天時,把「每日趨勢」
+/// 折線改成這一天的小時趨勢(避免單日折線只剩一個孤立點)。
+/// **與每日趨勢同採業務日 06:00~次日 05:59**:把 resolve 的 00:00 範圍整體 +6h →
+/// 涵蓋 [D 06:00, (D+1) 06:00),label 依序 06:00→次日 05:00;選到今天則收斂到「現在」,
+/// 不畫未來時段的一排 0。凌晨選當日(業務日尚未到 06:00 開始)則回空。
+#[tauri::command]
+pub async fn print_stats_hourly_range(
+    state: State<'_, SharedState>,
+    req: RangeReq,
+) -> AppResult<Vec<HourlyPoint>> {
+    let (s0, e0) = req.resolve();
+    let shift = chrono::Duration::hours(6);
+    let start = chrono::NaiveDateTime::parse_from_str(&s0, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|t| t + shift);
+    let mut end = chrono::NaiveDateTime::parse_from_str(&e0, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|t| t + shift);
+    // 選到今天(區間終點在未來)→ 收斂到「現在」,只畫到目前小時
+    let now = chrono::Local::now().naive_local();
+    if let Some(e) = end {
+        if e > now {
+            end = Some(now);
+        }
+    }
+    let (start, end) = match (start, end) {
+        (Some(s), Some(e)) if s < e => (s, e),
+        _ => return Ok(Vec::new()), // 業務日尚未開始(凌晨選當日)或解析失敗 → 空
+    };
+
+    let s_str = start.format("%Y-%m-%d %H:%M:%S").to_string();
+    let e_str = end.format("%Y-%m-%d %H:%M:%S").to_string();
+    let rows = sqlx::query(
+        "SELECT strftime('%Y-%m-%d %H', created_at) AS hkey, COUNT(DISTINCT shipping_no) AS n
+         FROM print_event
+         WHERE created_at >= ? AND created_at < ?
+         GROUP BY hkey",
+    )
+    .bind(&s_str)
+    .bind(&e_str)
+    .fetch_all(&state.db)
+    .await?;
+
+    use std::collections::HashMap;
+    let mut map: HashMap<String, i64> = HashMap::new();
+    for r in rows {
+        let k: String = r.try_get("hkey").unwrap_or_default();
+        let n: i64 = r.try_get("n").unwrap_or(0);
+        map.insert(k, n);
+    }
+
+    let mut points = Vec::new();
+    let mut cur = start;
+    while cur < end {
         let key = cur.format("%Y-%m-%d %H").to_string();
         let label = cur.format("%H:00").to_string();
         let count = map.get(&key).copied().unwrap_or(0);

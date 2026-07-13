@@ -6,7 +6,7 @@
 //   - loadProcessed():批次開始前向後端取快照(含自動排程已預產的),載入前端記憶體。
 //   - isOrderProcessed():讀前端記憶體(同步、快),決定是否略過、不重打雲端。
 //   - markOrderProcessed():標記進記憶體 + pending;persistProcessed() 批次寫回後端。
-// cache_day 範圍與跨日清除由後端負責(見 pregen::PregenDoneStore),前端不再自算 06:00 界。
+// cache_day 範圍與跨日清除由後端負責(見 pregen::PregenDoneStore),前端不再自算 08:00 界。
 //
 // 注意:仍是「已成功預產」的樂觀記憶,不即時驗證快取檔是否仍在(快取另有 max_size_mb LRU
 // 可能提早驅逐)。即使略過了卻剛好被 LRU 清掉,工控機 / 掃描 / 自動印單路徑仍會在需要時

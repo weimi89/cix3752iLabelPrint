@@ -1429,14 +1429,24 @@ async fn get_parcel(
                 } else {
                     None
                 };
+                // package_sn(袋號)由雲端 v2 回應帶出:記入 print_event 讓印單統計的「袋數」
+                // 反映工控機分揀的分袋量。與 bag_check 同規則正規化:散單(空 / "0")存 NULL,
+                // 否則空字串會被 COUNT(DISTINCT package_sn) 當成一個假袋、灌高袋數。
+                let package_sn = info
+                    .package_sn
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && *s != "0")
+                    .map(str::to_string);
                 let insert_res = sqlx::query(
-                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code)
-                     VALUES ('ipc', ?, ?, ?, ?)",
+                    "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code, package_sn)
+                     VALUES ('ipc', ?, ?, ?, ?, ?)",
                 )
                 .bind(&info.shipping_no)
                 .bind(&info.shipping_provider)
                 .bind(&sticker_user)
                 .bind(&channel_code)
+                .bind(&package_sn)
                 .execute(&state.db)
                 .await;
                 if insert_res.is_ok() {

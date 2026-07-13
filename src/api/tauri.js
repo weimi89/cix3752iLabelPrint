@@ -527,6 +527,11 @@ export const printStatsHourly = async () => {
   if (!isTauri) return MOCK_STATS_HOURLY
   return await invoke('print_stats_hourly')
 }
+// 指定區間逐小時(單日趨勢用):選取區間為 1 天時,每日趨勢改顯示該日小時趨勢
+export const printStatsHourlyRange = async ({ startDate = '', endDate = '' } = {}) => {
+  if (!isTauri) return MOCK_STATS_HOURLY
+  return await invoke('print_stats_hourly_range', { req: { start_date: startDate, end_date: endDate } })
+}
 export const printStatsByProvider = async ({ startDate = '', endDate = '' } = {}) => {
   if (!isTauri) return MOCK_STATS_PROVIDERS
   return await invoke('print_stats_by_provider', { req: { start_date: startDate, end_date: endDate } })
