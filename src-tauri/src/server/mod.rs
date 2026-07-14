@@ -894,7 +894,9 @@ pub(crate) async fn write_error_label_to_cache(
             return None;
         }
     }
-    match tokio::fs::write(&path, bytes).await {
+    // 原子寫入(同 cache 下載 / 浮水印,見 crate::fs_atomic):寫臨時檔再 rename 覆蓋,避免
+    // /images 服務在寫入過程中讀到截斷的錯誤面單(printer 端解碼報 "unexpected end of file")。
+    match crate::fs_atomic::write_async(&path, bytes).await {
         Ok(()) => Some(key),
         Err(e) => {
             tracing::warn!(?e, "寫入錯誤面單快取失敗");

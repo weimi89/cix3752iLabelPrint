@@ -7,6 +7,7 @@ mod config;
 mod db;
 mod error;
 pub mod error_label;
+mod fs_atomic;
 pub mod event_log;
 mod health;
 mod log;

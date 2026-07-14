@@ -80,7 +80,21 @@ impl WatermarkRenderer {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("建立浮水印輸出目錄失敗: {e}"))?;
         }
-        img.save(dst).map_err(|e| format!("寫入浮水印檔失敗: {e}"))?;
+        // 原子寫入(見 crate::fs_atomic):寫同目錄臨時檔再 rename 覆蓋 dst,避免 /images 服務在
+        // 編碼過程中讀到半寫入的截斷檔(printer 端解碼報 "unexpected end of file")。
+        // 輸出格式由 dst 副檔名決定(無法判斷則回錯,對齊原 img.save 行為);臨時檔名與副檔名無關,
+        // 故用 save_with_format 明確指定格式寫入臨時檔。
+        let fmt = image::ImageFormat::from_path(dst)
+            .map_err(|e| format!("無法由副檔名判斷浮水印輸出格式: {e}"))?;
+        let tmp = crate::fs_atomic::sibling_tmp(dst);
+        if let Err(e) = img.save_with_format(&tmp, fmt) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("寫入浮水印檔失敗: {e}"));
+        }
+        if let Err(e) = crate::fs_atomic::rename_with_retry_sync(&tmp, dst) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("覆蓋浮水印檔失敗: {e}"));
+        }
         Ok(())
     }
 }

@@ -441,8 +441,11 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
         .error_for_status()?;
     let bytes = resp.bytes().await?;
 
-    fs::write(&target, &bytes).await?;
+    // 原子寫入(temp+rename,含寫失敗清檔 + rename 重試):讀取端(/images 服務、浮水印、
+    // DirectPrint / 工控機)永遠讀到完整檔,避免截斷讀("unexpected end of file")。
+    // 尤其跨日快取清理後重印 / 預產背景重抓 與 前景列印併發時不再互相截斷。詳見 crate::fs_atomic。
     let size = bytes.len() as i64;
+    crate::fs_atomic::write_async(&target, &bytes).await?;
 
     sqlx::query(
         "INSERT INTO cache_meta (label_key, local_path, source_url, size_bytes, created_at)
