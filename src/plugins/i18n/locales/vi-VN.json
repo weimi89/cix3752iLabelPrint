@@ -378,7 +378,10 @@
       "shareRootHint": "Phải trỏ tới cùng tập tin với thư mục cache cục bộ (góc nhìn khác); không cần dấu / ở cuối",
       "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
       "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian",
-      "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Chỉ định hãng\" để cài máy in cho từng hãng vận chuyển"
+      "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Chỉ định hãng\" để cài máy in cho từng hãng vận chuyển",
+      "sortOnly": "Chế độ chỉ phân loại (chỉ trả về kênh phân loại, không xuất nhãn)",
+      "sortOnlyHint": "Khi bật chỉ phân loại: chỉ trả về kênh phân loại, không in nhãn, không ghi thống kê in. Đối chiếu số kiện và nhật ký vẫn hoạt động; nhãn lỗi của kiện bất thường vẫn được in.",
+      "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực"
     }
   },
   "page": {
@@ -790,6 +793,10 @@
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
       "saveAll": "Lưu tất cả thay đổi ({n})",
       "savedFlash": "Đã lưu hàng loạt {n} mục",
+      "sortOnly": {
+        "enabled": "Đã bật chế độ chỉ phân loại",
+        "disabled": "Đã tắt chế độ chỉ phân loại"
+      },
       "pos": {
         "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4",
         "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4"

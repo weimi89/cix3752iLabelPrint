@@ -179,7 +179,11 @@ impl CloudClient {
     ///   - proxy:   GET {api_base}{parcel_proxy_path}/{queryNo}
     /// queryNo 可傳訂單編號、配送單號或可解析的物流條碼
     /// 注意：v2 order-*-print 端點不需要 Bearer Token
-    pub async fn fetch_parcel(&self, query_no: &str) -> AppResult<ParcelInfo> {
+    ///
+    /// `sort_only`：純分揀模式。帶 `?sort_only=1` 告知雲端「本支請求不記任何印單」
+    /// (不寫 order_print_log、不更新 shipping_print_num/_time、不廣播 ParcelPrinted),
+    /// 成功回應因而不含 response_id。雲端仍照常回物流商 / shipping_no / package_sn 供分揀。
+    pub async fn fetch_parcel(&self, query_no: &str, sort_only: bool) -> AppResult<ParcelInfo> {
         let base = self.snapshot_no_auth()?;
         let path = {
             let s = self.inner.state.read();
@@ -197,7 +201,13 @@ impl CloudClient {
         let retry = self.inner.state.read().retry;
         let mut attempt = 0u32;
         let resp = loop {
-            match http.get(&url).send().await {
+            // sort_only 用 reqwest .query() 附加(自動 URL 編碼),不手動拼字串,
+            // 避免含 `?`/`#` 的條碼把參數推到錯位置導致雲端讀不到 sort_only。
+            let mut req = http.get(&url);
+            if sort_only {
+                req = req.query(&[("sort_only", "1")]);
+            }
+            match req.send().await {
                 Ok(r) => break r,
                 Err(e) if e.is_connect() && attempt < retry => {
                     attempt += 1;

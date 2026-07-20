@@ -6,6 +6,8 @@ import {
   sortChannelUnassignedGet,
   sortChannelUnassignedSave,
   dispatchProviderList,
+  getConfig,
+  updateConfig,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
@@ -32,6 +34,11 @@ const flashMsg = ref('')
 const unassignedCode = ref('')
 const unassignedDialog = ref(false)
 const unassignedDraft = ref('')
+
+// 純分揀模式總開關(存於 AppConfig.sort_only.enabled;獨立於面單路徑模式)。
+// 放這頁而非「面單路徑」卡片,因純分揀是分揀行為而非面單呈現拓撲。
+const sortOnly = ref(false)
+const savingSortOnly = ref(false)
 const savingUnassigned = ref(false)
 
 const openUnassignedDialog = () => {
@@ -56,16 +63,18 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch, uCode] = await Promise.all([
+    const [list, dispatch, uCode, , cfg] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
       sortChannelUnassignedGet(),
       reloadStickerHistory(),
+      getConfig(),
     ])
     channels.value = list
     originalCodes.value = new Map(list.map(c => [c.position, (c.channel_code || '').trim()]))
     dispatchOptions.value = dispatch
     unassignedCode.value = uCode ?? ''
+    sortOnly.value = !!cfg?.sort_only?.enabled
     dirty.value = new Set()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
@@ -84,6 +93,24 @@ const saveUnassigned = async () => {
     errorMsg.value = String(e?.message || e)
   } finally {
     savingUnassigned.value = false
+  }
+}
+
+// 純分揀模式切換:重抓一次 config 再寫回(避免蓋掉其他頁的併發變更),熱套用即時生效。
+const toggleSortOnly = async val => {
+  savingSortOnly.value = true
+  errorMsg.value = ''
+  try {
+    const cfg = await getConfig()
+    cfg.sort_only = { ...(cfg.sort_only || {}), enabled: val }
+    await updateConfig(cfg)
+    sortOnly.value = val
+    toast.success(t(val ? 'page.sort.sortOnly.enabled' : 'page.sort.sortOnly.disabled'))
+  } catch (e) {
+    sortOnly.value = !val // 失敗回復開關狀態
+    errorMsg.value = String(e?.message || e)
+  } finally {
+    savingSortOnly.value = false
   }
 }
 // 手機遙控(同區網手機開 /control 暫停通道)→ 後端廣播 sort-channel-updated,桌面即時同步開關
@@ -355,6 +382,32 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
+
+    <!-- 純分揀模式總開關(只回分揀通道、不出面單、不記印單) -->
+    <VCard variant="outlined" class="mb-4" :color="sortOnly ? 'primary' : undefined">
+      <div class="d-flex align-center ga-3 px-4 py-3">
+        <VIcon
+          :icon="sortOnly ? 'tabler-arrows-split-2' : 'tabler-printer'"
+          size="18"
+          :color="sortOnly ? 'primary' : 'medium-emphasis'"
+          class="flex-shrink-0"
+        />
+        <div class="flex-grow-1">
+          <div class="text-body-2 font-weight-medium">{{ $t('label.settings.sortOnly') }}</div>
+          <div class="text-caption text-medium-emphasis">{{ $t('label.settings.sortOnlyHint') }}</div>
+        </div>
+        <VSwitch
+          :model-value="sortOnly"
+          :loading="savingSortOnly"
+          color="primary"
+          inset
+          hide-details
+          density="compact"
+          class="flex-shrink-0"
+          @update:model-value="toggleSortOnly"
+        />
+      </div>
+    </VCard>
 
     <!-- 未設定指派物流 fallback 設定入口 -->
     <VCard

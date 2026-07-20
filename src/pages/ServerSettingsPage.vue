@@ -253,12 +253,13 @@ const restart = async () => {
               :items="labelPathModeItems"
               item-title="title"
               item-value="value"
+              :disabled="config.sort_only.enabled"
               hide-details
               density="compact"
               variant="outlined"
             />
           </VCol>
-          <VCol v-if="config.label_path.mode === 'share'" cols="12" md="8">
+          <VCol v-if="config.label_path.mode === 'share' && !config.sort_only.enabled" cols="12" md="8">
             <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.shareRoot') }}</VLabel>
             <VTextField
               v-model="config.label_path.share_root"
@@ -279,13 +280,15 @@ const restart = async () => {
         >
           <div class="text-caption">
             {{
-              config.label_path.mode === 'share'
-                ? $t('label.settings.shareRootHint')
-                : config.label_path.mode === 'http'
-                  ? $t('label.settings.httpHint')
-                  : config.label_path.mode === 'direct_print'
-                    ? $t('label.settings.directPrintHint')
-                    : $t('label.settings.localHint')
+              config.sort_only.enabled
+                ? $t('label.settings.sortOnlyActiveHint')
+                : config.label_path.mode === 'share'
+                  ? $t('label.settings.shareRootHint')
+                  : config.label_path.mode === 'http'
+                    ? $t('label.settings.httpHint')
+                    : config.label_path.mode === 'direct_print'
+                      ? $t('label.settings.directPrintHint')
+                      : $t('label.settings.localHint')
             }}
           </div>
         </VAlert>

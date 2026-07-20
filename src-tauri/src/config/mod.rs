@@ -25,6 +25,28 @@ pub struct AppConfig {
     pub camera: CameraConfig,
     #[serde(default)]
     pub sync: SyncConfig,
+    #[serde(default)]
+    pub sort_only: SortOnlyConfig,
+}
+
+/// 純分揀模式 —— 中介機只做「工控機刷碼 → 查雲端取物流商 → 回分揀通道代碼」,
+/// **不產出/不回傳面單**(`label_path` 一律 null,不下載、不浮水印、不列印、不入 DirectPrint 佇列),
+/// 且 `GET /api/parcel` 成功時**不記印單統計**(不寫 print_event、不 emit print-stats-updated)。
+///
+/// 刻意設計成**獨立總開關**,與 `label_path.mode`(面單路徑呈現拓撲)正交:開啟後不論面單模式設什麼,
+/// 一律純分揀。件核對(bag_check)、查詢統計(daily_stats request/success)、請求記錄(parcel_query_log
+/// 含相機存證照片)照常運作 —— 包裹實體仍在過機分揀,這些稽核資料仍有意義。預設關閉(維持原有出單行為)。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SortOnlyConfig {
+    /// 總開關(預設關;開啟後 GET /api/parcel 只回分揀通道、不出面單、不記印單)
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for SortOnlyConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
 }
 
 /// 件數核對跨機同步設定 — 訂閱 Reverb(Pusher 相容)的 `bag.{package_sn}` 廣播,
@@ -355,6 +377,7 @@ impl Default for AppConfig {
             pre_gen_schedule: PreGenScheduleConfig::default(),
             camera: CameraConfig::default(),
             sync: SyncConfig::default(),
+            sort_only: SortOnlyConfig::default(),
         }
     }
 }

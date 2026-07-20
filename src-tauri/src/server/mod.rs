@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path as StdPath, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::event_log;
@@ -39,19 +40,32 @@ use crate::{AppError, AppResult};
 #[derive(Clone)]
 pub struct LabelPathResolver {
     inner: Arc<RwLock<LabelPathConfig>>,
+    /// 純分揀模式旗標(獨立於面單路徑模式)。開啟時 `get_parcel` 完全不產出/回傳面單、不記印單。
+    /// 與面單路徑模式同放此解析器:兩者都在每筆 `get_parcel` 決定「面單輸出」行為,
+    /// 且共用同一條 `update_config` 熱套用路徑(config_commands 只呼叫一次 `apply_config`)。
+    sort_only: Arc<AtomicBool>,
 }
 
 impl LabelPathResolver {
     pub fn new(config: &AppConfig) -> Self {
-        Self { inner: Arc::new(RwLock::new(config.label_path.clone())) }
+        Self {
+            inner: Arc::new(RwLock::new(config.label_path.clone())),
+            sort_only: Arc::new(AtomicBool::new(config.sort_only.enabled)),
+        }
     }
 
     pub fn apply_config(&self, config: &AppConfig) {
         *self.inner.write() = config.label_path.clone();
+        self.sort_only.store(config.sort_only.enabled, Ordering::Relaxed);
     }
 
     pub fn current_mode(&self) -> LabelPathMode {
         self.inner.read().mode
+    }
+
+    /// 純分揀模式是否開啟(熱套用,即時反映設定變更)
+    pub fn is_sort_only(&self) -> bool {
+        self.sort_only.load(Ordering::Relaxed)
     }
 
     /// 將本地絕對路徑依當前模式轉換為要回給工控機的字串
@@ -1244,7 +1258,11 @@ async fn get_parcel(
         return Ok(handle_noread(&state, snapshot, t_start).await);
     }
 
-    match state.cloud.fetch_parcel(&query_no).await {
+    // 純分揀模式:中介機只回分揀通道,不碰面單(獨立於面單路徑模式)。
+    // 一併帶給雲端(?sort_only=1),讓雲端該支請求也不記任何印單。
+    let is_sort_only = state.label_resolver.is_sort_only();
+
+    match state.cloud.fetch_parcel(&query_no, is_sort_only).await {
         Ok(info) => {
             let cloud_ms = t_start.elapsed().as_millis() as i64;
 
@@ -1269,7 +1287,10 @@ async fn get_parcel(
             // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
             // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
             let (label_path, label_ms) =
-                if !has_image {
+                if is_sort_only {
+                    // 純分揀:只回分揀通道,不產出面單 —— 不下載、不浮水印、不列印、不入 DirectPrint 佇列。
+                    (None, 0i64)
+                } else if !has_image {
                     tracing::warn!(query_no = %query_no, "雲端回空 shipping_image,視為無面單");
                     (None, 0i64)
                 } else if !has_assigned {
@@ -1347,9 +1368,12 @@ async fn get_parcel(
             // 從 dispatch_provider 取 print_profile (使用者在「指派物流」頁面設定)
             let print_profile = fetch_print_profile(&state.db, &info.shipping_provider).await;
 
-            // 紀錄這次查詢,POST /api/report 用 response_id 反查
-            if let Some(rid) = info.response_id {
-                let total_ms = t_start.elapsed().as_millis() as i64;
+            // 紀錄這次查詢,POST /api/report 用 response_id 反查。
+            // 一般模式:雲端回正數 response_id(order_print_log 主鍵)→ 直接用 + ON CONFLICT。
+            // 純分揀模式:雲端不記印單、不回 response_id → 產本地負數 id(與錯誤面單同池),
+            //   仍完整保留查詢記錄 + 相機存證(純分揀刻意保留請求記錄)。
+            let total_ms = t_start.elapsed().as_millis() as i64;
+            let logged_rid: Option<i64> = if let Some(rid) = info.response_id {
                 let _ = sqlx::query(
                     "INSERT INTO parcel_query_log
                        (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, created_at, cloud_ms, label_ms, total_ms)
@@ -1373,13 +1397,47 @@ async fn get_parcel(
                 .bind(&info.shipping_provider)
                 .bind(&channel_code)
                 .bind(&print_profile)
-                .bind(1) // 雲端 v2 路徑表示「要列印」,固定寫 1
+                // should_print:一般模式寫 1(工控機要印)。此分支僅在雲端回正數 response_id 時進入;
+                // 純分揀正常部署下雲端不回 id、不會走到這裡(僅雲端未同步仍回正數時才會,此時寫 0)。
+                .bind(if is_sort_only { 0 } else { 1 })
                 .bind(&label_key)
                 .bind(cloud_ms)
                 .bind(label_ms)
                 .bind(total_ms)
                 .execute(&state.db)
                 .await;
+                Some(rid)
+            } else if is_sort_only {
+                // 純分揀:雲端未回 response_id,產本地負數 id(RETURNING 取回供存證 UPDATE);
+                // should_print 固定 0(不出面單)。寫入失敗(罕見負數 id 競態)則略過此筆記錄。
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO parcel_query_log
+                       (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, created_at, cloud_ms, label_ms, total_ms)
+                     VALUES (
+                       (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
+                       ?, ?, ?, ?, ?, 0, ?, datetime('now','localtime'), ?, ?, ?)
+                     RETURNING response_id",
+                )
+                .bind(&query_no)
+                .bind(&info.shipping_no)
+                .bind(&info.shipping_provider)
+                .bind(&channel_code)
+                .bind(&print_profile)
+                // 純分揀不下載面單:label_key 寫 NULL,否則「請求記錄」頁會對每筆顯示
+                // 「檢視面單」按鈕、點擊指向不存在的 /images/{key} 而 404。
+                .bind(None::<String>)
+                .bind(cloud_ms)
+                .bind(label_ms)
+                .bind(total_ms)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| tracing::warn!(?e, query_no = %query_no, "純分揀查詢記錄寫入失敗"))
+                .ok()
+            } else {
+                None
+            };
+
+            if let Some(rid) = logged_rid {
                 use tauri::Emitter;
                 let _ = state.app.emit("parcel-query-logged", ());
 
@@ -1415,11 +1473,12 @@ async fn get_parcel(
             // 記一筆 daily request 統計(成功:request +1、success +1)
             bump_daily_stats(&state.db, true, false).await;
 
-            if has_assigned && has_image {
-                // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
-                // 失敗不影響 API 回應(統計次要,不能干擾正常出單)。
-                // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,
-                // 不可記 print_event / 標袋核對已印(統計必須與實物一致,同「未指派通道」原則)
+            if has_assigned {
+              // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
+              // 失敗不影響 API 回應(統計次要,不能干擾正常出單)。
+              // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,不可記 print_event(同「未指派通道」原則)。
+              // 純分揀模式(is_sort_only):完全不出面單 → 一律不記印單統計,但下方件核對仍照常(包裹實體仍過機分揀)。
+              if !is_sort_only && has_image {
                 let sticker_user: Option<String> = if let Some(code) = channel_code.as_deref() {
                     sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
                         .bind(code)
@@ -1458,18 +1517,22 @@ async fn get_parcel(
                         &info.shipping_no,
                     );
                 }
+              } // if !is_sort_only && has_image(印單統計)
 
-                // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)
+              // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)。
+              // 一般模式需有面單印出(has_image)才標已印;純分揀模式無面單,只要分到通道即代表過機分揀 → 照標。
+              if is_sort_only || has_image {
                 state.bag_check.on_parcel(
                     info.package_sn.clone(),
                     &info.order_sn,
                     &info.shipping_no,
                     &info.shipping_provider,
                 );
-            } else if !has_assigned {
-                // 未指派通道:此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None)
-                // → 不記 print_event、不標袋核對已印,統計必須與實物一致(否則儀表板全綠、
-                // 現場卻累積一批無面單包裹)。event_log 節流告警(同 provider 20s 一次,防洪),
+              }
+            } else {
+                // 未指派通道(!has_assigned):此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None;
+                // 純分揀模式本就不出面單),且無格口可分揀 → 不記 print_event、不做件核對,統計必須與實物一致
+                // (否則儀表板全綠、現場卻累積一批無面單包裹)。event_log 節流告警(同 provider 20s 一次,防洪),
                 // 提醒到「指派物流」頁補設定;工控機端仍收 200 + fallback 通道碼可分揀。
                 if should_log_throttled(&format!("unassigned|{}", info.shipping_provider)) {
                     event_log::log_bg(state.db.clone(), "warn", "server", "未指派通道",
@@ -1477,14 +1540,28 @@ async fn get_parcel(
                             info.shipping_provider, info.shipping_no));
                 }
             }
-            // else(has_assigned && !has_image):雲端回空 shipping_image,上方已 warn,
-            // 無面單無列印 → 同樣不記統計,不需重複告警
+
+            // 純分揀:一律回 response_id=null,工控機因而不會 POST /api/report。
+            // 防呆:雲端已升級時本就回 None;若雲端未同步 / 回滾仍回正數 id(代表雲端已記了一筆印單),
+            // 這裡主動吞掉不轉給工控機,避免工控機再回報觸發雲端二次記印單,並節流告警提醒兩端同步部署。
+            let response_id = if is_sort_only {
+                if info.response_id.is_some()
+                    && should_log_throttled(&format!("sortonly_cloud_recorded|{}", info.shipping_provider))
+                {
+                    event_log::log_bg(state.db.clone(), "warn", "server", "純分揀雲端未同步",
+                        format!("純分揀模式但雲端仍回 response_id(代表雲端已記印單);請確認雲端已部署 sort_only 支援(shipping_no={})",
+                            info.shipping_no));
+                }
+                None
+            } else {
+                info.response_id
+            };
 
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
                 label_path,
-                response_id: info.response_id,
+                response_id,
                 is_error_label: false,
                 error_code: None,
                 message: None,
@@ -1569,6 +1646,8 @@ async fn get_parcel(
             //   local/share/http : 寫入 cache 後回 label_path,讓工控機如同一般面單自行列印
             // 這樣 http 模式(工控機跨機、本機無印表機)也能在分揀線印出錯誤面單,
             // 不再只有 direct_print 模式能用。
+            // 錯誤面單:即使在純分揀模式也照常產出/列印 —— 現場需靠它辨識、揀出異常包裹,
+            // 屬「必須處理」的例外,不受純分揀「不出面單」規則抑制。
             let t_label = std::time::Instant::now();
             let label_bytes = crate::error_label::generate(
                 &query_no,
