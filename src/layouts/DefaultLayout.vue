@@ -66,11 +66,13 @@ onMounted(async () => {
   // system status 仍 5s 輪詢(server/queue/cache/today/cloud)
   timer = setInterval(() => status.refreshAll(), 5000)
   // 印單統計改用事件驅動:任何來源(scan/auto/ipc)寫入 print_event 後立即推送
-  // 工控機 IPC 請求一進來就會即時更新,不必等 5s
+  // 工控機 IPC 請求一進來就會即時更新,不必等 5s。
+  // leading+trailing 節流:此監聽全域常駐、每筆列印都觸發,分揀 burst 時每秒數次會持續打斷
+  // 所有頁面互動。節流讓單筆/burst 首筆立即更新(保留「毫秒級 chip」即時感),window 內
+  // 後續合併、最後補一次拿到最終數字,兼顧即時與流暢。
+  const throttledRefreshPrintStats = useThrottleFn(() => status.refreshPrintStats(), 400, true, true)
   try {
-    unlistenPrintStats = await listen('print-stats-updated', () => {
-      status.refreshPrintStats()
-    })
+    unlistenPrintStats = await listen('print-stats-updated', throttledRefreshPrintStats)
   } catch (e) {
     console.warn('listen print-stats-updated 失敗', e)
   }

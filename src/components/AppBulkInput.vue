@@ -58,9 +58,11 @@ const isExpanded = ref(false)
 const isFocused = ref(false)
 const inputRef = ref(null)
 
+// 父層每次以新陣列替換 modelValue(參考已變即觸發 watch),deep 對可能達數千筆的 SN 陣列
+// 做深層響應式遍歷是多餘成本 → 移除
 watch(() => props.modelValue, (newVal) => {
   internalValue.value = new Set(newVal)
-}, { deep: true })
+})
 
 const itemCount = computed(() => internalValue.value.size)
 const itemsArray = computed(() => Array.from(internalValue.value))

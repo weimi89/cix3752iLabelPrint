@@ -24,7 +24,8 @@ export const useThemeApply = () => {
 
   const apply = () => {
     const mode = resolveMode()
-    theme.global.name.value = mode
+    // Vuetify 3.7+ 起 `theme.global.name.value = mode` 已棄用,改用 theme.change()
+    theme.change(mode)
 
     // 動態覆蓋 primary 色（兩個 theme 都改）
     const primary = themeStore.config.primary

@@ -51,7 +51,11 @@ const refresh = async () => {
 }
 onMounted(refresh)
 
-const persist = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+const persist = () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
+  // 通知同分頁 ScanPrint/AutoPrint 印表機對照表已變更即時重載(raw setItem 不觸發 storage 事件)
+  window.dispatchEvent(new Event('printer-map-updated'))
+}
 
 const reset = () => {
   for (const p of PROVIDERS) delete map[p.code]

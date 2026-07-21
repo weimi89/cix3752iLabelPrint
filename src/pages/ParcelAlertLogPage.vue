@@ -30,16 +30,19 @@ const load = async () => {
   }
 }
 
+let _disposed = false
 onMounted(async () => {
   await load()
-  // 即時:後端 emit parcel-alert 時刷新清單
+  // 即時:後端 emit parcel-alert 時刷新清單。await load 期間可能已切頁,已卸載則立刻解除避免殘留
   try {
-    unlisten = await listen('parcel-alert', () => load())
+    const un = await listen('parcel-alert', () => load())
+    if (_disposed) un(); else unlisten = un
   } catch (e) {
     console.warn('listen parcel-alert 失敗', e)
   }
 })
 onBeforeUnmount(() => {
+  _disposed = true
   if (unlisten) { unlisten(); unlisten = null }
 })
 

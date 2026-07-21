@@ -108,13 +108,14 @@ const successItems = computed(() => printList.filter(p => isPrintable(p.code)).l
 
 const CONCURRENCY = 3
 
-const printerMap = computed(() => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
-  } catch {
-    return {}
-  }
-})
+// 改印表機設定後要即時反映:無響應依賴的 computed 會永久快取(改對照表後本頁不更新,需重進頁),
+// 改用 ref + 事件重載。印表機設定頁 persist 後 window.dispatchEvent('printer-map-updated')。
+const printerMap = ref({})
+const reloadPrinterMap = () => {
+  try { printerMap.value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') } catch { printerMap.value = {} }
+}
+reloadPrinterMap()
+useEventListener(window, 'printer-map-updated', reloadPrinterMap)
 
 // 「列印範圍」checkbox 只列出有設印表機的物流商(避免選了卻無法出單)
 const ALL_PROVIDER_ITEMS = computed(() => [

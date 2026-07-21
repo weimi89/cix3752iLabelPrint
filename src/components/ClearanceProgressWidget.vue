@@ -62,15 +62,25 @@ const fmt = n => Number(n || 0).toLocaleString('en-US')
 // === 拖曳 ===
 const dragging = ref(false)
 let startX = 0; let startY = 0; let baseX = 0; let baseY = 0
+// rAF 節流:mousemove 每幀最多寫一次 pinia(取該幀最新位置),避免每個 mousemove 都寫 store
+// 觸發響應式 + widget style 重算
+let _dragRaf = 0; let _lastMove = null
 const onDragMove = e => {
   if (!dragging.value) return
-  const w = 230
-  const x = Math.min(Math.max(0, baseX + (e.clientX - startX)), window.innerWidth - w)
-  const y = Math.min(Math.max(0, baseY + (e.clientY - startY)), window.innerHeight - 48)
-  store.pos = { x, y }
+  _lastMove = e
+  if (_dragRaf) return
+  _dragRaf = requestAnimationFrame(() => {
+    _dragRaf = 0
+    const ev = _lastMove
+    const w = 230
+    const x = Math.min(Math.max(0, baseX + (ev.clientX - startX)), window.innerWidth - w)
+    const y = Math.min(Math.max(0, baseY + (ev.clientY - startY)), window.innerHeight - 48)
+    store.pos = { x, y }
+  })
 }
 const onDragEnd = () => {
   if (!dragging.value) return
+  if (_dragRaf) { cancelAnimationFrame(_dragRaf); _dragRaf = 0 }
   dragging.value = false
   store.setPos(store.pos.x, store.pos.y)
   window.removeEventListener('mousemove', onDragMove)

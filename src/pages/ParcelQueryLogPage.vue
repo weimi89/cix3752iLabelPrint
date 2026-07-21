@@ -79,12 +79,18 @@ const scheduleReload = () => {
   if (_reloadTimer) return
   _reloadTimer = setTimeout(() => { _reloadTimer = null; load() }, 400)
 }
+let _disposed = false
 onMounted(async () => {
   load()
   try { const cfg = await getConfig(); if (cfg?.server?.port) serverPort.value = cfg.server.port } catch {}
-  if (isTauriRuntime) try { _unlisten = await listen('parcel-query-logged', scheduleReload) } catch {}
+  // await getConfig 期間可能已切頁;若已卸載則立刻解除,避免 Tauri 監聽殘留(每筆 /api/parcel 都觸發,殘留會放大後端查詢)
+  if (isTauriRuntime) try {
+    const un = await listen('parcel-query-logged', scheduleReload)
+    if (_disposed) un(); else _unlisten = un
+  } catch {}
 })
 onUnmounted(() => {
+  _disposed = true
   if (_unlisten) { _unlisten(); _unlisten = null }
   if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null }
 })

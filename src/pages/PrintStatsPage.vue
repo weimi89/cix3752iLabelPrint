@@ -401,11 +401,27 @@ watch([startDate, endDate], () => {
 })
 
 let _unlistenStats = null
+let _disposed = false
+let _reloadTimer = null
+// print-stats-updated 分揀忙碌時每秒數次,而 reload = 13 支 API + echarts 全量重建,逐次觸發會掉幀。
+// 事件路徑去抖合併 burst(500ms);手動「重新整理」按鈕仍直接呼叫 reload() 保持即時。
+const scheduleReload = () => {
+  if (_reloadTimer) return
+  _reloadTimer = setTimeout(() => { _reloadTimer = null; reload() }, 500)
+}
 onMounted(async () => {
   await reload()
-  try { _unlistenStats = await listen('print-stats-updated', reload) } catch {}
+  // await reload 期間可能已切頁,已卸載則立刻解除,避免監聽殘留(殘留會各自放大統計 IPC 查詢)
+  try {
+    const un = await listen('print-stats-updated', scheduleReload)
+    if (_disposed) un(); else _unlistenStats = un
+  } catch {}
 })
-onUnmounted(() => { if (_unlistenStats) { _unlistenStats(); _unlistenStats = null } })
+onUnmounted(() => {
+  _disposed = true
+  if (_unlistenStats) { _unlistenStats(); _unlistenStats = null }
+  if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null }
+})
 </script>
 
 <template>

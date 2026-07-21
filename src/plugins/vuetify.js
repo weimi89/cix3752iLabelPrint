@@ -1,8 +1,11 @@
 import { createVuetify } from 'vuetify'
 import { aliases } from 'vuetify/iconsets/mdi'
+import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n'
 import { h } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Icon } from '@iconify/vue'
 
+import { getI18n } from '@/plugins/i18n'
 import defaults from './vuetify-defaults'
 
 // 正規化 Materio 的 dash 寫法（tabler-xxx / mdi-xxx）成 iconify 的 prefix:name 格式
@@ -93,6 +96,14 @@ const darkTheme = {
 }
 
 export default createVuetify({
+  // 讓 Vuetify 內建元件標籤($vuetify.input.clear / $vuetify.close 等)走 vue-i18n,
+  // 訊息已在 plugins/i18n 併入各語系的 $vuetify(內建 zhHant / vi)。
+  // 未接時 Vuetify 用自己那套(無 zh-Hant 訊息)→ 每個 clearable input / dialog 都噴
+  // 「Translation key not found」警告,dev 模式下每筆警告序列化整棵元件樹(含 devtools-api 巨物)
+  // → GB 級 log 灌爆、切頁與操作嚴重卡頓。
+  locale: {
+    adapter: createVueI18nAdapter({ i18n: getI18n(), useI18n }),
+  },
   theme: {
     defaultTheme: 'light',
     themes: { light: lightTheme, dark: darkTheme },

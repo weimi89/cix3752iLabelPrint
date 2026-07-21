@@ -1,6 +1,6 @@
 [package]
 name = "cix3752i-label-print"
-version = "0.14.0"
+version = "0.15.0"
 description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"

@@ -115,19 +115,23 @@ const toggleSortOnly = async val => {
 }
 // 手機遙控(同區網手機開 /control 暫停通道)→ 後端廣播 sort-channel-updated,桌面即時同步開關
 let unlistenChannel = null
+let _disposed = false
 onMounted(async () => {
   await load()
   try {
-    unlistenChannel = await listen('sort-channel-updated', evt => {
+    // await load 期間可能已切頁;已卸載則立刻解除,避免 Tauri 監聽殘留
+    const un = await listen('sort-channel-updated', evt => {
       const { position, enabled } = evt.payload || {}
       const ch = position && findChannel(position)
       if (ch && typeof enabled === 'boolean') ch.enabled = enabled
     })
+    if (_disposed) un(); else unlistenChannel = un
   } catch (e) {
     console.warn('listen sort-channel-updated 失敗', e)
   }
 })
 onUnmounted(() => {
+  _disposed = true
   if (unlistenChannel) { unlistenChannel(); unlistenChannel = null }
 })
 

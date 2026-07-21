@@ -59,7 +59,12 @@ export default defineConfig(async () => ({
   },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
   build: {
-    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+    // macOS 非 Windows 走 safari14.1:Vite 8(Rolldown)無法把解構降到 safari13,14.1 是最低可過。
+    // ⚠️ 這抬高 macOS 執行下限 → tauri.conf.json 已設 macOS.minimumSystemVersion=11.3(Big Sur 11.3
+    // 首個內建 WebKit 14.1)把限制擋在安裝端,避免舊 macOS 更新後白屏。兩者需一起調整。
+    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari14.1',
+    // ⚠️ Vite 8 起 esbuild 不再自帶(改可選 peer),minify:'esbuild' 與 build.target 降級都依賴
+    // package.json 的 esbuild devDependency。勿移除該 devDep,CI 也勿改用 --omit=dev / npm ci --production。
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },

@@ -60,11 +60,17 @@ const missingBagCount = computed(() => bags.value.filter(b => (b.missing || 0) >
 const completeBagCount = computed(() => bags.value.filter(b => (b.missing || 0) === 0).length)
 const totalMissingItems = computed(() => bags.value.reduce((s, b) => s + (b.missing || 0), 0))
 
-// 卡片 / 精簡模式依狀態篩選後的袋清單
+// 卡片 / 精簡模式依狀態篩選後的袋清單。
+// 順帶把狀態算好掛進 _state / _stateColor / _stateIcon,template 每卡直接讀,
+// 不用在渲染時重複呼叫 bagState()(每卡 3-4 次);computed 有快取,非 filteredBags 變動的 re-render 不重算。
 const filteredBags = computed(() => {
-  if (stateFilter.value === 'missing') return bags.value.filter(b => (b.missing || 0) > 0)
-  if (stateFilter.value === 'complete') return bags.value.filter(b => (b.missing || 0) === 0)
-  return bags.value
+  const list = stateFilter.value === 'missing' ? bags.value.filter(b => (b.missing || 0) > 0)
+    : stateFilter.value === 'complete' ? bags.value.filter(b => (b.missing || 0) === 0)
+      : bags.value
+  return list.map(bag => {
+    const _state = bagState(bag)
+    return { ...bag, _state, _stateColor: STATE_COLOR[_state], _stateIcon: STATE_ICON[_state] }
+  })
 })
 
 // 缺件總覽:每個有缺的袋 + 其未印件清單(扁平,一眼看完所有缺料)
@@ -151,28 +157,38 @@ const initMasonry = async () => {
 }
 
 // 卡片清單 / 視圖模式變動 → 重載 Masonry;非卡片模式或清單空 → 銷毀(容器被 v-if 移除,需丟棄舊實例)
+let _relayoutTimer = null
+let _disposed = false
 watch([filteredBags, viewMode], async () => {
   if (viewMode.value !== 'cards' || !filteredBags.value.length) {
+    if (_relayoutTimer) { clearTimeout(_relayoutTimer); _relayoutTimer = null }
     ro?.disconnect()
     masonry?.destroy()
     masonry = null
     masonryReady.value = false
     return
   }
-  await initMasonry()
+  // 分揀忙碌時 bag-check-updated 每秒數次 → filteredBags 反覆換參考 → 逐次 reloadItems + 全量重排會抖。
+  // 去抖合併 burst,停歇 120ms 才重排一次;ResizeObserver 仍即時處理單卡高度變化,不影響即時感。
+  if (_relayoutTimer) return
+  _relayoutTimer = setTimeout(() => { _relayoutTimer = null; initMasonry() }, 120)
 })
 
 onMounted(async () => {
   await load()
   await initMasonry()
-  // 即時:後端每次更新袋件清單就 emit,前端直接套用快照(不輪詢、不重查雲端)
+  // 即時:後端每次更新袋件清單就 emit,前端直接套用快照(不輪詢、不重查雲端)。
+  // await 期間可能已切頁,已卸載則立刻解除避免 Tauri 監聽殘留
   if (isTauriRuntime) {
-    unlisten = await listen('bag-check-updated', evt => {
+    const un = await listen('bag-check-updated', evt => {
       bags.value = evt.payload || []
     })
+    if (_disposed) un(); else unlisten = un
   }
 })
 onUnmounted(() => {
+  _disposed = true
+  if (_relayoutTimer) { clearTimeout(_relayoutTimer); _relayoutTimer = null }
   if (unlisten) { unlisten(); unlisten = null }
   if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
   if (ro) { ro.disconnect(); ro = null }
@@ -370,7 +386,7 @@ onUnmounted(() => {
           <tbody>
             <tr v-for="bag in filteredBags" :key="bag.package_sn">
               <td class="text-start bag-compact__bag">
-                <VIcon :icon="STATE_ICON[bagState(bag)]" :color="STATE_COLOR[bagState(bag)]" size="20" class="me-2" />
+                <VIcon :icon="bag._stateIcon" :color="bag._stateColor" size="20" class="me-2" />
                 {{ bag.package_sn }}
               </td>
               <td class="text-center bag-compact__num">{{ bag.total }}</td>
@@ -394,7 +410,7 @@ onUnmounted(() => {
       <VCard v-for="bag in filteredBags" :key="bag.package_sn" class="bag-card bag-masonry__item">
           <VCardItem>
             <template #prepend>
-              <VAvatar :color="STATE_COLOR[bagState(bag)]" variant="tonal" rounded>
+              <VAvatar :color="bag._stateColor" variant="tonal" rounded>
                 <VIcon icon="tabler-package" />
               </VAvatar>
             </template>
@@ -405,7 +421,7 @@ onUnmounted(() => {
             <template #append>
               <!-- 完整 → 綠徽章;中途被打斷 → 紅徽章(此為異常,務必顯眼)。
                    一般缺件不顯示徽章(與下方「未印」統計重複)。 -->
-              <VChip v-if="bagState(bag) === 'complete'" :color="STATE_COLOR.complete" size="small" label>
+              <VChip v-if="bag._state === 'complete'" :color="STATE_COLOR.complete" size="small" label>
                 <VIcon :icon="STATE_ICON.complete" size="15" start />
                 {{ $t('page.bagCheck.status.complete') }}
               </VChip>
