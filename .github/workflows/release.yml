@@ -167,11 +167,18 @@ jobs:
             | gpg --dearmor -o /usr/share/keyrings/ubuntu-toolchain-r.gpg
           echo "deb [signed-by=/usr/share/keyrings/ubuntu-toolchain-r.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main" \
             > /etc/apt/sources.list.d/ubuntu-toolchain-r.list
-          # CMake 3.20+ from Kitware
+          # CMake 3.20+ from Kitware(focal 內建僅 3.16,webkit2gtk 2.42 需 3.20+)
           wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
             | gpg --dearmor -o /usr/share/keyrings/kitware.gpg
           echo "deb [signed-by=/usr/share/keyrings/kitware.gpg] https://apt.kitware.com/ubuntu/ focal main" \
             > /etc/apt/sources.list.d/kitware.list
+          # ⚠️ 必須釘在 3.31.x:WebKitGTK 2.42.5 不相容 CMake 4.x —— 4.x 下 WebKitMacros.cmake
+          # 的 _WEBKIT_TARGET_LINK_FRAMEWORK 會 "Unknown arguments specified" 而 configure 失敗
+          # (JavaScriptCore/CMakeLists.txt:431)。Kitware 倉庫滾動更新,不釘版本就會隨時間漂到 4.x;
+          # 本問題長期被 stack 快取掩蓋,直到 v0.16.0 快取過期重編才暴露。
+          # 若日後要升 CMake,必須同步升 webkit2gtk 版本並確認相容。
+          printf 'Package: cmake cmake-data\nPin: version 3.31.*\nPin-Priority: 1001\n' \
+            > /etc/apt/preferences.d/cmake-pin
           apt-get update
           apt-get install -y --no-install-recommends \
             git build-essential gcc-11 g++-11 cmake ninja-build \
@@ -196,6 +203,12 @@ jobs:
           gcc --version | head -1
           cmake --version | head -1
           meson --version
+          # fail fast:pin 若失效(Kitware 移除 3.31.x 等),在此當場擋下。
+          # 否則要等 webkit configure 才爆,白跑前面 glib/libsoup 的十幾分鐘。
+          cmake --version | head -1 | grep -qE 'version 3\.' || {
+            echo "::error::CMake 必須是 3.x(webkit2gtk 2.42.5 不相容 4.x),實際為 $(cmake --version | head -1)"
+            exit 1
+          }
 
       - name: Bootstrap apt (22.04 / 24.04 — system webkit2gtk-4.1)
         if: matrix.distro != 'ubuntu-20.04'
