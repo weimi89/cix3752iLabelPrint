@@ -280,6 +280,7 @@ jobs:
           pkg-config --modversion libsoup-3.0
 
       - name: Build webkit2gtk-4.1 from upstream tarball (20.04 only, 1-2 hr)
+        id: build-webkit
         if: matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
         run: |
           set -e
@@ -337,9 +338,13 @@ jobs:
           pkg-config --modversion libsoup-3.0
           pkg-config --modversion webkit2gtk-4.1
 
-      # 強制 save:即使 Tauri build / packaging 後續 fail,webkit 編好的成果也保住
-      - name: Save built upstream stack cache (20.04 only, always)
-        if: always() && matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true'
+      # always() 是為了「即使 Tauri build / packaging 後續 fail,webkit 編好的成果也保住」,
+      # 但**必須同時要求 webkit 這步真的成功**(build-webkit.outcome == 'success')——
+      # 否則 job 在編 webkit 途中被取消 / 失敗時,會把只有 glib+libsoup 的半成品存進快取。
+      # 之後每次 cache hit 都會跳過 webkit 編譯卻又找不到它(pkg-config 失敗),
+      # 20.04 就此永久卡住,直到有人手動 `gh cache delete`。v0.16.0 發版時實際踩過。
+      - name: Save built upstream stack cache (20.04 only)
+        if: always() && matrix.distro == 'ubuntu-20.04' && steps.cache-stack.outputs.cache-hit != 'true' && steps.build-webkit.outcome == 'success'
         uses: actions/cache/save@v5
         with:
           path: /opt/cix-stack
