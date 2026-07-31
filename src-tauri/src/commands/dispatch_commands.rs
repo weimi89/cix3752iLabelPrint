@@ -10,7 +10,6 @@ pub struct DispatchProvider {
     pub name: String,
     pub sort_order: i64,
     pub print_profile: Option<String>,
-    pub printer_name: Option<String>,
 }
 
 #[tauri::command]
@@ -18,7 +17,7 @@ pub async fn dispatch_provider_list(
     state: State<'_, SharedState>,
 ) -> AppResult<Vec<DispatchProvider>> {
     let rows = sqlx::query(
-        "SELECT code, name, sort_order, print_profile, printer_name FROM dispatch_provider
+        "SELECT code, name, sort_order, print_profile FROM dispatch_provider
          ORDER BY sort_order ASC, code ASC",
     )
     .fetch_all(&state.db)
@@ -31,7 +30,6 @@ pub async fn dispatch_provider_list(
             name: r.try_get("name").unwrap_or_default(),
             sort_order: r.try_get("sort_order").unwrap_or(0),
             print_profile: r.try_get("print_profile").ok(),
-            printer_name: r.try_get("printer_name").ok(),
         })
         .collect())
 }
@@ -44,8 +42,6 @@ pub struct DispatchUpsertReq {
     pub sort_order: i64,
     #[serde(default)]
     pub print_profile: Option<String>,
-    #[serde(default)]
-    pub printer_name: Option<String>,
 }
 
 #[tauri::command]
@@ -59,23 +55,21 @@ pub async fn dispatch_provider_upsert(
         return Err(AppError::Server("代碼與名稱皆不可為空".to_string()));
     }
     let print_profile = req.print_profile.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let printer_name = req.printer_name.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
+    // 舊 printer_name 欄位保留於 schema 但不再讀寫(本機印表機設定已移到 sort_channels)
     sqlx::query(
-        "INSERT INTO dispatch_provider (code, name, sort_order, print_profile, printer_name, updated_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
+        "INSERT INTO dispatch_provider (code, name, sort_order, print_profile, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now','localtime'))
          ON CONFLICT(code) DO UPDATE SET
             name = excluded.name,
             sort_order = excluded.sort_order,
             print_profile = excluded.print_profile,
-            printer_name = excluded.printer_name,
             updated_at = datetime('now','localtime')",
     )
     .bind(code)
     .bind(name)
     .bind(req.sort_order)
     .bind(print_profile)
-    .bind(printer_name)
     .execute(&state.db)
     .await?;
     Ok(())

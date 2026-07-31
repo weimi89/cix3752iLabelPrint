@@ -203,7 +203,11 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 - **commit 訊息不加 `Co-Authored-By` 行**
 - **測試檔案放 `tests/`**,不堆專案根目錄
 - **檔案不直接刪除** — 搬到 `backups/{YYYYMMDDHHMMSS}/{原路徑}` 保留原始結構
-- **`package-lock.json` 不入版控**(已加入 `.gitignore`,避免不同 host 平台 optional deps 互相干擾 docker build)
+- **套件管理用 `yarn`**(非 npm),CI(`release.yml`)與 `tests/docker-ubuntu-build.sh` 皆走 `yarn install`
+  - **`yarn.lock` 入版控**(供 Dependabot 掃漏洞 + 可重現建置)。它含全部平台的 optional binding(darwin / linux / win32),linux 與 windows CI 用同一份 lock 照樣裝得到 `@tauri-apps/cli-linux-x64-gnu` 等,不會缺席
+  - **`package-lock.json` 不入版控**(已加入 `.gitignore`,避免不同 host 平台 optional deps 互相干擾 docker build:host 跑過 npm 後 lock 會鎖死 `darwin-arm64`,其他平台 binding entry 被移除)
+  - ⚠️ **yarn 1 不自動安裝 peer dependencies**(npm 7+ 會)。pinia / vue-router 宣告 `@vue/devtools-api` 為非 optional peer,但會被 vue-i18n 的舊版 hoist 蓋掉 → `package.json` 已明確加 `@vue/devtools-api` devDependency 鎖住正確 major,**勿移除**
+  - 非託管 runner(nodesource 裝的 nodejs)不含 yarn,需先 `npm i -g yarn`
 - **PHP/Laravel 陷阱**(若有觸碰雲端後端):`??` 優先級、`foreach &$var` 後 unset、`SoapClient` 不可並行(讀取逾時受 PHP ini `default_socket_timeout` 控制)、並行 HTTP 用 `Http::pool()`
 
 ## 文件入口

@@ -100,6 +100,11 @@
 
 ### 本地 docker 驗證(OrbStack)經驗
 
+> ⚠️ **下表為 v0.2.0 當時的 npm 情境記錄**。專案自 v0.15.0 起改用 **yarn**(`yarn.lock` 入版控):
+> `yarn.lock` 含全部平台的 optional binding,不會有「host 平台鎖死、其他平台 binding 缺席」的問題,
+> 故 `tests/docker-ubuntu-build.sh` 現在**只刪 `package-lock.json`、保留 `yarn.lock`**(留著才驗證得到
+> 版控的 lock 在 Linux 可重現建置)。詳見 CLAUDE.md「規範」一節。
+
 | 痛點 | 解法 |
 |---|---|
 | host(macOS arm64)mount 進 linux container 後 `npm run tauri:build` 報 `Cannot find native binding @tauri-apps/cli-linux-x64-gnu` | host 跑過 `npm install` 後 `package-lock.json` 內 optionalDependencies 鎖死 `darwin-arm64` 平台,其他 platform binding entry 被 npm 從 lock 移掉;container 內 `rm -rf node_modules package-lock.json` 後重 `npm install` 才解所有 platform optional deps。**根治**:`package-lock.json` 列入 `.gitignore`(v0.2.0 完成) |

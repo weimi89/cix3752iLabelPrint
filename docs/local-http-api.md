@@ -186,7 +186,7 @@ Host: <middleware-ip>:18080
 2. 錯誤面單的 `response_id` 為 Middleware 本地產生的**負數** ID（與雲端正數 ID 區隔），工控機**照正常流程 `POST /api/report` 回報即可**——Middleware 對負數 ID 只記錄本機、不推雲端，回應同樣是 200。**工控機端不需要為錯誤面單做任何特殊處理，整條流程（查詢 → 分揀 → 列印 → 回報）與正常面單完全相同**。僅在 `response_id` 為 `null`（中介端記錄寫入失敗的罕見退化）時不要回報。
 3. **雲端查得到訂單的業務錯誤**（`STORE_CLOSED` / `UNCONFIRMED` / `STATUS_ABNORMAL` / `NOT_PROXY` / `NOT_FORWARD` / `LABEL_FAILED`）會帶出 `shipping_provider`，Middleware 照**正常面單的同一套流程**解析 `channel_code`（指派通道 round-robin，未指派時退回「未指派通道代碼」）與 `print_profile`——工控機把包裹分揀進該通道並列印錯誤面單即可，處理方式與正常面單一致。
 4. **查無訂單**（`NOT_FOUND` 等雲端無法判斷物流商的錯誤）時，`channel_code` 統一退回設定頁的「未指派通道代碼」（`print_profile` 為 `null`）。亦即只要 Middleware 設定頁有設未指派通道，**所有錯誤面單都保證有 `channel_code`**；僅在該設定留空時才會是 `null`，此時工控機依自身邏輯處理（建議走異常/未指派格口）。
-5. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印（優先使用該物流商在「指派物流」頁設定的印表機，無法判斷物流商時退回任一已設定印表機或系統預設），**不回傳 `label_path` 欄位**（與正常面單一致）。
+5. `direct_print` 模式下，錯誤面單由中介 PC 本機直接列印（優先使用該包裹解析到的 `channel_code` 在「分揀通道」頁設定的印表機；該通道未設印表機、或退回「未指派通道代碼」而對不到任何通道時，改用系統預設印表機），**不回傳 `label_path` 欄位**（與正常面單一致）。
 
 > *[設計演進]* 舊版實作對雲端業務錯誤一律回 `502 Bad Gateway`，導致 `http` / `local` / `share` 模式下錯誤面單無法送達工控機（錯誤面單僅在 `direct_print` 模式有效）。v0.5.4 改為取向 A：錯誤面單與正常面單走同一條 `label_path` 出口，所有模式皆可印出。v0.5.6 起錯誤回應進一步帶出 `channel_code` / `print_profile`（雲端錯誤 body 含 `shipping_provider` 時，查不到物流商則統一退回未指派通道代碼）與本地負數 `response_id`（錯誤查詢同步寫入查詢記錄，回報可正常配對、不推雲端），讓分揀機把錯誤面單當一般面單跑完整流程，工控機端零特殊處理。
 
@@ -233,13 +233,13 @@ Host: <middleware-ip>:18080
 | `local`(預設) | `/Users/.../labels/2026/05/SF.png` | — | 直接讀本機檔(僅同機器有效) |
 | `share` | `\\10.0.0.1\labels\2026\05\SF.png` | `share_root` | 經 SMB / NFS 掛載讀檔 |
 | `http` | `http://192.168.1.50:18080/images/SF.png` | — | 走 HTTP GET 下載 |
-| `direct_print` | (不回傳此欄位) | 指派物流頁各物流商 `printer_name` | 不讀檔;由中介機本機印表機直接列印 |
+| `direct_print` | (不回傳此欄位) | 分揀通道頁各通道 `printer_name` | 不讀檔;由中介機本機印表機直接列印 |
 
 **`share` 模式**:Middleware 把本地 `cache_root` 前綴替換為 `share_root`,再依 `share_root` 含 `\` 與否決定分隔符風格。`share_root` 必須與 cache 根目錄指向同一份檔案的不同視角。
 
 **`http` 模式**:設計為內網部署,直接以工控機請求的 Host header 組合 `http://{host}/images/{label_key}`,**無須額外設定**。內部走現有靜態檔案端點(第 4 節)。
 
-**`direct_print` 模式**:**回應不含 `label_path` 欄位**(因 `Option::is_none` skip 而整個省略,不是 `null`),面單由中介機直接送本機印表機(依「指派物流」頁各物流商設定的 `printer_name`)。
+**`direct_print` 模式**:**回應不含 `label_path` 欄位**(因 `Option::is_none` skip 而整個省略,不是 `null`),面單由中介機直接送本機印表機(依「分揀通道」頁各通道設定的 `printer_name`,以該包裹分配到的通道決定送哪台)。
 
 **設定錯誤的退化策略**:`share_root` 為空時退回 `local`。
 

@@ -95,7 +95,7 @@
   },
   "directPrintFailed": {
     "download_failed": "直印失敗：面單下載失敗,此件實際未印出",
-    "no_printer": "直印失敗：物流商未設定印表機,此件實際未印出",
+    "no_printer": "直印失敗：分揀通道未設定印表機,此件實際未印出",
     "read_failed": "直印失敗：讀取面單圖失敗,此件實際未印出",
     "print_failed": "直印失敗：列印送出失敗,此件實際未印出"
   },
@@ -378,7 +378,7 @@
       "shareRootHint": "需與本機 cache 根目錄指向同一份檔案的不同視角;結尾不需斜線",
       "httpHint": "內網模式自動採用工控機請求的 Host header 組裝 URL,無須額外設定",
       "localHint": "本機絕對路徑,工控機需與中介服務同機",
-      "directPrintHint": "App 收到工控機請求後直接呼叫本機印表機列印,label_path 回傳 null;請至「指派物流」頁面為各物流商設定對應印表機",
+      "directPrintHint": "App 收到工控機請求後直接呼叫本機印表機列印,label_path 回傳 null;請至「分揀通道」頁面為各通道設定對應印表機",
       "sortOnly": "純分揀模式(只回分揀通道,不出面單)",
       "sortOnlyHint": "開啟後只做分揀:只回分揀通道、不印面單、不記列印統計。件數核對、查詢記錄照常;異常件的錯誤面單仍會印。",
       "sortOnlyActiveHint": "純分揀模式已開啟(於「分揀通道」頁切換),面單模式暫不生效"
@@ -811,6 +811,10 @@
       "dispatchUnassigned": "(未指派)",
       "sticker": "貼標人員",
       "stickerPlaceholder": "輸入或從歷史選取",
+      "printer": "本機印表機",
+      "printerPlaceholder": "選擇本機印表機",
+      "printerRequired": "{pos} 已設通道代碼與指派物流,直接列印模式下必須選擇本機印表機(否則該通道會收件但印不出面單)",
+      "printerMissingHint": "未設印表機:此通道的面單不會印出",
       "status": {
         "unsaved": "未儲存",
         "enabled": "已啟用",
@@ -845,7 +849,6 @@
       "emptyHint": "尚未設定物流商,按右上「新增物流」開始",
       "errCodeNameRequired": "代碼與名稱皆不可為空",
       "errPrintProfileRequired": "列印設定為必填",
-      "errPrinterNameRequired": "直接列印模式需選擇印表機",
       "errCodeDuplicate": "代碼 \"{code}\" 已存在",
       "flashCreated": "已新增物流商",
       "flashUpdated": "已更新物流商",
@@ -853,7 +856,6 @@
       "codePlaceholder": "例: S / B / P",
       "namePlaceholder": "例: 順豐速運",
       "printProfilePlaceholder": "例: PAPER-01#100x150",
-      "printerNamePlaceholder": "選擇本機印表機",
       "orderHint": "數字越小越前面",
       "confirmDelete": "確認刪除",
       "confirmDeleteBody": "確定要刪除「{name}」({code}) 嗎?",
@@ -863,7 +865,6 @@
         "code": "代碼",
         "name": "名稱",
         "printProfile": "列印設定",
-        "printerName": "本機印表機",
         "actions": "操作"
       }
     },

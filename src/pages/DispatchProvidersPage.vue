@@ -3,7 +3,6 @@ import {
   dispatchProviderList,
   dispatchProviderUpsert,
   dispatchProviderDelete,
-  listPrinters,
   getConfig,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
@@ -17,11 +16,10 @@ const loading = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 const isDirectPrintMode = ref(false)
-const printerList = ref([])
 
 const dialogOpen = ref(false)
 const editingOriginalCode = ref(null) // null 代表新增
-const form = ref({ code: '', name: '', sort_order: 0, print_profile: '', printer_name: null })
+const form = ref({ code: '', name: '', sort_order: 0, print_profile: '' })
 
 const deleteOpen = ref(false)
 const deleteTarget = ref(null)
@@ -38,25 +36,25 @@ const load = async () => {
   }
 }
 
+// direct_print 模式下面單不經雲端 print_profile 出單,故該欄非必填(本機印表機設定在「分揀通道」頁)
 const loadMeta = async () => {
   if (!isTauriRuntime) return
   try {
-    const [cfg, ps] = await Promise.all([getConfig(), listPrinters()])
+    const cfg = await getConfig()
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
-    printerList.value = (ps || []).map(p => ({ title: p.name, value: p.name }))
   } catch {}
 }
 onMounted(() => { load(); loadMeta() })
 
 const openCreate = () => {
   editingOriginalCode.value = null
-  form.value = { code: '', name: '', sort_order: items.value.length, print_profile: '', printer_name: null }
+  form.value = { code: '', name: '', sort_order: items.value.length, print_profile: '' }
   dialogOpen.value = true
 }
 
 const openEdit = row => {
   editingOriginalCode.value = row.code
-  form.value = { ...row, print_profile: row.print_profile ?? '', printer_name: row.printer_name ?? null }
+  form.value = { ...row, print_profile: row.print_profile ?? '' }
   dialogOpen.value = true
 }
 
@@ -70,17 +68,12 @@ const save = async () => {
   const code = (form.value.code || '').trim()
   const name = (form.value.name || '').trim()
   const printProfile = (form.value.print_profile || '').trim()
-  const printerName = form.value.printer_name || null
   if (!code || !name) {
     errorMsg.value = t('page.dispatch.errCodeNameRequired')
     return
   }
   if (!isDirectPrintMode.value && !printProfile) {
     errorMsg.value = t('page.dispatch.errPrintProfileRequired')
-    return
-  }
-  if (isDirectPrintMode.value && !printerName) {
-    errorMsg.value = t('page.dispatch.errPrinterNameRequired')
     return
   }
   if (editingOriginalCode.value === null
@@ -94,7 +87,6 @@ const save = async () => {
       name,
       sortOrder: Number(form.value.sort_order) || 0,
       printProfile: printProfile || null,
-      printerName,
     })
     dialogOpen.value = false
     flash(t(editingOriginalCode.value === null ? 'page.dispatch.flashCreated' : 'page.dispatch.flashUpdated'))
@@ -147,8 +139,7 @@ const confirmDelete = async () => {
             <th class="text-center" style="width: 80px;">{{ $t('page.dispatch.col.order') }}</th>
             <th style="min-width: 100px;">{{ $t('page.dispatch.col.code') }}</th>
             <th style="min-width: 160px;">{{ $t('page.dispatch.col.name') }}</th>
-            <th v-if="!isDirectPrintMode" style="min-width: 180px;">{{ $t('page.dispatch.col.printProfile') }}</th>
-            <th v-if="isDirectPrintMode" style="min-width: 200px;">{{ $t('page.dispatch.col.printerName') }}</th>
+            <th style="min-width: 180px;">{{ $t('page.dispatch.col.printProfile') }}</th>
             <th class="text-end" style="width: 125px;">{{ $t('page.dispatch.col.actions') }}</th>
           </tr>
         </thead>
@@ -165,8 +156,7 @@ const confirmDelete = async () => {
             <td class="text-center text-disabled">{{ row.sort_order }}</td>
             <td class="text-center font-weight-medium">{{ row.code }}</td>
             <td class="text-center">{{ row.name }}</td>
-            <td v-if="!isDirectPrintMode" class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
-            <td v-if="isDirectPrintMode" class="text-center text-disabled">{{ row.printer_name || '—' }}</td>
+            <td class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
             <td class="text-center">
               <VBtn icon="tabler-edit" variant="text" color="primary" size="small" @click="openEdit(row)" />
               <VBtn icon="tabler-trash" variant="text" color="error" size="small" @click="askDelete(row)" />
@@ -219,18 +209,6 @@ const confirmDelete = async () => {
               variant="outlined"
               density="compact"
               hide-details
-            />
-          </div>
-          <div class="search-field mb-3">
-            <label>{{ $t('page.dispatch.col.printerName') }}</label>
-            <VSelect
-              v-model="form.printer_name"
-              :items="printerList"
-              :placeholder="$t('page.dispatch.printerNamePlaceholder')"
-              variant="outlined"
-              density="compact"
-              hide-details
-              clearable
             />
           </div>
           <div class="search-field">

@@ -6,6 +6,7 @@ import {
   sortChannelUnassignedGet,
   sortChannelUnassignedSave,
   dispatchProviderList,
+  listPrinters,
   getConfig,
   updateConfig,
 } from '@/api/tauri'
@@ -21,6 +22,9 @@ const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNA
 
 const channels = ref([]) // 後端回來的 8 筆,position L1..R4
 const dispatchOptions = ref([])
+// direct_print 模式:各通道可設定本機印表機(面單依分配到的通道送對應印表機)
+const isDirectPrintMode = ref(false)
+const printerList = ref([])
 // 人員歷史名單(與掃描/自動列印頁共用同一份)
 const { history: stickerHistory, reload: reloadStickerHistory, add: addStickerHistory, remove: removeSticker } = useStickerHistory()
 const dirty = ref(new Set()) // 紀錄哪些 position 被改過
@@ -75,11 +79,26 @@ const load = async () => {
     dispatchOptions.value = dispatch
     unassignedCode.value = uCode ?? ''
     sortOnly.value = !!cfg?.sort_only?.enabled
+    isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
     dirty.value = new Set()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
   } finally {
     loading.value = false
+  }
+}
+
+// 印表機列舉獨立載入、**不阻塞 load()**:Windows 工控機在有離線 / 網路印表機時常需數秒,
+// 若串進 load() 會一併延後 onMounted 的 sort-channel-updated 監聽註冊 ——
+// 那段空窗內手機遙控的暫停狀態會漏接,桌面畫面持續顯示「已啟用」而後端實際已暫停。
+// 清單晚到不影響操作(VSelect items 是響應式);失敗只 warn,不擋頁面。
+const loadPrinters = async () => {
+  if (!isTauriRuntime) return
+  try {
+    const ps = await listPrinters()
+    printerList.value = (ps || []).map(p => ({ title: p.name, value: p.name }))
+  } catch (e) {
+    console.warn('載入印表機清單失敗', e)
   }
 }
 
@@ -117,6 +136,7 @@ const toggleSortOnly = async val => {
 let unlistenChannel = null
 let _disposed = false
 onMounted(async () => {
+  loadPrinters() // 刻意不 await:背景載入,不延後下方的事件監聽註冊
   await load()
   try {
     // await load 期間可能已切頁;已卸載則立刻解除,避免 Tauri 監聽殘留
@@ -136,6 +156,19 @@ onUnmounted(() => {
 })
 
 const markDirty = pos => dirty.value.add(pos)
+
+// direct_print 模式下「會實際接件卻沒設印表機」的通道 —— 這種通道每一件都會靜默漏印
+// (工控機收 200、統計與袋核對都記已印,實體沒印),必須在存檔前就讓操作員看見。
+const printerMissing = pos => {
+  const ch = findChannel(pos)
+  return !!(
+    isDirectPrintMode.value
+    && ch
+    && (ch.channel_code || '').trim()
+    && ch.dispatch_codes?.length
+    && !ch.printer_name
+  )
+}
 
 const flash = msg => {
   flashMsg.value = msg
@@ -160,12 +193,20 @@ const saveAll = async () => {
       errors.push(t('page.sort.channelCodeInvalid', { code }))
       continue // 保留 dirty 供修正,不影響其他筆
     }
+    // direct_print 模式下,會實際接件的通道(有代碼 + 有指派物流)一定要有印表機,否則
+    // 該通道每一件都會「工控機收 200、統計與袋核對記已印,實體卻沒印」的靜默漏印。
+    // 此檢查取代舊「指派物流」頁被移除的 errPrinterNameRequired,不可省略。
+    if (isDirectPrintMode.value && code && ch.dispatch_codes?.length && !ch.printer_name) {
+      errors.push(t('page.sort.printerRequired', { pos: POSITION_LABELS.value[pos] }))
+      continue // 保留 dirty 供修正
+    }
     try {
       await sortChannelSave({
         position: ch.position,
         channelCode: ch.channel_code,
         dispatchCodes: ch.dispatch_codes,
         jobSticker: ch.job_sticker,
+        printerName: ch.printer_name,
       })
       dirty.value.delete(pos)
       savedCount++
@@ -551,6 +592,25 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   @remove="removeStickerFromHistory"
                 />
               </div>
+              <!-- direct_print 模式:此通道面單送印的本機印表機(其他模式不顯示,不佔版面) -->
+              <div v-if="isDirectPrintMode" class="search-field">
+                <label>{{ $t('page.sort.printer') }}</label>
+                <VSelect
+                  v-model="findChannel(pos).printer_name"
+                  :items="printerList"
+                  :placeholder="$t('page.sort.printerPlaceholder')"
+                  :error="printerMissing(pos)"
+                  density="compact"
+                  variant="outlined"
+                  clearable
+                  hide-details
+                  @update:model-value="markDirty(pos)"
+                />
+                <div v-if="printerMissing(pos)" class="text-caption text-error mt-1 d-flex align-center">
+                  <VIcon icon="tabler-alert-triangle" size="13" class="me-1" />
+                  {{ $t('page.sort.printerMissingHint') }}
+                </div>
+              </div>
               <!-- 快速暫停開關:分揀進行中即時生效,僅已設定通道代碼者顯示 -->
               <div
                 v-if="findChannel(pos).channel_code"
@@ -648,6 +708,25 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   @remember="rememberUser"
                   @remove="removeStickerFromHistory"
                 />
+              </div>
+              <!-- direct_print 模式:此通道面單送印的本機印表機(其他模式不顯示,不佔版面) -->
+              <div v-if="isDirectPrintMode" class="search-field">
+                <label>{{ $t('page.sort.printer') }}</label>
+                <VSelect
+                  v-model="findChannel(pos).printer_name"
+                  :items="printerList"
+                  :placeholder="$t('page.sort.printerPlaceholder')"
+                  :error="printerMissing(pos)"
+                  density="compact"
+                  variant="outlined"
+                  clearable
+                  hide-details
+                  @update:model-value="markDirty(pos)"
+                />
+                <div v-if="printerMissing(pos)" class="text-caption text-error mt-1 d-flex align-center">
+                  <VIcon icon="tabler-alert-triangle" size="13" class="me-1" />
+                  {{ $t('page.sort.printerMissingHint') }}
+                </div>
               </div>
               <!-- 快速暫停開關:分揀進行中即時生效,僅已設定通道代碼者顯示 -->
               <div

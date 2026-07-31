@@ -149,7 +149,14 @@ struct ServerState {
 struct DirectPrintJob {
     label_key: String,
     image_url: String,
+    /// 物流商代碼:浮水印位置(順豐右下角)與 repeat key 推導仍依物流商
     provider: String,
+    /// 分配到的分揀通道代碼(僅供 log / 診斷,不再拿來反查印表機)
+    channel_code: String,
+    /// **入列當下就解析好的印表機名稱**,不在 worker 端才反查 ——
+    /// 佇列積壓期間操作員若在「分揀通道」頁改了通道代碼,延後反查會整批落空、
+    /// 全部被當 no_printer 丟棄(工控機早已收 200、袋核對已標已印,實體卻沒印)。
+    printer_name: String,
     print_num: u32,
     query_no: String,
 }
@@ -800,40 +807,39 @@ async fn fetch_print_profile(db: &DbPool, provider: &str) -> Option<String> {
         .and_then(|r| r.try_get::<Option<String>, _>("print_profile").ok().flatten())
 }
 
-/// 找一台可用的列印機,優先序:
-/// 1. `provider` 指定的物流商在 dispatch_provider 設定的 printer_name(錯誤面單跟著該物流商的印表機出)
-/// 2. 任何已設定 printer_name 的物流商設定
-/// 3. 系統預設印表機
-/// 在 background task 中呼叫,失敗只 warn 不 panic。
-async fn find_any_printer(db: &DbPool, provider: Option<&str>) -> Option<String> {
-    if let Some(code) = provider {
-        let row = sqlx::query(
-            "SELECT printer_name FROM dispatch_provider WHERE code = ? AND printer_name IS NOT NULL AND printer_name != ''",
-        )
-        .bind(code)
-        .fetch_optional(db)
-        .await
-        .ok()
-        .flatten();
-        if let Some(r) = row {
-            if let Ok(Some(name)) = r.try_get::<Option<String>, _>("printer_name") {
-                return Some(name);
-            }
-        }
+/// 取某分揀通道在「分揀通道」頁設定的本機印表機(空字串視同未設)。
+/// direct_print 入列前與錯誤面單列印共用此單一查詢來源。
+async fn fetch_channel_printer(db: &DbPool, channel_code: &str) -> Option<String> {
+    if channel_code.is_empty() {
+        return None;
     }
-
-    let row = sqlx::query(
-        "SELECT printer_name FROM dispatch_provider WHERE printer_name IS NOT NULL AND printer_name != '' LIMIT 1",
+    sqlx::query(
+        "SELECT printer_name FROM sort_channels
+         WHERE channel_code = ? AND printer_name IS NOT NULL AND printer_name != ''",
     )
+    .bind(channel_code)
     .fetch_optional(db)
     .await
     .ok()
-    .flatten();
+    .flatten()
+    .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten())
+}
 
-    if let Some(r) = row {
-        if let Ok(Some(name)) = r.try_get::<Option<String>, _>("printer_name") {
+/// 找一台可用的列印機給**錯誤面單**用,優先序:
+/// 1. `channel_code` 對應分揀通道設定的 printer_name(錯誤面單跟著該包裹要去的格口出)
+/// 2. 系統預設印表機
+///
+/// **刻意不再退回「任一已設印表機的通道」**:那是無 ORDER BY 的 `LIMIT 1`,實務上等於隨機挑一條
+/// 分揀線,錯誤面單會從別條線吐出來 —— 該線作業員不知情、異常件所在的線什麼也沒印,
+/// 異常包裹被當正常件放行。落到系統預設印表機至少是可預測、可事先設定的單一出口。
+/// 在 background task 中呼叫,失敗只 warn 不 panic。
+async fn find_any_printer(db: &DbPool, channel_code: Option<&str>) -> Option<String> {
+    if let Some(code) = channel_code {
+        if let Some(name) = fetch_channel_printer(db, code).await {
             return Some(name);
         }
+        tracing::warn!(channel_code = %code,
+            "錯誤面單:該通道未設印表機(或代碼為未指派 fallback),退回系統預設印表機");
     }
 
     // fallback：系統預設印表機
@@ -851,10 +857,10 @@ fn spawn_print_error_label_bytes(
     app: tauri::AppHandle,
     query_no: String,
     label_bytes: Vec<u8>,
-    provider: Option<String>,
+    channel_code: Option<String>,
 ) {
     tokio::spawn(async move {
-        match find_any_printer(&db, provider.as_deref()).await {
+        match find_any_printer(&db, channel_code.as_deref()).await {
             Some(printer_name) => {
                 let qn = query_no.clone();
                 tokio::task::spawn_blocking(move || {
@@ -970,6 +976,8 @@ fn enqueue_direct_print(
     label_key: String,
     image_url: String,
     provider: String,
+    channel_code: String,
+    printer_name: String,
     print_num: u32,
     query_no: String,
 ) {
@@ -977,6 +985,8 @@ fn enqueue_direct_print(
         label_key,
         image_url,
         provider,
+        channel_code,
+        printer_name,
         print_num,
         query_no: query_no.clone(),
     };
@@ -1014,6 +1024,8 @@ async fn run_direct_print_job(
         label_key,
         image_url,
         provider,
+        channel_code,
+        printer_name: pname,
         print_num,
         query_no,
     } = job;
@@ -1056,22 +1068,8 @@ async fn run_direct_print_job(
         label_key.clone()
     };
 
-    // 3. 查 dispatch_provider.printer_name → 讀圖 → 送印
-    let printer_name: Option<String> = sqlx::query(
-        "SELECT printer_name FROM dispatch_provider WHERE code = ?",
-    )
-    .bind(&provider)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten()
-    .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten());
-
-    let Some(pname) = printer_name else {
-        tracing::warn!(shipping_provider = %provider, "direct_print 模式但物流商未設定印表機");
-        report_direct_print_failed(app, db, &query_no, "no_printer");
-        return;
-    };
+    // 3. 讀圖 → 送印(印表機已於入列當下解析,見 DirectPrintJob::printer_name)
+    tracing::debug!(channel_code = %channel_code, printer = %pname, "direct_print 送印");
 
     let img_path = cache_base.join(&effective_key);
     let bytes = match tokio::fs::read(&img_path).await {
@@ -1299,14 +1297,29 @@ async fn get_parcel(
                         "物流商未指派分揀通道,略過面單處理");
                     (None, 0i64)
                 } else if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
-                    enqueue_direct_print(
-                        &state,
-                        label_key.clone(),
-                        info.shipping_image.clone(),
-                        info.shipping_provider.clone(),
-                        print_num,
-                        query_no.clone(),
-                    );
+                    // has_assigned=true 保證 channel_code 為 Some(實際通道代碼)。
+                    // **印表機在此當場解析**(而非丟給背景 worker 反查):查不到就立即通報,
+                    // 讓「通道漏設印表機」在第一件就被聽見,而不是整批靜默積在佇列裡才發現。
+                    let cc = channel_code.clone().unwrap_or_default();
+                    match fetch_channel_printer(&state.db, &cc).await {
+                        Some(pname) => {
+                            enqueue_direct_print(
+                                &state,
+                                label_key.clone(),
+                                info.shipping_image.clone(),
+                                info.shipping_provider.clone(),
+                                cc,
+                                pname,
+                                print_num,
+                                query_no.clone(),
+                            );
+                        }
+                        None => {
+                            tracing::warn!(channel_code = %cc, provider = %info.shipping_provider,
+                                "direct_print 模式但分揀通道未設定印表機,此件不會印出");
+                            report_direct_print_failed(&state.app, &state.db, &query_no, "no_printer");
+                        }
+                    }
                     (None, 0i64)
                 } else {
                     let t_label = std::time::Instant::now();
@@ -1662,7 +1675,7 @@ async fn get_parcel(
                     state.app.clone(),
                     query_no.clone(),
                     label_bytes,
-                    err_provider.clone(),
+                    channel_code.clone(),
                 );
                 (None, None)
             } else {
@@ -1688,7 +1701,7 @@ async fn get_parcel(
                             state.app.clone(),
                             query_no.clone(),
                             label_bytes,
-                            err_provider.clone(),
+                            channel_code.clone(),
                         );
                         return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
                     }

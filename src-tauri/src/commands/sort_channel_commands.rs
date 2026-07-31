@@ -31,6 +31,9 @@ pub struct SortChannel {
     #[serde(default)]
     pub dispatch_codes: Vec<String>,
     pub job_sticker: Option<String>,
+    /// direct_print 模式此通道面單送印的本機印表機(取代舊 dispatch_provider.printer_name)
+    #[serde(default)]
+    pub printer_name: Option<String>,
     /// 是否啟用。false=暫停,暫停的通道不參與路由分配
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -44,7 +47,7 @@ fn default_true() -> bool {
 pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<SortChannel>> {
     // 用 CASE 排序保證 L1..L4, R1..R4 順序
     let rows = sqlx::query(
-        "SELECT position, channel_code, job_sticker, enabled
+        "SELECT position, channel_code, job_sticker, printer_name, enabled
          FROM sort_channels
          ORDER BY
            CASE substr(position,1,1) WHEN 'L' THEN 0 WHEN 'R' THEN 1 ELSE 2 END,
@@ -78,6 +81,7 @@ pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<S
             SortChannel {
                 channel_code: r.try_get("channel_code").ok(),
                 job_sticker: r.try_get("job_sticker").ok(),
+                printer_name: r.try_get("printer_name").ok().flatten(),
                 enabled: r.try_get::<i64, _>("enabled").unwrap_or(1) != 0,
                 dispatch_codes,
                 position,
@@ -96,6 +100,9 @@ pub struct SortChannelSaveReq {
     pub dispatch_codes: Vec<String>,
     #[serde(default)]
     pub job_sticker: Option<String>,
+    /// direct_print 模式此通道的本機印表機
+    #[serde(default)]
+    pub printer_name: Option<String>,
 }
 
 fn normalize(v: Option<String>) -> Option<String> {
@@ -136,6 +143,7 @@ pub async fn sort_channel_save(
         }
     }
     let job_sticker = normalize(req.job_sticker);
+    let printer_name = normalize(req.printer_name);
     // 指派物流去重 + 去空白,保持原始順序
     let mut dispatch_codes: Vec<String> = Vec::new();
     for code in req.dispatch_codes {
@@ -167,11 +175,12 @@ pub async fn sort_channel_save(
 
     sqlx::query(
         "UPDATE sort_channels
-         SET channel_code = ?, job_sticker = ?, updated_at = datetime('now','localtime')
+         SET channel_code = ?, job_sticker = ?, printer_name = ?, updated_at = datetime('now','localtime')
          WHERE position = ?",
     )
     .bind(&channel_code)
     .bind(&job_sticker)
+    .bind(&printer_name)
     .bind(&req.position)
     .execute(&mut *tx)
     .await?;

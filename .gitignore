@@ -2,8 +2,10 @@
 node_modules/
 dist/
 .vite/
-yarn.lock
 package-lock.json
+# yarn.lock 入版控(供 Dependabot 漏洞掃描 + 可重現建置)。
+# 本專案以 yarn 管理依賴,yarn.lock 含全部平台的 optional binding(darwin/linux/win32),
+# 不會有 npm lock 那種「host 平台鎖死、其他平台 binding 缺席」的問題。
 
 # === Logs ===
 *.log
@@ -52,5 +54,3 @@ backups/
 # === 程式碼圖譜索引產物(本地分析用,不入 git)===
 # .gitnexus 已自帶內層 .gitignore;graphify-out 為 graphify 產出(graph.html/json 約 3MB)
 graphify-out/
-!package-lock.json
-# ^ lock 檔入版控以啟用 Dependabot 漏洞掃描

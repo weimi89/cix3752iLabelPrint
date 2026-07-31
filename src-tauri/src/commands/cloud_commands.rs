@@ -105,7 +105,7 @@ pub(crate) async fn pregen_label_to_cache(state: &SharedState, order_sn: &str) -
 
 /// 產生錯誤面單、寫入 cache,回傳本機 middleware URL(`http://127.0.0.1:{port}/images/@error/...`)。
 /// 給 GUI 掃描 / 自動印單用:前端拿到後以「該物流商在印表機設定的同一台印表機」印出,
-/// 與正常面單同出口 —— 避免後端 find_any_printer(dispatch_provider DB / 系統預設)與
+/// 與正常面單同出口 —— 避免後端 find_any_printer(sort_channels DB / 系統預設)與
 /// 前端 printerMap(localStorage)印表機來源不一致,導致正常面單印得出、錯誤面單卻印不出或印錯台。
 /// 寫檔失敗回 None(前端略過,後端不再 fallback 列印,與正常面單失敗時行為一致)。
 async fn build_error_label_url(

@@ -67,8 +67,10 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # --frozen-lockfile:lock 與 package.json 不一致時當場 fail,而非默默改寫 lock。
+      # 沒有它,版控 yarn.lock 起不到「可重現建置」的作用 —— 發版產物可能與 repo 內的 lock 不同版。
       - name: Install npm deps
-        run: npm install
+        run: yarn install --frozen-lockfile
 
       # 產生 release 說明(CHANGELOG 本次更新 + 安裝包樣板),desktop / linux 兩個 job 共用同一支腳本,
       # 確保不論哪個 job 先建立 release,body 都是同一份非空內容(避免 softprops 搶先建立導致 body 空白)。
@@ -352,6 +354,8 @@ jobs:
         run: |
           curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
           apt-get install -y nodejs
+          # nodesource 的 nodejs 不含 yarn(GitHub 託管 runner 才內建),需自行安裝
+          npm i -g yarn
 
       - uses: actions/checkout@v6
 
@@ -361,8 +365,10 @@ jobs:
           workspaces: src-tauri
           key: ${{ matrix.distro }}
 
+      # --frozen-lockfile:lock 與 package.json 不一致時當場 fail,而非默默改寫 lock。
+      # 沒有它,版控 yarn.lock 起不到「可重現建置」的作用 —— 發版產物可能與 repo 內的 lock 不同版。
       - name: Install npm deps
-        run: npm install
+        run: yarn install --frozen-lockfile
 
       # 20.04 only:系統 focal 套件還是 link 到 /usr/lib glib 2.64(linker -L 順序系統路徑在前)
       # 直接用 /usr/local 編好的覆蓋系統 .so,讓 -lglib-2.0 等找到新版

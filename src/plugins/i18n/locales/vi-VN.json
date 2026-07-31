@@ -95,7 +95,7 @@
   },
   "directPrintFailed": {
     "download_failed": "In trực tiếp thất bại: tải nhãn thất bại, kiện này thực tế chưa được in",
-    "no_printer": "In trực tiếp thất bại: nhà vận chuyển chưa cài máy in, kiện này thực tế chưa được in",
+    "no_printer": "In trực tiếp thất bại: kênh phân loại chưa cài máy in, kiện này thực tế chưa được in",
     "read_failed": "In trực tiếp thất bại: đọc ảnh nhãn thất bại, kiện này thực tế chưa được in",
     "print_failed": "In trực tiếp thất bại: gửi lệnh in thất bại, kiện này thực tế chưa được in"
   },
@@ -378,7 +378,7 @@
       "shareRootHint": "Phải trỏ tới cùng tập tin với thư mục cache cục bộ (góc nhìn khác); không cần dấu / ở cuối",
       "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
       "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian",
-      "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Chỉ định hãng\" để cài máy in cho từng hãng vận chuyển",
+      "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Kênh phân loại\" để cài máy in cho từng kênh",
       "sortOnly": "Chế độ chỉ phân loại (chỉ trả về kênh phân loại, không xuất nhãn)",
       "sortOnlyHint": "Khi bật chỉ phân loại: chỉ trả về kênh phân loại, không in nhãn, không ghi thống kê in. Đối chiếu số kiện và nhật ký vẫn hoạt động; nhãn lỗi của kiện bất thường vẫn được in.",
       "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực"
@@ -811,6 +811,10 @@
       "dispatchUnassigned": "(Chưa chỉ định)",
       "sticker": "Nhân viên dán nhãn",
       "stickerPlaceholder": "Nhập hoặc chọn từ lịch sử",
+      "printer": "Máy in cục bộ",
+      "printerPlaceholder": "Chọn máy in cục bộ",
+      "printerRequired": "{pos} đã có mã kênh và hãng vận chuyển, ở chế độ in trực tiếp bắt buộc phải chọn máy in cục bộ (nếu không kênh này nhận kiện nhưng không in ra nhãn)",
+      "printerMissingHint": "Chưa cài máy in: nhãn của kênh này sẽ không được in ra",
       "status": {
         "unsaved": "Chưa lưu",
         "enabled": "Đã kích hoạt",
@@ -845,7 +849,6 @@
       "emptyHint": "Chưa có hãng vận chuyển, nhấn \"Thêm hãng\" ở góc trên bên phải để bắt đầu",
       "errCodeNameRequired": "Mã và tên đều không được để trống",
       "errPrintProfileRequired": "Cấu hình in là bắt buộc",
-      "errPrinterNameRequired": "Chế độ in trực tiếp yêu cầu chọn máy in",
       "errCodeDuplicate": "Mã \"{code}\" đã tồn tại",
       "flashCreated": "Đã thêm hãng vận chuyển",
       "flashUpdated": "Đã cập nhật hãng vận chuyển",
@@ -853,7 +856,6 @@
       "codePlaceholder": "VD: S / B / P",
       "namePlaceholder": "VD: SF Express",
       "printProfilePlaceholder": "VD: PAPER-01#100x150",
-      "printerNamePlaceholder": "Chọn máy in cục bộ",
       "orderHint": "Số càng nhỏ càng đứng trước",
       "confirmDelete": "Xác nhận xoá",
       "confirmDeleteBody": "Bạn có chắc muốn xoá \"{name}\" ({code}) không?",
@@ -863,7 +865,6 @@
         "code": "Mã",
         "name": "Tên",
         "printProfile": "Cấu hình in",
-        "printerName": "Máy in cục bộ",
         "actions": "Thao tác"
       }
     },

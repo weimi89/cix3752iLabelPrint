@@ -339,18 +339,18 @@ export const dailyStats = async ({ days = 7 } = {}) => {
 
 // 指派物流(物流商主檔)
 const MOCK_DISPATCH = [
-  { code: 'S', name: '順豐速運', sort_order: 0, print_profile: 'PROFILE_S', printer_name: null },
-  { code: 'B', name: '黑貓宅急便', sort_order: 1, print_profile: 'PROFILE_B', printer_name: null },
-  { code: 'P', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_P', printer_name: null },
+  { code: 'S', name: '順豐速運', sort_order: 0, print_profile: 'PROFILE_S' },
+  { code: 'B', name: '黑貓宅急便', sort_order: 1, print_profile: 'PROFILE_B' },
+  { code: 'P', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_P' },
 ]
 export const dispatchProviderList = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_DISPATCH))
   return await invoke('dispatch_provider_list')
 }
-export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null, printerName = null }) => {
+export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null }) => {
   if (!isTauri) return Promise.resolve()
   return invoke('dispatch_provider_upsert', {
-    req: { code, name, sort_order: sortOrder, print_profile: printProfile || null, printer_name: printerName || null },
+    req: { code, name, sort_order: sortOrder, print_profile: printProfile || null },
   })
 }
 export const dispatchProviderDelete = code => {
@@ -365,13 +365,14 @@ const MOCK_CHANNELS = POSITIONS.map(p => ({
   channel_code: null,
   dispatch_codes: [],
   job_sticker: null,
+  printer_name: null,
   enabled: true,
 }))
 export const sortChannelList = async () => {
   if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CHANNELS))
   return await invoke('sort_channel_list')
 }
-export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobSticker }) => {
+export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobSticker, printerName }) => {
   if (!isTauri) return Promise.resolve()
   return invoke('sort_channel_save', {
     req: {
@@ -379,6 +380,7 @@ export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobStick
       channel_code: channelCode || null,
       dispatch_codes: Array.isArray(dispatchCodes) ? dispatchCodes : [],
       job_sticker: jobSticker || null,
+      printer_name: printerName || null,
     },
   })
 }

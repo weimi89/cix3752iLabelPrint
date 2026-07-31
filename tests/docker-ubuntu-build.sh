@@ -43,8 +43,9 @@ docker run --rm \
     mkdir -p /workspace
     cp -a /source/. /workspace/
     cd /workspace
-    # 連 package-lock.json 一併刪:host (macOS) lock 內 optionalDependencies 鎖死了 macos 平台 binding,
-    # linux 平台的 @tauri-apps/cli-linux-*-gnu 不在 lock 裡,npm install 不會拉
+    # yarn.lock 刻意保留:它含全部平台的 optional binding(darwin/linux/win32),在 linux 照樣裝得到
+    # @tauri-apps/cli-linux-x64-gnu,留著才能驗證「版控的 lock 檔在 Linux 可重現建置」。
+    # (這與舊的 package-lock.json 不同 —— 那個會被 host npm 鎖死成 darwin-arm64 而缺其他平台 entry,故仍刪。)
     rm -rf node_modules package-lock.json src-tauri/target
 
     echo "----- Bootstrap apt -----"
@@ -70,8 +71,11 @@ docker run --rm \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt-get install -y nodejs
 
-    echo "----- npm install(linux 平台 binding 會被裝起來)-----"
-    npm install
+    echo "----- yarn install(linux 平台 binding 會被裝起來)-----"
+    npm i -g yarn
+    # --frozen-lockfile:同時驗證「版控的 yarn.lock 在 Linux 可原封不動安裝」——
+    # 若 lock 缺 linux binding 或與 package.json 不一致,這裡就會 fail 而非默默改寫
+    yarn install --frozen-lockfile
 
     echo "----- tauri build .deb -----"
     npm run tauri:build -- --bundles deb
