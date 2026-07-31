@@ -67,8 +67,9 @@ docker run --rm \
     curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
     export PATH="$HOME/.cargo/bin:$PATH"
 
-    echo "----- Setup Node 20 -----"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    # Node 22:vue-i18n 的 engines 要求 `>= 22`,Node 20 會被 yarn 的 engines 檢查擋下
+    echo "----- Setup Node 22 -----"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
     apt-get install -y nodejs
 
     echo "----- yarn install(linux 平台 binding 會被裝起來)-----"
