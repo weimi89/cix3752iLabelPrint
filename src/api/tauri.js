@@ -57,6 +57,7 @@ const MOCK_CONFIG = {
   label_path: {
     mode: 'local',
     share_root: '',
+    direct_print_report_delay_secs: 10,
   },
   pre_gen_schedule: {
     enabled: false,
@@ -314,8 +315,8 @@ export const queueStats = async () => {
   if (!isTauri) return { pending: 0, sending: 0, success: 0, failed: 0 }
   return await invoke('queue_stats')
 }
-export const queueList = ({ status = null, keyword = null, limit = 100, offset = 0 } = {}) =>
-  invoke('queue_list', { req: { status, keyword, limit, offset } })
+export const queueList = ({ status = null, keyword = null, unreportedOnly = false, limit = 100, offset = 0 } = {}) =>
+  invoke('queue_list', { req: { status, keyword, unreported_only: unreportedOnly, limit, offset } })
 export const queueRetryFailed = () => invoke('queue_retry_failed')
 export const queuePurge = ({ status = 'success', olderThanDays = 7 } = {}) =>
   invoke('queue_purge', { req: { status, older_than_days: olderThanDays } })

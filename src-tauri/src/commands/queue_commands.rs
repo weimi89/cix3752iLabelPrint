@@ -17,6 +17,9 @@ pub struct QueueListReq {
     /// 關鍵字(對 tracking_no / sort_channel / job_sticker 做 LIKE 模糊比對)
     #[serde(default)]
     pub keyword: Option<String>,
+    /// 只列出「工控機從未回報」的項目(直印模式下用來抓工控機回報鏈是否斷掉)
+    #[serde(default)]
+    pub unreported_only: bool,
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
@@ -40,6 +43,10 @@ pub struct QueueItem {
     pub payload_json: String,
     pub sort_channel: Option<String>,
     pub job_sticker: Option<String>,
+    /// 這筆佇列是誰建立的:`ipc`(工控機回報)/ `direct_print`(中介機直印後自補)
+    pub source: String,
+    /// 工控機實際回報的時間;None = 從未回報(直印模式下代表只有面單印出、沒有工控機確認)
+    pub ipc_reported_at: Option<String>,
 }
 
 #[tauri::command]
@@ -63,6 +70,9 @@ pub async fn queue_list(
     if keyword.is_some() {
         where_clauses.push("(tracking_no LIKE ? OR sort_channel LIKE ? OR job_sticker LIKE ?)");
     }
+    if req.unreported_only {
+        where_clauses.push("ipc_reported_at IS NULL");
+    }
 
     let where_sql = if where_clauses.is_empty() {
         String::new()
@@ -73,7 +83,7 @@ pub async fn queue_list(
     let sql = format!(
         "SELECT id, tracking_no, response_id, status, retry_count,
                 created_at, updated_at, sent_at, payload_json,
-                sort_channel, job_sticker
+                sort_channel, job_sticker, source, ipc_reported_at
          FROM report_queue
          {where_sql}
          ORDER BY id DESC
@@ -104,6 +114,8 @@ pub async fn queue_list(
             payload_json: row.try_get("payload_json").unwrap_or_default(),
             sort_channel: row.try_get("sort_channel").ok(),
             job_sticker: row.try_get("job_sticker").ok(),
+            source: row.try_get("source").unwrap_or_else(|_| "ipc".to_string()),
+            ipc_reported_at: row.try_get("ipc_reported_at").ok(),
         })
         .collect())
 }

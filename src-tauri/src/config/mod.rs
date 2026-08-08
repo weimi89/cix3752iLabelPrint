@@ -342,6 +342,17 @@ pub struct LabelPathConfig {
     /// 結構需與 cache_root 之下的相對路徑對齊
     #[serde(default)]
     pub share_root: String,
+    /// `direct_print` 模式專用:中介機自己印完後,**等工控機 `POST /api/report` 的寬限秒數**。
+    ///
+    /// 直印模式下面單由中介機印出、工控機沒有列印動作,實務上工控機常因「回應沒有 label_path」
+    /// 而整段跳過回報 → 貼標人員永遠推不到雲端。因此中介機印完會自己補一筆回報,
+    /// 但**不立刻送出**:先等這段時間,工控機若在期間內回報就以它為準立即送出(雲端那筆帶有
+    /// 「工控機已確認收到分揀通道」的意義);等不到才自己兜底送出。
+    ///
+    /// 設短了最壞只是雲端那筆少了工控機確認的註記(貼標人員照樣送達、不重複、不漏單),
+    /// 因此可依現場工控機實際回報延遲調整。0 = 不等待,印完立即送出。
+    #[serde(default = "default_direct_print_report_delay")]
+    pub direct_print_report_delay_secs: u64,
 }
 
 impl Default for LabelPathConfig {
@@ -349,9 +360,12 @@ impl Default for LabelPathConfig {
         Self {
             mode: LabelPathMode::default(),
             share_root: String::new(),
+            direct_print_report_delay_secs: default_direct_print_report_delay(),
         }
     }
 }
+
+fn default_direct_print_report_delay() -> u64 { 10 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {

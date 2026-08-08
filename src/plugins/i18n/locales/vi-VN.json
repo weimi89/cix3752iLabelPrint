@@ -379,6 +379,8 @@
       "httpHint": "Chế độ nội mạng: tự dùng Host header của máy công nghiệp để ghép URL, không cần cấu hình thêm",
       "localHint": "Đường dẫn tuyệt đối cục bộ, máy công nghiệp cần ở cùng máy với dịch vụ trung gian",
       "directPrintHint": "Ứng dụng nhận yêu cầu từ máy công nghiệp sẽ tự gọi máy in cục bộ, label_path trả về null; vui lòng vào trang \"Kênh phân loại\" để cài máy in cho từng kênh",
+      "reportDelay": "Chờ máy công nghiệp báo (giây)",
+      "reportDelayHint": "Khi in trực tiếp tại máy này, máy công nghiệp không in gì nên thường không gửi báo cáo. Sau khi in xong sẽ chờ khoảng thời gian này để máy công nghiệp có cơ hội báo: nếu kịp thì lấy báo cáo đó gửi lên đám mây; nếu không kịp thì máy này tự gửi, nhân viên dán nhãn vẫn được ghi nhận. Có thể xem cột nguồn báo cáo ở trang \"Lịch sử hàng đợi\" rồi điều chỉnh thời gian chờ.",
       "sortOnly": "Chế độ chỉ phân loại (chỉ trả về kênh phân loại, không xuất nhãn)",
       "sortOnlyHint": "Khi bật chỉ phân loại: chỉ trả về kênh phân loại, không in nhãn, không ghi thống kê in. Đối chiếu số kiện và nhật ký vẫn hoạt động; nhãn lỗi của kiện bất thường vẫn được in.",
       "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực"
@@ -885,10 +887,19 @@
         "success": "Thành công",
         "failed": "Thất bại"
       },
+      "source": {
+        "ipcReported": "Máy công nghiệp đã báo",
+        "ipcReportedLate": "Máy công nghiệp báo trễ",
+        "selfPrintOnly": "Chỉ máy trung gian tự in"
+      },
+      "filter": {
+        "unreportedOnly": "Chỉ xem chưa có báo cáo"
+      },
       "col": {
         "trackingNo": "Mã vận đơn",
         "channel": "Kênh",
         "sticker": "Nhân viên dán nhãn",
+        "source": "Nguồn báo cáo",
         "responseId": "ID phản hồi",
         "status": "Trạng thái",
         "retry": "Thử lại",

@@ -14,6 +14,50 @@ use crate::{AppError, AppResult};
 /// 推送最大重試次數,達到後放棄(status=failed 並寫 last_error,以 error 級事件留痕,不靜默)
 const MAX_RETRY: i64 = 10;
 
+/// 直印自補等工控機回報的**上限秒數**(10 分鐘)。
+/// 不只是「設太久不合理」的品味問題:SQLite `datetime()` 的位移超出可表達範圍會回 NULL,
+/// 而 NULL 對 worker 代表「立即可送」—— 不夾範圍的話,設定值一大反而變成秒推。
+pub const MAX_REPORT_DELAY_SECS: u64 = 600;
+
+/// DirectPrint 自補入列的 SQL(見 [`QueueManager::enqueue_direct_print`])。
+/// 提為常數是為了讓回歸測試打到**同一份語句**,不必複製一份在測試裡各自長歪。
+/// bind 順序:tracking_no / payload_json / response_id / sort_channel / job_sticker / 延後修飾字
+pub const SQL_ENQUEUE_DIRECT_PRINT: &str = "INSERT INTO report_queue
+     (tracking_no, payload_json, response_id, sort_channel, job_sticker, status,
+      source, next_attempt_at, created_at, updated_at)
+ VALUES (?, ?, ?, ?, ?, 'pending',
+      'direct_print', datetime('now','localtime',?), datetime('now','localtime'), datetime('now','localtime'))
+ ON CONFLICT(response_id) DO NOTHING";
+
+/// 工控機回報入列的 SQL(見 [`QueueManager::enqueue_ipc_report`])。
+///
+/// **刻意寫成單一 UPSERT 而非「先 UPDATE 沒中再 INSERT」**:後者在
+/// 「工控機重送」與「直印 worker 自補」同時發生時,兩邊可能都判定沒中而各自 INSERT,
+/// 後到的那個撞上 response_id 唯一索引 → 合法回報收到 HTTP 500(工控機只好重試)。
+/// 一句 UPSERT 由 SQLite 保證原子,新增與併入走同一條路,沒有中間窗口。
+///
+/// 衝突(該筆已由直印自補建立)時:
+/// - `ipc_reported_at` 只在還沒記過時才寫入 —— 重複回報保留**首次**時間
+/// - 還沒送出(pending/failed)就清掉寬限等待,讓 worker 下一輪立即送出;
+///   已送出(success/sending)則保持原樣 —— **絕不重推**,該次屬「遲到回報」,
+///   由 `ipc_reported_at > sent_at` 判定
+/// - `sort_channel` / `job_sticker` 只在既有值為空時補上(自補當下查得到就以它為準,不覆寫)
+/// - `source` 保持不變:這筆確實是直印自補建立的,不因工控機回報而改寫身世
+///
+/// bind 順序:tracking_no / payload_json / response_id / sort_channel / job_sticker
+pub const SQL_ENQUEUE_IPC_REPORT: &str = "INSERT INTO report_queue
+     (tracking_no, payload_json, response_id, sort_channel, job_sticker, status,
+      source, ipc_reported_at, created_at, updated_at)
+ VALUES (?, ?, ?, ?, ?, 'pending',
+      'ipc', datetime('now','localtime'), datetime('now','localtime'), datetime('now','localtime'))
+ ON CONFLICT(response_id) DO UPDATE SET
+      ipc_reported_at = COALESCE(report_queue.ipc_reported_at, excluded.ipc_reported_at),
+      next_attempt_at = CASE WHEN report_queue.status IN ('pending','failed')
+                             THEN NULL ELSE report_queue.next_attempt_at END,
+      sort_channel = COALESCE(report_queue.sort_channel, excluded.sort_channel),
+      job_sticker  = COALESCE(report_queue.job_sticker,  excluded.job_sticker),
+      updated_at = excluded.updated_at";
+
 /// 工控機回報佇列管理 — 寫入即回 200 給工控機,背景 worker 嘗試推送雲端
 #[derive(Clone)]
 pub struct QueueManager {
@@ -40,29 +84,64 @@ impl QueueManager {
         }
     }
 
-    /// 寫入一筆工控機回報歷史；status 寫 pending,等 worker 推送雲端
-    /// sort_channel / job_sticker 由 server 端反查後傳入,方便 QueueLogPage 直接顯示
-    pub async fn enqueue(
+    /// 寫入(或併入)一筆工控機回報;status 寫 pending,等 worker 推送雲端。
+    /// sort_channel / job_sticker 由 server 端反查後傳入,方便 QueueLogPage 直接顯示。
+    ///
+    /// 直印模式下該筆可能已由 [`Self::enqueue_direct_print`] 先建立,此時**併入同一列**
+    /// 而非新增第二列(否則同一件會被推兩次);併入規則見 [`SQL_ENQUEUE_IPC_REPORT`]。
+    pub async fn enqueue_ipc_report(
         &self,
         payload: &ReportPayload,
         tracking_no: &str,
         sort_channel: Option<&str>,
         job_sticker: Option<&str>,
-    ) -> AppResult<i64> {
+    ) -> AppResult<()> {
         let json = serde_json::to_string(payload)?;
-        let row = sqlx::query(
-            "INSERT INTO report_queue
-                 (tracking_no, payload_json, response_id, sort_channel, job_sticker, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'pending', datetime('now','localtime'), datetime('now','localtime'))",
-        )
+        sqlx::query(SQL_ENQUEUE_IPC_REPORT)
+            .bind(tracking_no)
+            .bind(&json)
+            .bind(payload.response_id)
+            .bind(sort_channel)
+            .bind(job_sticker)
+            .execute(&self.inner.db)
+            .await?;
+        Ok(())
+    }
+
+    /// DirectPrint 模式:中介機自己印完面單後補記一筆回報,**延後 `delay_secs` 秒才推雲端**。
+    ///
+    /// 直印模式下工控機沒有列印動作,多半也就不回報,這條是唯一能把貼標人員送到雲端的路。
+    /// 但不能立刻送:工控機的回報才代表「它收到了分揀通道、包裹確實被分進格口」,
+    /// 先等一段寬限時間讓它有機會回報([`Self::enqueue_ipc_report`] 會把等待清掉改為立即送出),
+    /// 等不到才由這筆兜底送出。**推送前只有一列記錄,因此無論哪邊先到都只會送一次。**
+    ///
+    /// 回傳 `None` 代表這筆已經存在(工控機搶先回報過),不重複建立。
+    pub async fn enqueue_direct_print(
+        &self,
+        response_id: i64,
+        tracking_no: &str,
+        sort_channel: Option<&str>,
+        job_sticker: Option<&str>,
+        delay_secs: u64,
+    ) -> AppResult<Option<i64>> {
+        let json = serde_json::to_string(&ReportPayload { response_id })?;
+        // next_attempt_at 沿用既有的「退避閘」(worker 只撿到期項目),不必另做排程。
+        // **秒數必須夾在合理範圍**:SQLite 的 datetime() 對超出可表達範圍的位移會回 NULL,
+        // 而 NULL 在 worker 眼中等於「立即可送」—— 設一個荒謬大的等待反而變成秒推,語意完全相反。
+        let delay_modifier = format!("+{} seconds", delay_secs.min(MAX_REPORT_DELAY_SECS));
+        let res = sqlx::query(SQL_ENQUEUE_DIRECT_PRINT)
         .bind(tracking_no)
         .bind(&json)
-        .bind(payload.response_id)
+        .bind(response_id)
         .bind(sort_channel)
         .bind(job_sticker)
+        .bind(&delay_modifier)
         .execute(&self.inner.db)
         .await?;
-        Ok(row.last_insert_rowid())
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        Ok(Some(res.last_insert_rowid()))
     }
 
     /// 透過 queue_id 反查當初工控機回報時帶的 response_id

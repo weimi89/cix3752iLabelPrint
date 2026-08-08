@@ -33,9 +33,20 @@ const load = async () => {
 }
 onMounted(load)
 
+/// 等工控機回報的秒數必須是 0–600 的整數:清空 / 非數字 / 負數 / 超大值都會被夾回來。
+/// 後端另有同樣的上限把關(設定檔可被手改),這裡只是讓畫面當下就看得到實際生效的值。
+const REPORT_DELAY_MAX = 600
+const normalizeReportDelay = () => {
+  const raw = Number(config.value?.label_path?.direct_print_report_delay_secs)
+  const safe = Number.isFinite(raw) ? Math.min(Math.max(Math.round(raw), 0), REPORT_DELAY_MAX) : 10
+  config.value.label_path.direct_print_report_delay_secs = safe
+}
+
 const save = async () => {
   errorMsg.value = ''
   saving.value = true
+  // 存檔前再夾一次:使用者可能沒離開欄位就直接按存檔(不會觸發 blur)
+  if (config.value?.label_path) normalizeReportDelay()
   try {
     const previousAutoStart = osAutoStart.value
     config.value = await updateConfig(JSON.parse(JSON.stringify(config.value)))
@@ -269,7 +280,31 @@ const restart = async () => {
               variant="outlined"
             />
           </VCol>
+          <VCol v-if="config.label_path.mode === 'direct_print' && !config.sort_only.enabled" cols="12" md="4">
+            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.reportDelay') }}</VLabel>
+            <VTextField
+              v-model.number="config.label_path.direct_print_report_delay_secs"
+              type="number"
+              min="0"
+              max="600"
+              hide-details
+              density="compact"
+              variant="outlined"
+              @blur="normalizeReportDelay"
+            />
+          </VCol>
         </VRow>
+
+        <VAlert
+          v-if="config.label_path.mode === 'direct_print' && !config.sort_only.enabled"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mt-3"
+          :icon="false"
+        >
+          <div class="text-caption">{{ $t('label.settings.reportDelayHint') }}</div>
+        </VAlert>
 
         <VAlert
           type="info"

@@ -279,7 +279,7 @@ Host: <middleware-ip>:18080
 - `local` / `share` 模式下 `label_path` 為**絕對路徑**,工控機需有檔案系統讀取權限
 - `http` 模式下 `label_path` 為 URL,工控機需用 HTTP GET 取得 binary
 - 若回應**不含 `label_path` 欄位**:
-  - `direct_print` 模式 → 正常情況,面單由中介機自印,工控機不需取面單
+  - `direct_print` 模式 → 正常情況,面單由中介機自印,工控機不需取面單。**但仍須照常 `POST /api/report` 回報** —— 回報代表的是「工控機已收到分揀通道、包裹已分進格口」,與面單由誰列印無關。請**不要**把回報綁在「有沒有拿到 `label_path`」上,否則此模式下回報會整段被跳過(見下方第 3 節說明)
   - 非 `direct_print` 但欄位仍缺 → 同步下載失敗,工控機可選擇:
     1. 重新呼叫 `GET /api/parcel/{queryNo}`(首次未命中觸發了下載,第二次通常會命中本地快取)
     2. 改用 `/images/{label_key}` 走 HTTP 拉取(見第 4 節)
@@ -317,9 +317,12 @@ Content-Type: application/json
 
 1. 用 `response_id` 在 `parcel_query_log` 反查 `tracking_no`、`sort_channel`
 2. 若 `response_id` 在 `parcel_query_log` 找不到 → 回 `422 Unprocessable Entity`
-3. 用 `sort_channel` 反查 `sort_channels.job_sticker`（貼標人員）
-4. 將 `ReportPayload { response_id }` 序列化進 `payload_json`，連同 `tracking_no`、`sort_channel`、`job_sticker` 寫入 `report_queue`（`status=pending`）
-5. 立即回 `200 OK`，背景 worker 推送雲端 `logistic-cat` webhook
+3. **若該 `response_id` 已有佇列項**（`direct_print` 模式下中介機列印後自行補記的那筆，見下節）→ 標記「工控機已回報」並取消其等待時間讓它立即送出，**不新增第二筆**，直接回 200
+4. 否則用 `sort_channel` 反查 `sort_channels.job_sticker`（貼標人員）
+5. 將 `ReportPayload { response_id }` 序列化進 `payload_json`，連同 `tracking_no`、`sort_channel`、`job_sticker` 寫入 `report_queue`（`status=pending`）
+6. 立即回 `200 OK`，背景 worker 推送雲端 `logistic-cat` webhook
+
+> 同一個 `response_id` 在 `report_queue` 只會有一列（唯一索引保證）。工控機重複回報同一筆一律回 200 且不會重複推送雲端。
 
 ## Response
 
@@ -358,6 +361,24 @@ Content-Type: application/json
 - `422` 表示這個 `response_id` 不可能用了，重試也沒用 —— 工控機應記錄錯誤並改走人工流程
 - `500` 為暫時性錯誤，工控機可以稍後重試（建議指數退避）
 - Middleware 立即回 200 不代表雲端已收到 —— 背景 worker 推送雲端失敗會在 `report_queue.last_error` 留紀錄，需到桌面 App 「佇列歷史」頁查看
+
+## `direct_print` 模式下的回報（重要）
+
+此模式下面單由中介機自己印出、工控機沒有列印動作，**但工控機仍必須照常回報**。原因：回報代表的是「工控機收到分揀通道、包裹已分進格口」，這件事只有工控機能證明，中介機無從得知。
+
+為了避免工控機端把回報綁在 `label_path` 上而整段跳過（此模式該欄位不存在），中介機**列印成功後會自行補記一筆**當作兜底，但不會立刻推送雲端：
+
+| 時序 | 中介機行為 |
+|---|---|
+| 面單列印成功 | 建立佇列項（來源 = 中介機自印），排定於 N 秒後送出 |
+| N 秒內收到 `POST /api/report` | 併入同一筆、標記「工控機已回報」，**立即**送出雲端 |
+| N 秒過了仍未收到 | 自行兜底送出（雲端仍收得到貼標人員，但缺少工控機確認） |
+| 送出後才收到回報（遲到） | 只補記回報時間，**絕不重推**；桌面 App 顯示為「工控機回報遲到」 |
+
+- 等待秒數 N 於桌面 App「本機服務」頁設定（**預設 10 秒，上限 600 秒**），可依現場工控機實際回報延遲調整
+- 同一 `response_id` 兩邊同時寫入時由單一不可分割的寫入合併，無論誰先誰後都只有一列、工控機也不會收到失敗回應
+- **列印失敗的包裹不會補記回報** —— 沒印出來的東西不該被回報成完成，該情況另以「直印失敗」警示提醒現場
+- 桌面 App「佇列歷史」頁的「回報來源」欄可直接看出工控機回報鏈是否正常：整批都是「僅中介機自印」代表工控機端沒在回報
 
 ---
 

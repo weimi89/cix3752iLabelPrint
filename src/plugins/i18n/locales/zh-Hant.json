@@ -379,6 +379,8 @@
       "httpHint": "內網模式自動採用工控機請求的 Host header 組裝 URL,無須額外設定",
       "localHint": "本機絕對路徑,工控機需與中介服務同機",
       "directPrintHint": "App 收到工控機請求後直接呼叫本機印表機列印,label_path 回傳 null;請至「分揀通道」頁面為各通道設定對應印表機",
+      "reportDelay": "等工控機回報(秒)",
+      "reportDelayHint": "本機直接列印時面單由這台印出,工控機沒有列印動作、多半不會回報。印完會先等這段時間讓工控機有機會回報:等到了就以它為準送出雲端;等不到才由本機自行送出,貼標人員一樣送得到。等待長短可於「佇列歷史」頁看回報來源後再調整。",
       "sortOnly": "純分揀模式(只回分揀通道,不出面單)",
       "sortOnlyHint": "開啟後只做分揀:只回分揀通道、不印面單、不記列印統計。件數核對、查詢記錄照常;異常件的錯誤面單仍會印。",
       "sortOnlyActiveHint": "純分揀模式已開啟(於「分揀通道」頁切換),面單模式暫不生效"
@@ -885,10 +887,19 @@
         "success": "成功",
         "failed": "失敗"
       },
+      "source": {
+        "ipcReported": "工控機已回報",
+        "ipcReportedLate": "工控機回報遲到",
+        "selfPrintOnly": "僅中介機自印"
+      },
+      "filter": {
+        "unreportedOnly": "只看工控機未回報"
+      },
       "col": {
         "trackingNo": "追蹤號碼",
         "channel": "通道",
         "sticker": "貼標人員",
+        "source": "回報來源",
         "responseId": "回應 ID",
         "status": "狀態",
         "retry": "重試",

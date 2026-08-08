@@ -14,7 +14,8 @@ mod log;
 mod models;
 mod pregen;
 mod printer;
-mod queue;
+/// 對外公開僅為讓 `tests/` 打到與正式路徑**同一份 SQL 常數**(避免測試自抄一份而漂移)
+pub mod queue;
 mod server;
 mod sync;
 mod watermark;

@@ -68,6 +68,17 @@ impl LabelPathResolver {
         self.sort_only.load(Ordering::Relaxed)
     }
 
+    /// DirectPrint 自補回報前,等工控機回報的寬限秒數(熱套用,改設定不需重啟 server)。
+    /// **在此夾上限**(見 [`MAX_REPORT_DELAY_SECS`]):設定檔可被手改成任意值,
+    /// 而過大的位移會讓 SQLite `datetime()` 回 NULL、被 worker 當成「立即可送」——
+    /// 「等久一點」變成「馬上送」是最難察覺的那種錯,夾在單一出口最保險。
+    pub fn report_delay_secs(&self) -> u64 {
+        self.inner
+            .read()
+            .direct_print_report_delay_secs
+            .min(crate::queue::MAX_REPORT_DELAY_SECS)
+    }
+
     /// 將本地絕對路徑依當前模式轉換為要回給工控機的字串
     /// - `local_abs`: cache 命中後產生的本地絕對路徑
     /// - `cache_base`: cache 根目錄(用來推出相對路徑)
@@ -159,6 +170,13 @@ struct DirectPrintJob {
     printer_name: String,
     print_num: u32,
     query_no: String,
+    /// 雲端列印記錄 ID:**列印成功後**用它補一筆回報進 report_queue(直印模式下工控機多半不回報,
+    /// 這是貼標人員唯一能送達雲端的路)。雲端 debug 模式等未回 id 時為 None,此時無從配對、不補記。
+    response_id: Option<i64>,
+    /// 面單單號(= shipping_no):補記回報時一併寫入,佇列歷史頁直接顯示,免再 join
+    tracking_no: String,
+    /// 入列當下解析到的貼標人員(與 print_event 同一份來源,確保兩張表對得起來)
+    job_sticker: Option<String>,
 }
 
 pub struct ServerHandle {
@@ -203,9 +221,11 @@ pub async fn start(
         let watermark = watermark.clone();
         let db = db.clone();
         let app = app.clone();
+        let queue = queue.clone();
+        let resolver = label_resolver.clone();
         tokio::spawn(async move {
             while let Some(job) = direct_print_rx.recv().await {
-                run_direct_print_job(&cache, &watermark, &db, &app, job).await;
+                run_direct_print_job(&cache, &watermark, &db, &app, &queue, &resolver, job).await;
             }
         });
     }
@@ -825,6 +845,28 @@ async fn fetch_channel_printer(db: &DbPool, channel_code: &str) -> Option<String
     .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten())
 }
 
+/// 取某分揀通道在「分揀通道」頁設定的貼標人員(未指派通道 / 未填時為 None)。
+/// **印單統計、DirectPrint 自補回報、工控機回報三處共用此單一查詢來源**,
+/// 避免各自寫一份 SQL 而在欄位或空值規則上長歪。
+async fn fetch_channel_sticker(db: &DbPool, channel_code: Option<&str>) -> Option<String> {
+    let code = channel_code.filter(|c| !c.is_empty())?;
+    match sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
+        .bind(code)
+        .fetch_optional(db)
+        .await
+    {
+        Ok(row) => row.and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten()),
+        Err(e) => {
+            // 查詢失敗與「通道沒填貼標人員」都回 None,但兩者意義天差地遠:
+            // 前者會讓這件的貼標人員被永久記成空白(推出去就補不回來),必須留痕才追得到。
+            tracing::warn!(channel_code = %code, ?e, "查詢通道貼標人員失敗,本件將記為未填");
+            event_log::log_bg(db.clone(), "warn", "server", "貼標人員查詢失敗",
+                format!("通道 {code} 的貼標人員查詢失敗,本件回報將不帶貼標人員"));
+            None
+        }
+    }
+}
+
 /// 找一台可用的列印機給**錯誤面單**用,優先序:
 /// 1. `channel_code` 對應分揀通道設定的 printer_name(錯誤面單跟著該包裹要去的格口出)
 /// 2. 系統預設印表機
@@ -971,6 +1013,7 @@ fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str) {
 /// DirectPrint 模式:把一筆面單排入有序列印佇列(不阻塞工控機回應)。
 /// 此模式下工控機拿到的回應不含 `label_path`(由中介機列印),圖檔處理全在背景 worker 進行;
 /// 入列即代表確定要印,單一 worker 會照入列順序逐筆下載+列印,保證列印順序 = 請求順序。
+#[allow(clippy::too_many_arguments)]
 fn enqueue_direct_print(
     state: &ServerState,
     label_key: String,
@@ -980,6 +1023,9 @@ fn enqueue_direct_print(
     printer_name: String,
     print_num: u32,
     query_no: String,
+    response_id: Option<i64>,
+    tracking_no: String,
+    job_sticker: Option<String>,
 ) {
     let job = DirectPrintJob {
         label_key,
@@ -989,6 +1035,9 @@ fn enqueue_direct_print(
         printer_name,
         print_num,
         query_no: query_no.clone(),
+        response_id,
+        tracking_no,
+        job_sticker,
     };
     if let Err(e) = state.direct_print_tx.send(job) {
         tracing::warn!(?e, "direct_print 列印佇列已關閉,無法排入");
@@ -1018,6 +1067,8 @@ async fn run_direct_print_job(
     watermark: &WatermarkRenderer,
     db: &DbPool,
     app: &tauri::AppHandle,
+    queue: &QueueManager,
+    resolver: &LabelPathResolver,
     job: DirectPrintJob,
 ) {
     let DirectPrintJob {
@@ -1028,6 +1079,9 @@ async fn run_direct_print_job(
         printer_name: pname,
         print_num,
         query_no,
+        response_id,
+        tracking_no,
+        job_sticker,
     } = job;
     let cache_base = cache.base_dir();
 
@@ -1087,7 +1141,33 @@ async fn run_direct_print_job(
     })
     .await;
     match printed {
-        Ok(Ok(())) => {}
+        Ok(Ok(())) => {
+            // 印出來了才補回報:直印模式下工控機沒有列印動作、實務上多半不會 POST /api/report,
+            // 這是貼標人員唯一能送到雲端的路。刻意不立刻送 —— 先留寬限時間給工控機回報,
+            // 它若在期間內回報就以它為準立即送出(詳見 QueueManager::enqueue_direct_print)。
+            // 列印失敗的分支一律不補記:沒印出來的東西不該回報成完成。
+            if let Some(rid) = response_id {
+                let delay = resolver.report_delay_secs();
+                match queue
+                    .enqueue_direct_print(
+                        rid,
+                        &tracking_no,
+                        Some(channel_code.as_str()),
+                        job_sticker.as_deref(),
+                        delay,
+                    )
+                    .await
+                {
+                    // None = 工控機搶在列印完成前就回報了,該筆已存在,不重複建立
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!(?e, query_no = %qn, "直印自補回報入列失敗");
+                        event_log::log_bg(db.clone(), "warn", "queue", "自補回報失敗",
+                            format!("直印已印出但補記回報失敗 query_no={qn}(雲端不會收到這筆的貼標人員)"));
+                    }
+                }
+            }
+        }
         Ok(Err(e)) => {
             tracing::warn!(?e, query_no = %qn, "直接列印失敗");
             report_direct_print_failed(app, db, &qn, "print_failed");
@@ -1281,6 +1361,10 @@ async fn get_parcel(
             let (channel_code, has_assigned) =
                 resolve_channel_code(&state.db, &state.rr, &info.shipping_provider).await;
 
+            // 貼標人員在此一次查妥,下面 print_event 與 DirectPrint 自補回報共用同一份 ——
+            // 兩處各查一次會在「查詢之間操作員剛好改了通道設定」時對不起來(印單統計記 A、回報推 B)。
+            let sticker_user = fetch_channel_sticker(&state.db, channel_code.as_deref()).await;
+
             // DirectPrint 模式:工控機拿到 label_path=null(由中介機列印),不需要圖檔本身 ──
             // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
             // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
@@ -1312,6 +1396,9 @@ async fn get_parcel(
                                 pname,
                                 print_num,
                                 query_no.clone(),
+                                info.response_id,
+                                info.shipping_no.clone(),
+                                sticker_user.clone(),
                             );
                         }
                         None => {
@@ -1492,17 +1579,6 @@ async fn get_parcel(
               // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,不可記 print_event(同「未指派通道」原則)。
               // 純分揀模式(is_sort_only):完全不出面單 → 一律不記印單統計,但下方件核對仍照常(包裹實體仍過機分揀)。
               if !is_sort_only && has_image {
-                let sticker_user: Option<String> = if let Some(code) = channel_code.as_deref() {
-                    sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
-                        .bind(code)
-                        .fetch_optional(&state.db)
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten())
-                } else {
-                    None
-                };
                 // package_sn(袋號)由雲端 v2 回應帶出:記入 print_event 讓印單統計的「袋數」
                 // 反映工控機分揀的分袋量。與 bag_check 同規則正規化:散單(空 / "0")存 NULL,
                 // 否則空字串會被 COUNT(DISTINCT package_sn) 當成一個假袋、灌高袋數。
@@ -1817,24 +1893,16 @@ async fn post_report(
         );
     }
 
-    // 用 channel_code 反查通道設定上的貼標人員
-    let job_sticker: Option<String> = if let Some(code) = channel_code.as_deref() {
-        sqlx::query("SELECT job_sticker FROM sort_channels WHERE channel_code = ?")
-            .bind(code)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|r| r.try_get::<Option<String>, _>("job_sticker").ok().flatten())
-    } else {
-        None
-    };
+    // 用 channel_code 反查通道設定上的貼標人員(與印單統計、直印自補共用同一查詢)
+    let job_sticker = fetch_channel_sticker(&state.db, channel_code.as_deref()).await;
 
     // 寫入本機 queue (status=pending,含分流通道 + 貼標人員),
-    // 背景 worker 會推送 logistic-cat webhook 並追蹤 status/retry/last_error
+    // 背景 worker 會推送 logistic-cat webhook 並追蹤 status/retry/last_error。
+    // DirectPrint 模式下該筆可能已由中介機自補建立 —— 由 UPSERT 原子地併入同一列
+    // (兩列會被推兩次、雲端記兩筆印單),併入時順帶把自補的寬限等待清掉改為立即送出。
     if let Err(e) = state
         .queue
-        .enqueue(
+        .enqueue_ipc_report(
             &req,
             &tracking_no,
             channel_code.as_deref(),
