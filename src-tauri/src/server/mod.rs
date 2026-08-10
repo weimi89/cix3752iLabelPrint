@@ -31,7 +31,7 @@ use crate::db::DbPool;
 use crate::models::{
     ApiErrorBody, DataEnvelope, ParcelData, ReportPayload, SuccessEnvelope,
 };
-use crate::queue::QueueManager;
+use crate::queue::{CancelOutcome, QueueManager};
 use crate::watermark::{derive_repeat_key, WatermarkRenderer};
 use crate::bag_check::BagCheckState;
 use crate::{AppError, AppResult};
@@ -1040,17 +1040,33 @@ fn enqueue_direct_print(
         job_sticker,
     };
     if let Err(e) = state.direct_print_tx.send(job) {
-        tracing::warn!(?e, "direct_print 列印佇列已關閉,無法排入");
+        let DirectPrintJob { response_id, tracking_no, .. } = e.0;
+        tracing::warn!("direct_print 列印佇列已關閉,無法排入");
         // 入列失敗 = 此件確定不會被印(worker 已死),與下載/列印失敗同屬
         // 「工控機已收 200 但實體沒印」的靜默缺口,必須走同一條通報
-        report_direct_print_failed(&state.app, &state.db, &query_no, "print_failed");
+        report_direct_print_failed(
+            &state.app, &state.db, &state.queue, &query_no, "print_failed",
+            response_id, Some(tracking_no.as_str()),
+        );
     }
 }
 
-/// DirectPrint 失敗通報:emit `direct-print-failed`(前端 useParcelAlert 播音 + toast)+ 寫 event_log。
+/// DirectPrint 失敗通報:emit `direct-print-failed`(前端 useParcelAlert 播音 + toast)+ 寫 event_log,
+/// 並**攔下這件的雲端回報**(面單沒印出來,雲端不該記成完成)。
+///
 /// **DirectPrint 的失敗不可靜默**:工控機在入列當下已拿到成功回應、print_event 已記、袋核對已標已印,
 /// 若這裡只 tracing::warn,分揀線整批漏印卻所有畫面都顯示正常(現場最難察覺的靜默故障)。
-fn report_direct_print_failed(app: &tauri::AppHandle, db: &DbPool, query_no: &str, reason: &str) {
+///
+/// `response_id` / `tracking_no` 為 None 時只通報不攔截(雲端本就沒有對應列印記錄可回報)。
+fn report_direct_print_failed(
+    app: &tauri::AppHandle,
+    db: &DbPool,
+    queue: &QueueManager,
+    query_no: &str,
+    reason: &str,
+    response_id: Option<i64>,
+    tracking_no: Option<&str>,
+) {
     use tauri::Emitter;
     let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
     if let Err(e) = app.emit("direct-print-failed", payload) {
@@ -1058,6 +1074,35 @@ fn report_direct_print_failed(app: &tauri::AppHandle, db: &DbPool, query_no: &st
     }
     event_log::log_bg(db.clone(), "error", "printer", "直印失敗",
         format!("DirectPrint 列印失敗 query_no={query_no} reason={reason}(工控機已收到成功回應,此件實際未印出)"));
+
+    // 攔截雲端回報:工控機可能在列印完成前就回報過(它只知道自己分揀完了,不知道面單沒印出來),
+    // 也可能稍後才回報 —— 兩種都要擋,故即使目前沒有對應佇列項也會先立一筆墓碑。
+    let (Some(rid), Some(tno)) = (response_id, tracking_no) else { return };
+    let (queue, db, tno, reason, qn) = (
+        queue.clone(), db.clone(), tno.to_string(), reason.to_string(), query_no.to_string(),
+    );
+    tokio::spawn(async move {
+        match queue.cancel_report_on_print_failure(rid, &tno, &reason).await {
+            Ok(CancelOutcome::Blocked) => {
+                tracing::info!(query_no = %qn, "直印失敗,已攔下該件雲端回報");
+            }
+            Ok(CancelOutcome::SendInProgress) => {
+                // 推送正在進行,結果未定 —— 攔截旗標已設下,由佇列 worker 收斂:
+                // 這次推送失敗就定案攔下,成功則另發「無法撤回」告警。此處不預判、不誤報。
+                tracing::info!(query_no = %qn, "直印失敗,該件正在推送中,已標記攔截待佇列收斂");
+            }
+            Ok(CancelOutcome::AlreadySent) => {
+                // 收不回來了:雲端已記成完成,但實體沒印出 —— 必須讓現場知道要人工補處理
+                event_log::log_bg(db, "error", "queue", "回報已送出無法撤回",
+                    format!("直印失敗但該件回報已推送雲端(query_no={qn} 單號={tno});雲端已記為完成,此件需人工補印/更正"));
+            }
+            Err(e) => {
+                tracing::warn!(?e, query_no = %qn, "攔截雲端回報失敗");
+                event_log::log_bg(db, "error", "queue", "攔截回報失敗",
+                    format!("直印失敗後無法攔截雲端回報(query_no={qn});此件可能被回報成完成,請人工確認"));
+            }
+        }
+    });
 }
 
 /// DirectPrint worker 逐筆執行的單元:下載面單 → 套列印次數浮水印 → 送本機印表機。
@@ -1102,7 +1147,8 @@ async fn run_direct_print_job(
         }
     };
     if !original_ok {
-        report_direct_print_failed(app, db, &query_no, "download_failed");
+        report_direct_print_failed(app, db, queue, &query_no, "download_failed",
+            response_id, Some(tracking_no.as_str()));
         return;
     }
 
@@ -1130,7 +1176,8 @@ async fn run_direct_print_job(
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(?e, "讀取面單圖失敗，無法列印");
-            report_direct_print_failed(app, db, &query_no, "read_failed");
+            report_direct_print_failed(app, db, queue, &query_no, "read_failed",
+                response_id, Some(tracking_no.as_str()));
             return;
         }
     };
@@ -1158,8 +1205,8 @@ async fn run_direct_print_job(
                     )
                     .await
                 {
-                    // None = 工控機搶在列印完成前就回報了,該筆已存在,不重複建立
-                    Ok(_) => {}
+                    // 已存在時不重複建立(工控機搶先回報過);先前被攔下的則會在此解除攔截
+                    Ok(()) => {}
                     Err(e) => {
                         tracing::warn!(?e, query_no = %qn, "直印自補回報入列失敗");
                         event_log::log_bg(db.clone(), "warn", "queue", "自補回報失敗",
@@ -1170,11 +1217,13 @@ async fn run_direct_print_job(
         }
         Ok(Err(e)) => {
             tracing::warn!(?e, query_no = %qn, "直接列印失敗");
-            report_direct_print_failed(app, db, &qn, "print_failed");
+            report_direct_print_failed(app, db, queue, &qn, "print_failed",
+                response_id, Some(tracking_no.as_str()));
         }
         Err(e) => {
             tracing::warn!(?e, query_no = %qn, "直接列印 task 失敗");
-            report_direct_print_failed(app, db, &qn, "print_failed");
+            report_direct_print_failed(app, db, queue, &qn, "print_failed",
+                response_id, Some(tracking_no.as_str()));
         }
     }
 }
@@ -1404,7 +1453,10 @@ async fn get_parcel(
                         None => {
                             tracing::warn!(channel_code = %cc, provider = %info.shipping_provider,
                                 "direct_print 模式但分揀通道未設定印表機,此件不會印出");
-                            report_direct_print_failed(&state.app, &state.db, &query_no, "no_printer");
+                            report_direct_print_failed(
+                                &state.app, &state.db, &state.queue, &query_no, "no_printer",
+                                info.response_id, Some(info.shipping_no.as_str()),
+                            );
                         }
                     }
                     (None, 0i64)

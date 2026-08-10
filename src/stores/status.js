@@ -5,7 +5,7 @@ export const useStatusStore = defineStore('status', {
   state: () => ({
     cloud: { logged_in: false, api_base: '', user_label: null },
     server: { running: false, bind_addr: '' },
-    queue: { pending: 0, sending: 0, success: 0, failed: 0 },
+    queue: { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 },
     cache: { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 },
     today: { date: '', request_count: 0, success_count: 0, noread_count: 0, cache_hit: 0, cache_miss: 0 },
     // Navbar chip 顯示:本場累計 + 過去 24 小時(對齊 PrintStatsPage 的新 KPI)

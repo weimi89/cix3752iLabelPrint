@@ -36,12 +36,14 @@ const QUEUE_STATUSES = computed(() => [
   { title: t('page.queue.status.sending'), value: 'sending' },
   { title: t('page.queue.status.success'), value: 'success' },
   { title: t('page.queue.status.failed'), value: 'failed' },
+  { title: t('page.queue.status.cancelled'), value: 'cancelled' },
 ])
 const STATUS_LABELS = computed(() => ({
   pending: t('page.queue.status.pending'),
   sending: t('page.queue.status.sending'),
   success: t('page.queue.status.success'),
   failed: t('page.queue.status.failed'),
+  cancelled: t('page.queue.status.cancelled'),
 }))
 
 const REPORTED_FILTERS = computed(() => [
@@ -69,6 +71,7 @@ const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
     sort_channel: CHANNELS_SAMPLE[i % CHANNELS_SAMPLE.length],
     job_sticker: STICKERS_SAMPLE[i % STICKERS_SAMPLE.length],
     status,
+    last_error: status === 'failed' ? '推送逾時,將自動重試' : null,
     retry_count: status === 'failed' ? (i % 5) + 1 : 0,
     created_at: createdAt,
     sent_at: sentAt,
@@ -163,7 +166,9 @@ onMounted(() => { load(); if (isTauriRuntime) _timer = setInterval(load, 5000) }
 onUnmounted(() => { clearInterval(_timer); _timer = null })
 
 const statusColor = s => ({
-  pending: 'warning', sending: 'info', success: 'success', failed: 'error',
+  // cancelled 用灰色而非紅色:這不是「出錯了」,是系統刻意攔下不推送(面單沒印出來),
+  // 真正要現場處理的錯誤已由「直印失敗」語音與事件記錄負責提醒
+  pending: 'warning', sending: 'info', success: 'success', failed: 'error', cancelled: 'grey',
 }[s] || 'grey')
 
 const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
@@ -298,7 +303,14 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
               </VChip>
             </td>
             <td class="text-center text-disabled">{{ row.response_id ?? '—' }}</td>
-            <td class="text-center"><span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ STATUS_LABELS[row.status] || row.status }}</span></td>
+            <td class="text-center">
+              <span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ STATUS_LABELS[row.status] || row.status }}</span>
+              <!-- 攔截原因 / 推送失敗原因:狀態本身只說「怎麼了」,這裡說「為什麼」 -->
+              <VTooltip v-if="row.last_error" activator="parent" location="top" max-width="360">
+                {{ row.last_error }}
+              </VTooltip>
+              <VIcon v-if="row.last_error" icon="tabler-info-circle" size="14" class="ms-1 text-disabled" />
+            </td>
             <td class="text-center">{{ row.retry_count }}</td>
             <td class="text-center">{{ formatDate(row.created_at) }}</td>
             <td class="text-center">{{ formatDate(row.sent_at) }}</td>

@@ -45,6 +45,8 @@ pub struct QueueItem {
     pub job_sticker: Option<String>,
     /// 這筆佇列是誰建立的:`ipc`(工控機回報)/ `direct_print`(中介機直印後自補)
     pub source: String,
+    /// 推送失敗原因、或被攔截時的原因(直印失敗時寫入),供佇列歷史頁直接顯示
+    pub last_error: Option<String>,
     /// 工控機實際回報的時間;None = 從未回報(直印模式下代表只有面單印出、沒有工控機確認)
     pub ipc_reported_at: Option<String>,
 }
@@ -83,7 +85,7 @@ pub async fn queue_list(
     let sql = format!(
         "SELECT id, tracking_no, response_id, status, retry_count,
                 created_at, updated_at, sent_at, payload_json,
-                sort_channel, job_sticker, source, ipc_reported_at
+                sort_channel, job_sticker, source, ipc_reported_at, last_error
          FROM report_queue
          {where_sql}
          ORDER BY id DESC
@@ -116,17 +118,22 @@ pub async fn queue_list(
             job_sticker: row.try_get("job_sticker").ok(),
             source: row.try_get("source").unwrap_or_else(|_| "ipc".to_string()),
             ipc_reported_at: row.try_get("ipc_reported_at").ok(),
+            last_error: row.try_get("last_error").ok(),
         })
         .collect())
 }
 
-/// 把 failed(與殘留 sending)全部重設為 pending,清退避讓 worker 下一輪立即重試
+/// 把 failed(與殘留 sending)全部重設為 pending,清退避讓 worker 下一輪立即重試。
+///
+/// **被攔截的件(直印失敗)一律不動**:它們刻意不推送雲端,若跟著轉回待送,
+/// 畫面上會顯示成「已重新排隊」但 worker 永遠不撿 —— 看起來在跑、實際永久卡死,
+/// 比留在原狀更難察覺。
 #[tauri::command]
 pub async fn queue_retry_failed(state: State<'_, SharedState>) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE report_queue
          SET status='pending', retry_count=0, next_attempt_at=NULL, updated_at=datetime('now','localtime')
-         WHERE status IN ('failed', 'sending')",
+         WHERE status IN ('failed', 'sending') AND cancel_requested=0",
     )
     .execute(&state.db)
     .await?;

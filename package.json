@@ -1,7 +1,7 @@
 {
   "name": "cix3752i-label-print",
   "private": true,
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "本地分揀中介服務與面單列印桌面工具（Tauri v2 + Vue 3）",
   "type": "module",
   "scripts": {
@@ -11,6 +11,10 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
+  },
+  "//resolutions": "強制拉高「傳遞依賴」的版本以修安全通報。這些套件我們沒有直接用到(由建置工具鏈帶入,不進最終產物),但 lock 檔留著舊版仍會被掃出漏洞,故在此覆蓋。上游自己升上去之後可移除對應條目。",
+  "resolutions": {
+    "nanoid": "^3.3.17"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",

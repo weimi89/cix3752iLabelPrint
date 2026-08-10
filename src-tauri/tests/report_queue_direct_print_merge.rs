@@ -10,7 +10,8 @@
 //! SQL 直接取自 `queue/mod.rs` 的常數,不在測試裡另抄一份(抄了就會各自長歪)。
 
 use cix3752i_label_print_lib::queue::{
-    MAX_REPORT_DELAY_SECS, SQL_ENQUEUE_DIRECT_PRINT, SQL_ENQUEUE_IPC_REPORT,
+    MAX_REPORT_DELAY_SECS, SQL_CANCEL_REPORT_ON_PRINT_FAILURE, SQL_CLAIM_FOR_SENDING,
+    SQL_ENQUEUE_DIRECT_PRINT, SQL_ENQUEUE_IPC_REPORT, SQL_FINISH_CANCELLED,
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::Row;
@@ -38,7 +39,8 @@ async fn setup() -> sqlx::SqlitePool {
             sort_channel TEXT,
             next_attempt_at TEXT,
             source TEXT NOT NULL DEFAULT 'ipc',
-            ipc_reported_at TEXT
+            ipc_reported_at TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0
         )",
     )
     .execute(&pool)
@@ -79,9 +81,40 @@ async fn ipc_report(pool: &sqlx::SqlitePool, response_id: i64) -> u64 {
         .rows_affected()
 }
 
+/// 走與 `report_direct_print_failed` 相同的攔截路徑,回傳攔截後的最終狀態
+async fn cancel_on_print_failure(pool: &sqlx::SqlitePool, response_id: i64) -> String {
+    sqlx::query_scalar(SQL_CANCEL_REPORT_ON_PRINT_FAILURE)
+        .bind("SF123456789")
+        .bind(format!("{{\"response_id\":{response_id}}}"))
+        .bind(response_id)
+        .bind("直印失敗(print_failed),已攔下雲端回報")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// worker 實際會撿去推送的條件(與 queue/mod.rs 的 process_once 同義):
+/// 用來斷言「被攔下的那筆真的不會被送出」,而不只是斷言欄位值長得對
+async fn is_sendable(pool: &sqlx::SqlitePool, response_id: i64) -> bool {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM report_queue
+          WHERE response_id = ?
+            AND retry_count < 10
+            AND cancel_requested = 0
+            AND (status IN ('pending','failed')
+                 OR (status = 'sending' AND updated_at < datetime('now','localtime','-60 seconds')))
+            AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now','localtime'))",
+    )
+    .bind(response_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    n > 0
+}
+
 async fn row_of(pool: &sqlx::SqlitePool, response_id: i64) -> sqlx::sqlite::SqliteRow {
     sqlx::query(
-        "SELECT id, status, source, next_attempt_at, ipc_reported_at, sent_at, job_sticker
+        "SELECT id, status, source, next_attempt_at, ipc_reported_at, sent_at, job_sticker, last_error
          FROM report_queue WHERE response_id = ?",
     )
     .bind(response_id)
@@ -184,8 +217,8 @@ async fn direct_print_enqueue_yields_when_ipc_reported_first() {
     .await
     .unwrap();
 
-    // 之後直印完成才要自補 → ON CONFLICT DO NOTHING,不影響既有列
-    assert_eq!(enqueue_direct_print(&pool, 1004, 10).await, 0, "已存在時不應插入");
+    // 之後直印完成才要自補 → 撞到既有列,不得新增、也不得改寫既有狀態
+    enqueue_direct_print(&pool, 1004, 10).await;
     assert_eq!(count_of(&pool, 1004).await, 1);
 
     let row = row_of(&pool, 1004).await;
@@ -280,4 +313,312 @@ async fn oversized_delay_is_clamped_not_turned_into_immediate_send() {
         .await
         .unwrap();
     assert!(next.unwrap() > now, "仍應排在未來");
+}
+
+// ── 直印失敗時攔下雲端回報(面單沒印出來,雲端不該記成完成)────────────────────
+
+/// 工控機搶先回報、但列印最後失敗:那筆待送的回報必須被攔下,不可送去雲端
+#[tokio::test]
+async fn print_failure_blocks_pending_report_from_ipc() {
+    let pool = setup().await;
+    ipc_report(&pool, 2001).await; // 工控機先回報(還沒印完)
+    assert!(is_sendable(&pool, 2001).await, "前提:這筆本來會被 worker 送出");
+
+    assert_eq!(cancel_on_print_failure(&pool, 2001).await, "cancelled");
+    assert!(!is_sendable(&pool, 2001).await, "攔下後 worker 不可再撿去推送");
+    assert_eq!(count_of(&pool, 2001).await, 1);
+}
+
+/// 直印失敗當下還沒有任何回報:必須先立墓碑,否則工控機稍後才回報會變成一筆全新的待送
+#[tokio::test]
+async fn print_failure_tombstone_blocks_later_ipc_report() {
+    let pool = setup().await;
+    assert_eq!(cancel_on_print_failure(&pool, 2002).await, "cancelled", "無既有列時應立墓碑");
+
+    // 工控機稍後才回報 —— 撞上墓碑,只留下回報時間,不得復活成待送
+    ipc_report(&pool, 2002).await;
+    assert_eq!(count_of(&pool, 2002).await, 1);
+    let row = row_of(&pool, 2002).await;
+    assert_eq!(row.get::<String, _>("status"), "cancelled", "遲來的回報不可讓被攔下的件復活");
+    assert!(row.get::<Option<String>, _>("ipc_reported_at").is_some(), "仍應記下工控機有回報過");
+    assert!(!is_sendable(&pool, 2002).await, "攔下的件永遠不該被送出");
+}
+
+/// 直印自補後才失敗(例如佇列積壓時印表機出事):自補那筆同樣要被攔下
+#[tokio::test]
+async fn print_failure_blocks_self_reported_row() {
+    let pool = setup().await;
+    enqueue_direct_print(&pool, 2003, 10).await;
+    assert_eq!(cancel_on_print_failure(&pool, 2003).await, "cancelled");
+    assert!(!is_sendable(&pool, 2003).await);
+    let row = row_of(&pool, 2003).await;
+    assert!(
+        row.get::<Option<String>, _>("last_error").unwrap_or_default().contains("直印失敗"),
+        "應留下攔截原因供佇列歷史頁查證"
+    );
+}
+
+/// 已經推送成功才發現列印失敗:**不可竄改既有狀態**,回報收不回來,
+/// 呼叫端據此發高等級告警要現場人工處理
+#[tokio::test]
+async fn print_failure_does_not_rewrite_already_sent_report() {
+    let pool = setup().await;
+    ipc_report(&pool, 2004).await;
+    sqlx::query(
+        "UPDATE report_queue SET status='success', sent_at=datetime('now','localtime') WHERE response_id = ?",
+    )
+    .bind(2004i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        cancel_on_print_failure(&pool, 2004).await,
+        "success",
+        "已送出的必須回報 success(呼叫端據此判定收不回來)"
+    );
+    let row = row_of(&pool, 2004).await;
+    assert_eq!(row.get::<String, _>("status"), "success", "不可把已完成的改成已攔下");
+    assert!(row.get::<Option<String>, _>("sent_at").is_some(), "推送時間不可被抹掉");
+}
+
+/// 重試「失敗」項目時不可把被攔下的件一起復活(retry 只針對 failed / sending)
+#[tokio::test]
+async fn retry_failed_does_not_revive_cancelled_rows() {
+    let pool = setup().await;
+    cancel_on_print_failure(&pool, 2005).await;
+
+    // 與 queue_commands::queue_retry_failed 同一條件
+    sqlx::query(
+        "UPDATE report_queue
+            SET status='pending', retry_count=0, next_attempt_at=NULL, updated_at=datetime('now','localtime')
+          WHERE status IN ('failed', 'sending')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row_of(&pool, 2005).await.get::<String, _>("status"), "cancelled");
+    assert!(!is_sendable(&pool, 2005).await, "手動重試不該讓刻意攔下的件被送出");
+}
+
+// ── 攔截與推送的時序競態(覆檢指出這三條原本零覆蓋)────────────────────────────
+
+/// 走與 worker 相同的 claim 語句,回傳有沒有真的搶到這筆
+async fn claim_for_sending(pool: &sqlx::SqlitePool, response_id: i64) -> bool {
+    let id: i64 = sqlx::query_scalar("SELECT id FROM report_queue WHERE response_id = ?")
+        .bind(response_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query(SQL_CLAIM_FOR_SENDING)
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap()
+        .rows_affected()
+        > 0
+}
+
+/// 走與 worker 推送失敗時相同的收斂語句
+async fn finish_cancelled(pool: &sqlx::SqlitePool, response_id: i64) -> bool {
+    let id: i64 = sqlx::query_scalar("SELECT id FROM report_queue WHERE response_id = ?")
+        .bind(response_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query(SQL_FINISH_CANCELLED)
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap()
+        .rows_affected()
+        > 0
+}
+
+/// **claim 競態**:worker 選出待送清單後、真正下手前,列印那邊剛好判定失敗。
+/// claim 必須是帶條件的 compare-and-set —— 無條件 UPDATE 會把 cancelled 蓋回 sending 照樣送出。
+#[tokio::test]
+async fn claim_must_not_resurrect_a_row_cancelled_after_selection() {
+    let pool = setup().await;
+    ipc_report(&pool, 3001).await;
+    assert!(is_sendable(&pool, 3001).await, "前提:worker 這一輪會選中它");
+
+    // 選中之後、claim 之前 —— 列印判定失敗
+    cancel_on_print_failure(&pool, 3001).await;
+
+    assert!(!claim_for_sending(&pool, 3001).await, "已被攔截的不可被 claim 去推送");
+    assert_eq!(row_of(&pool, 3001).await.get::<String, _>("status"), "cancelled",
+        "claim 不可把 cancelled 蓋回 sending");
+}
+
+/// **推送中被攔截 + 這次推送失敗**:不可走一般退避重試(重試會在不知情下把它送出去),
+/// 必須直接定案 cancelled。
+#[tokio::test]
+async fn cancel_during_sending_then_failure_settles_as_cancelled() {
+    let pool = setup().await;
+    ipc_report(&pool, 3002).await;
+    assert!(claim_for_sending(&pool, 3002).await);
+    assert_eq!(row_of(&pool, 3002).await.get::<String, _>("status"), "sending");
+
+    // webhook 進行中,列印判定失敗 —— 此刻不可斷言送達,只記下攔截意圖
+    assert_eq!(cancel_on_print_failure(&pool, 3002).await, "sending",
+        "推送中不可被改狀態(結果未定),呼叫端據此回報 SendInProgress");
+
+    // 這次推送最終失敗 → 收斂為 cancelled,不再重試
+    assert!(finish_cancelled(&pool, 3002).await);
+    assert_eq!(row_of(&pool, 3002).await.get::<String, _>("status"), "cancelled");
+    assert!(!is_sendable(&pool, 3002).await, "定案後不可再被撿去重試");
+}
+
+/// 推送中被攔截、但這次推送**成功**了:狀態誠實維持 success(收不回來),
+/// 攔截旗標保留供呼叫端發「無法撤回」告警;不可竄改成 cancelled 假裝沒送出去。
+#[tokio::test]
+async fn cancel_during_sending_then_success_stays_success() {
+    let pool = setup().await;
+    ipc_report(&pool, 3003).await;
+    claim_for_sending(&pool, 3003).await;
+    cancel_on_print_failure(&pool, 3003).await;
+
+    // worker 拿到成功結果
+    sqlx::query("UPDATE report_queue SET status='success', sent_at=datetime('now','localtime') WHERE response_id=?")
+        .bind(3003i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let flagged: i64 = sqlx::query_scalar("SELECT cancel_requested FROM report_queue WHERE response_id=?")
+        .bind(3003i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(flagged, 1, "旗標須保留,呼叫端據此發出「已送出無法撤回」告警");
+    assert_eq!(row_of(&pool, 3003).await.get::<String, _>("status"), "success",
+        "已送達就是已送達,不可竄改成已攔下");
+}
+
+/// **重印成功要能解除攔截**:同一筆列印記錄先失敗被攔下,之後又印成功,
+/// 那筆「確實印出來的」必須能被送到雲端,不可永遠卡在已攔下。
+#[tokio::test]
+async fn successful_reprint_revives_a_cancelled_row() {
+    let pool = setup().await;
+    cancel_on_print_failure(&pool, 3004).await;
+    assert!(!is_sendable(&pool, 3004).await, "前提:已被攔下");
+
+    // 同一 response_id 重印成功 → 自補路徑必須解除攔截並重新排入
+    enqueue_direct_print(&pool, 3004, 0).await;
+
+    let row = row_of(&pool, 3004).await;
+    assert_eq!(row.get::<String, _>("status"), "pending", "重印成功應解除已攔下");
+    let flagged: i64 = sqlx::query_scalar("SELECT cancel_requested FROM report_queue WHERE response_id=?")
+        .bind(3004i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(flagged, 0, "攔截旗標必須一併清掉,否則 worker 仍不會撿");
+    assert!(is_sendable(&pool, 3004).await, "解除後必須真的能被送出");
+    assert_eq!(count_of(&pool, 3004).await, 1);
+}
+
+/// 啟動回收殘留 sending 時,被攔截的不可被回收成 pending(那等於讓它重新排隊送出)
+#[tokio::test]
+async fn startup_recovery_does_not_requeue_cancelled_rows() {
+    let pool = setup().await;
+    ipc_report(&pool, 3005).await;
+    claim_for_sending(&pool, 3005).await;
+    cancel_on_print_failure(&pool, 3005).await; // 推送中被攔截,狀態仍是 sending
+
+    // 模擬 App 崩潰重啟後的回收(與 recover_stale_sending 同一組語句)
+    sqlx::query("UPDATE report_queue SET status='cancelled', next_attempt_at=NULL WHERE status='sending' AND cancel_requested=1")
+        .execute(&pool).await.unwrap();
+    sqlx::query("UPDATE report_queue SET status='pending', next_attempt_at=NULL WHERE status='sending' AND cancel_requested=0")
+        .execute(&pool).await.unwrap();
+
+    assert_eq!(row_of(&pool, 3005).await.get::<String, _>("status"), "cancelled");
+    assert!(!is_sendable(&pool, 3005).await, "重啟後不可讓被攔截的件重新排隊");
+}
+
+// ── 覆檢第二輪挖出的兩個窄縫(原本零覆蓋)──────────────────────────────────
+
+/// **不可留下「失敗卻帶著攔截旗標」的幽靈列**:worker 不撿它(對),但操作員按「重試失敗」
+/// 會讓它看起來重新排隊、實際永遠送不出去 —— 比卡在失敗更難察覺。
+/// 推送失敗的寫回撞上期間才發出的攔截請求時,必須直接定案 cancelled。
+#[tokio::test]
+async fn failed_writeback_racing_a_cancel_settles_instead_of_becoming_a_ghost() {
+    let pool = setup().await;
+    ipc_report(&pool, 4001).await;
+    claim_for_sending(&pool, 4001).await;
+    cancel_on_print_failure(&pool, 4001).await; // 推送中被攔截(狀態仍 sending)
+
+    // mark_failed 的寫回(帶 cancel_requested=0 條件)—— 應該寫不進去
+    let affected = sqlx::query(
+        "UPDATE report_queue
+            SET status='failed', retry_count=1, last_error='x',
+                next_attempt_at=datetime('now','localtime','+5 seconds'),
+                updated_at=datetime('now','localtime')
+          WHERE id=(SELECT id FROM report_queue WHERE response_id=?) AND cancel_requested=0",
+    )
+    .bind(4001i64)
+    .execute(&pool)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(affected, 0, "被攔截的件不可被寫成 failed(那會變成幽靈列)");
+
+    // 寫不進去 → 收斂成 cancelled
+    assert!(finish_cancelled(&pool, 4001).await);
+    assert_eq!(row_of(&pool, 4001).await.get::<String, _>("status"), "cancelled");
+}
+
+/// 「重試失敗」按鈕不可把被攔截的件轉成待送 —— 轉了會顯示成已重新排隊卻永遠送不出
+#[tokio::test]
+async fn retry_failed_button_skips_flagged_rows_entirely() {
+    let pool = setup().await;
+    // 造一筆「失敗且帶攔截旗標」的列(舊版可能殘留的幽靈列)
+    sqlx::query(
+        "INSERT INTO report_queue (tracking_no,payload_json,response_id,status,source,cancel_requested,created_at,updated_at)
+         VALUES ('SF1','{}',?,'failed','direct_print',1,datetime('now','localtime'),datetime('now','localtime'))",
+    )
+    .bind(4002i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // 與 queue_retry_failed 同一條件(已加 cancel_requested=0)
+    sqlx::query(
+        "UPDATE report_queue
+            SET status='pending', retry_count=0, next_attempt_at=NULL, updated_at=datetime('now','localtime')
+          WHERE status IN ('failed','sending') AND cancel_requested=0",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row_of(&pool, 4002).await.get::<String, _>("status"), "failed",
+        "被攔截的件不該被重試按鈕改成待送(改了會看起來在跑卻永遠不動)");
+    assert!(!is_sendable(&pool, 4002).await);
+}
+
+/// 重印成功時,若前次的攔截還卡在 `sending` 尚未收斂(中繼態),旗標也必須放掉,
+/// 否則那筆收斂之後會永遠沒有人送。
+#[tokio::test]
+async fn reprint_clears_cancel_flag_even_while_previous_send_unsettled() {
+    let pool = setup().await;
+    ipc_report(&pool, 4003).await;
+    claim_for_sending(&pool, 4003).await;
+    cancel_on_print_failure(&pool, 4003).await;
+    assert_eq!(row_of(&pool, 4003).await.get::<String, _>("status"), "sending", "前提:停在中繼態");
+
+    // 同一 response_id 重印成功 → 自補路徑
+    enqueue_direct_print(&pool, 4003, 0).await;
+
+    let flagged: i64 = sqlx::query_scalar("SELECT cancel_requested FROM report_queue WHERE response_id=?")
+        .bind(4003i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(flagged, 0, "重印成功已推翻前次失敗結論,旗標必須放掉");
+    assert_eq!(row_of(&pool, 4003).await.get::<String, _>("status"), "sending",
+        "推送結果未定,狀態不可被搶改");
+    assert_eq!(count_of(&pool, 4003).await, 1);
 }

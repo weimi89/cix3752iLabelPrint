@@ -885,7 +885,8 @@
         "pending": "Chờ gửi",
         "sending": "Đang gửi",
         "success": "Thành công",
-        "failed": "Thất bại"
+        "failed": "Thất bại",
+        "cancelled": "Đã chặn"
       },
       "source": {
         "ipcReported": "Máy công nghiệp đã báo",

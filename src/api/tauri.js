@@ -312,7 +312,7 @@ export const localLanIps = async () => {
 
 // Queue
 export const queueStats = async () => {
-  if (!isTauri) return { pending: 0, sending: 0, success: 0, failed: 0 }
+  if (!isTauri) return { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 }
   return await invoke('queue_stats')
 }
 export const queueList = ({ status = null, keyword = null, unreportedOnly = false, limit = 100, offset = 0 } = {}) =>

@@ -885,7 +885,8 @@
         "pending": "待送",
         "sending": "傳送中",
         "success": "成功",
-        "failed": "失敗"
+        "failed": "失敗",
+        "cancelled": "已攔下"
       },
       "source": {
         "ipcReported": "工控機已回報",
