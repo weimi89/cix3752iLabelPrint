@@ -150,23 +150,23 @@ const empty = computed(() => !loading.value && items.value.length === 0)
 
       <VDivider />
 
-      <VTable v-if="!empty" density="comfortable">
+      <VTable v-if="!empty" density="comfortable" class="alert-log-table">
         <thead>
           <tr>
-            <th>{{ $t('page.alertLog.col.time') }}</th>
-            <th>{{ $t('page.alertLog.col.kind') }}</th>
-            <th>{{ $t('page.alertLog.col.queryNo') }}</th>
-            <th>{{ $t('page.alertLog.col.shippingNo') }}</th>
-            <th>{{ $t('page.alertLog.col.channel') }}</th>
+            <th class="text-center" style="width: 170px;">{{ $t('page.alertLog.col.time') }}</th>
+            <th class="text-center" style="width: 130px;">{{ $t('page.alertLog.col.kind') }}</th>
+            <th class="text-center" style="width: 160px;">{{ $t('page.alertLog.col.queryNo') }}</th>
+            <th class="text-center" style="width: 160px;">{{ $t('page.alertLog.col.shippingNo') }}</th>
+            <th class="text-center" style="width: 80px;">{{ $t('page.alertLog.col.channel') }}</th>
             <th>{{ $t('page.alertLog.col.message') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="a in items" :key="a.id">
-            <td class="text-no-wrap text-medium-emphasis">{{ a.created_at }}</td>
-            <td><VChip :color="kindColor(a.kind)" size="small" variant="tonal">{{ kindLabel(a.kind) }}</VChip></td>
-            <td class="font-weight-medium">{{ a.query_no || '—' }}</td>
-            <td class="font-weight-medium">{{ a.shipping_no || '—' }}</td>
+            <td class="text-center text-medium-emphasis">{{ a.created_at }}</td>
+            <td class="text-center"><VChip :color="kindColor(a.kind)" size="small" variant="tonal">{{ kindLabel(a.kind) }}</VChip></td>
+            <td class="text-center font-weight-medium">{{ a.query_no || '—' }}</td>
+            <td class="text-center font-weight-medium">{{ a.shipping_no || '—' }}</td>
             <td class="text-center">{{ a.channel_code || '—' }}</td>
             <td class="text-medium-emphasis">{{ a.message || '—' }}</td>
           </tr>
@@ -191,3 +191,12 @@ const empty = computed(() => !loading.value && items.value.length === 0)
     </VCard>
   </div>
 </template>
+
+<style scoped lang="scss">
+.alert-log-table {
+  th,
+  td { white-space: nowrap; }
+  // 訊息欄吃掉剩餘寬度,長訊息允許換行
+  td:last-child { white-space: normal; min-inline-size: 240px; }
+}
+</style>
