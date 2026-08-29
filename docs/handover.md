@@ -64,11 +64,11 @@
 **F. v0.18.0 發版（2026-08-29 深夜）**
 - `vuetify-4` 已 `--no-ff` 併回 main（`0b08316`），CHANGELOG 補 Vuetify 4 段落（`eae7766`），`v0.18.0` tag 指向該 commit，main 與 tag 已 push，Release CI run `33261527233` 進行中。
 - 雲端 cix3752iWeb 的 `5cf657f7` 已在 origin/main 且正式站已部署（`ship.cix3752i.com/api/v1/local-middleware/field-operation-monitor` 回 401＝路由存在）。
-- CI 綠後要 `gh release edit v0.18.0 --draft=false` 公開，`latest.json` 才生效。
+- ✅ 2026-08-30 02:05（台北）五平台 CI 全綠，release 已公開，`latest.json` 版本 0.18.0、notes 正確。20.04 那條因 Actions 快取 7 天未用被清掉、整套重編 webkit 花了 2 小時（快取已存回，下次會快）。
 - 8/13 那批註解對齊等未提交改動已從 stash 放回 main 工作區（無衝突），仍未提交。
 
 ### 尚未處理
-- v0.18.0 draft release 等 CI 完成後公開；雲端要先部署，中介端再發版。
+- （v0.18.0 已全部發佈完成）；雲端要先部署，中介端再發版。
 - 浮動框兩處視覺（新列、貼單列）需 `npm run tauri:dev` 看一眼。
 
 ## 2026-08-10 下午接手後做了什麼
