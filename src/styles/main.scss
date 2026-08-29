@@ -560,3 +560,10 @@ body {
 .text-display-large { font-size: 6rem !important; font-weight: 300; line-height: 6rem; letter-spacing: -0.015625em !important; }
 .text-body-large { line-height: 1.5rem; }
 .text-body-small { line-height: 1.25rem; }
+
+// Vuetify 4 的 VNumberInput 疊式(stacked)上下箭頭各是一顆 VBtn,預設最小高度 36px × 2,
+// 會把整個欄位撐到 72px、比旁邊 compact 欄位高一倍;讓箭頭鈕跟著欄位高度縮放。
+.v-number-input--stacked .v-number-input__control .v-btn {
+  min-block-size: 0;
+  block-size: auto;
+}
