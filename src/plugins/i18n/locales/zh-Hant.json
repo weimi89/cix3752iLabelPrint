@@ -754,7 +754,7 @@
       "title": "查件異常",
       "subtitle": "雲端查件回報的異常(門市關轉、未確認、查無此件 …)",
       "keyword": "關鍵字",
-      "keywordPlaceholder": "查詢單號 / 物流單號 / 訊息",
+      "keywordPlaceholder": "訊息",
       "empty": "目前沒有異常記錄",
       "col": {
         "time": "時間",

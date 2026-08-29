@@ -1,5 +1,5 @@
 //! 「查件異常」頁分頁 + 關鍵字 / 類別篩選的整合測試(直接呼叫查詢本體)。
-//! 涵蓋:無條件分頁、關鍵字命中 query_no / shipping_no / message、類別精確比對、
+//! 涵蓋:無條件分頁、關鍵字只命中 message、單號欄位多組精確、類別精確比對、
 //! 兩者組合、空白關鍵字視為無條件、越界 offset 回空頁但 total 不變。
 
 use cix3752i_label_print_lib::commands::parcel_alert_commands::{list_parcel_alerts, ParcelAlertListReq};
@@ -49,15 +49,13 @@ async fn paging_without_filter_is_newest_first() {
 }
 
 #[tokio::test]
-async fn keyword_hits_query_no_shipping_no_and_message() {
+async fn keyword_matches_message_only() {
     let pool = setup().await;
+    // 單號不再被關鍵字命中(改走獨立欄位精確比對)
     let r = list_parcel_alerts(&pool, &req(Some("Q0007"), None, 25, 0)).await.unwrap();
-    assert_eq!((r.total, r.items.len()), (1, 1));
-    assert_eq!(r.items[0].query_no.as_deref(), Some("Q0007"));
-
+    assert_eq!(r.total, 0);
     let r = list_parcel_alerts(&pool, &req(Some("74Z00000010"), None, 25, 0)).await.unwrap();
-    assert_eq!(r.total, 1);
-    assert_eq!(r.items[0].shipping_no.as_deref(), Some("74Z00000010"));
+    assert_eq!(r.total, 0);
 
     let r = list_parcel_alerts(&pool, &req(Some("門市關轉"), None, 10, 0)).await.unwrap();
     assert_eq!(r.total, 15, "訊息命中全部 store_closed");
@@ -77,10 +75,10 @@ async fn kind_filter_and_combination() {
     assert_eq!(r.total, 15);
     assert!(r.items.iter().all(|a| a.kind == "not_found" && a.shipping_no.is_none()));
 
-    // 關鍵字 + 類別:Q000 命中 1..=9,其中 store_closed 為 2,4,6,8
-    let r = list_parcel_alerts(&pool, &req(Some("Q000"), Some("store_closed"), 25, 0)).await.unwrap();
-    assert_eq!(r.total, 4);
-    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![8, 6, 4, 2]);
+    // 關鍵字(訊息)+ 類別:「訂單」兩種訊息都含,交給 kind 收斂 → 15 筆 not_found
+    let r = list_parcel_alerts(&pool, &req(Some("訂單"), Some("not_found"), 25, 0)).await.unwrap();
+    assert_eq!(r.total, 15);
+    assert!(r.items.iter().all(|a| a.kind == "not_found"));
 
     let r = list_parcel_alerts(&pool, &req(None, Some(""), 25, 0)).await.unwrap();
     assert_eq!(r.total, 30, "空字串類別 = 全部");

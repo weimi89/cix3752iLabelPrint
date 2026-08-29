@@ -8,7 +8,7 @@ use crate::{AppResult, SharedState};
 
 #[derive(Debug, Deserialize)]
 pub struct ParcelAlertListReq {
-    /// 關鍵字(在 query_no / shipping_no / message 做 LIKE 模糊)
+    /// 關鍵字(只在 message 做 LIKE 模糊;單號另有獨立欄位精確比對)
     #[serde(default)]
     pub keyword: Option<String>,
     /// 查詢單號:可一次多組(逗號 / 空白 / 換行分隔),精確比對
@@ -47,7 +47,7 @@ pub struct ParcelAlertListResp {
 }
 
 /// 桌面回看用:雲端查件異常清單(門市關轉 / 未確認 / 找不到 …),依 id DESC 分頁
-/// - keyword 對 query_no / shipping_no / message 做 LIKE
+/// - keyword 只對 message 做 LIKE
 /// - query_no / shipping_no 各自為多組單號 IN 清單、精確比對(可與 keyword 疊加)
 /// - kind 精確比對類別
 ///
@@ -86,7 +86,7 @@ pub async fn list_parcel_alerts(
 
     let mut where_clauses: Vec<String> = Vec::new();
     if like.is_some() {
-        where_clauses.push("(query_no LIKE ? OR shipping_no LIKE ? OR message LIKE ?)".into());
+        where_clauses.push("message LIKE ?".into());
     }
     if !query_nos.is_empty() {
         where_clauses.push(in_clause("query_no", query_nos.len()));
@@ -115,7 +115,7 @@ pub async fn list_parcel_alerts(
     // 兩句 SQL 的 WHERE 相同,綁定順序必須與 where_clauses 推入順序一致
     let mut binds: Vec<&str> = Vec::new();
     if let Some(like) = like.as_deref() {
-        binds.extend([like, like, like]);
+        binds.push(like);
     }
     binds.extend(query_nos.iter().map(String::as_str));
     binds.extend(shipping_nos.iter().map(String::as_str));

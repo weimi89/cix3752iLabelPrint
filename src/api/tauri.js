@@ -389,7 +389,7 @@ export const parcelAlertList = async ({ keyword = null, queryNo = null, shipping
     const qn = splitNos(queryNo)
     const sn = splitNos(shippingNo)
     let list = MOCK_PARCEL_ALERTS
-    if (kw) list = list.filter(r => [r.query_no, r.shipping_no, r.message].some(v => (v || '').toLowerCase().includes(kw)))
+    if (kw) list = list.filter(r => (r.message || '').toLowerCase().includes(kw))
     if (qn.length) list = list.filter(r => qn.includes(r.query_no))
     if (sn.length) list = list.filter(r => sn.includes(r.shipping_no))
     if (kind) list = list.filter(r => r.kind === kind)

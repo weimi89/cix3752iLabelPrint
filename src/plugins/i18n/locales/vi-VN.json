@@ -754,7 +754,7 @@
       "title": "Cảnh báo tra cứu",
       "subtitle": "Các bất thường khi tra cứu trên đám mây (cửa hàng đóng/chuyển, chưa xác nhận, không tìm thấy …)",
       "keyword": "Từ khóa",
-      "keywordPlaceholder": "Mã tra cứu / mã vận đơn / thông báo",
+      "keywordPlaceholder": "Thông báo",
       "empty": "Hiện chưa có cảnh báo",
       "col": {
         "time": "Thời gian",
