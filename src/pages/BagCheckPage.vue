@@ -229,6 +229,8 @@ onUnmounted(() => {
   th, td { white-space: nowrap; }
 }
 .bag-card__toggle {
+  // 滑鼠點完焦點留在這格,WebKit 會畫內建焦點框;本頁為觸控/滑鼠操作,點完不留框(鍵盤 Enter/Space 仍可用)
+  &:focus, &:focus-visible { outline: none; }
   display: flex;
   align-items: center;
   justify-content: center;
