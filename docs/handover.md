@@ -61,8 +61,14 @@
 - **二次驗證（2026-08-29 晚）**：把 Vuetify 3.13.2 實際 CSS 拉下來，對升級前 9 個有在用的字級 class（用量 102/101/24/23/21/6/4/2/1）逐一比對「尺寸／粗細／行高／字距／大小寫」→ 全部一致（誤差 ≤0.5px）。過程抓到兩個對照表本身就有損失的地方：h1、h2 併成 display-large（儀表板本場累計被放成 96px，已鎖回 h2 的 60px）；subtitle-1、body-1 併成 body-large（行高 28→24px，6 處改回舊名、由 main.scss 自備）。**教訓：升級／遷移不能只抽查，要逐項列出「舊→新→實測值」對照表，官方對照表是多對一時一定有損失。**
 - 合併前必做：主人實機走一遍主要頁面（儀表板、掃描列印、件數核對、設定頁、對話框、深色主題），特別看陰影、標題字級、側欄收合、表格間距。切回 main 後要 `yarn install` 還原 v3 node_modules。
 
+**F. v0.18.0 發版（2026-08-29 深夜）**
+- `vuetify-4` 已 `--no-ff` 併回 main（`0b08316`），CHANGELOG 補 Vuetify 4 段落（`eae7766`），`v0.18.0` tag 指向該 commit，main 與 tag 已 push，Release CI run `33261527233` 進行中。
+- 雲端 cix3752iWeb 的 `5cf657f7` 已在 origin/main 且正式站已部署（`ship.cix3752i.com/api/v1/local-middleware/field-operation-monitor` 回 401＝路由存在）。
+- CI 綠後要 `gh release edit v0.18.0 --draft=false` 公開，`latest.json` 才生效。
+- 8/13 那批註解對齊等未提交改動已從 stash 放回 main 工作區（無衝突），仍未提交。
+
 ### 尚未處理
-- 兩 repo 都未 commit；雲端要先部署，中介端再發版。
+- v0.18.0 draft release 等 CI 完成後公開；雲端要先部署，中介端再發版。
 - 浮動框兩處視覺（新列、貼單列）需 `npm run tauri:dev` 看一眼。
 
 ## 2026-08-10 下午接手後做了什麼
