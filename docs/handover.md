@@ -48,6 +48,11 @@
 - 驗證：三檔 `php -l` 綠；tinker 交易內造資料（同單補印、物流貓、台中、非 U/E、業務日外）→ 去重／廠別／API `sticker` 全對，已 rollback；中介端 `vite build` 綠。**畫面未實機看**。
 - **雲端未部署前**，浮動框拿不到 `sticker` 會顯示 0（不會報錯）。
 
+**D. 套件升級與 Rust 稽核工具**（2026-08-29）
+- `yarn upgrade` + `cargo update`（相容版本內）已提交;`cargo test` 64 綠、`vite build` 綠、`yarn audit` 0。
+- 本機已裝 `cargo-audit`、`cargo-outdated`（Homebrew）。`src-tauri/.cargo/audit.toml` 例外 RUSTSEC-2023-0071（rsa,只被未啟用的 sqlx-mysql 宣告,任何 target 都不編進 binary）;其餘 19 筆為 unmaintained/unsound 警告,來源皆為 tauri 上游（glib/gtk Linux、urlpattern 的 unic-*）,本專案側無法處理。
+- **跨主版號未升（需各自遷移,未做）**:axum 0.7→0.8、sqlx 0.8→0.9、reqwest 0.12→0.13、keyring 3→4、tokio-tungstenite 0.24→0.30、toml 0.8→1.1、tower-http 0.6→0.7、base64 0.22→0.23、imageproc 0.25→0.27、barcoders 1→2。keyring 4 的 feature 名稱已變（apple-native/windows-native/sync-secret-service 標 obsolete）,升時要對照 [[project_keyring_features]] 的坑。
+
 ### 尚未處理
 - 兩 repo 都未 commit；雲端要先部署，中介端再發版。
 - 浮動框兩處視覺（新列、貼單列）需 `npm run tauri:dev` 看一眼。

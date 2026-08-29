@@ -1,0 +1,8 @@
+# cargo-audit 設定:列在 ignore 的通報是「確認過不影響本專案、也無法從本專案側修掉」的,
+# 每筆都要寫原因;新通報一律先評估,不要直接加進來。
+[advisories]
+ignore = [
+    # rsa 0.9 Marvin 時序側通道(無修正版)。rsa 只被 sqlx 的 mysql 驅動(未啟用的 optional feature)宣告,
+    # `cargo tree -i rsa --target all -e all` 在所有 target 都找不到,不會編進任何平台的 binary。
+    "RUSTSEC-2023-0071",
+]
