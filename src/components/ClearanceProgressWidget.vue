@@ -61,10 +61,10 @@ const fmt = n => Number(n || 0).toLocaleString('en-US')
 
 // === 拖曳 ===
 const dragging = ref(false)
-let startX = 0; let startY = 0; let baseX = 0; let baseY = 0
+let startX = 0;let startY = 0;let baseX = 0;let baseY = 0
 // rAF 節流:mousemove 每幀最多寫一次 pinia(取該幀最新位置),避免每個 mousemove 都寫 store
 // 觸發響應式 + widget style 重算
-let _dragRaf = 0; let _lastMove = null
+let _dragRaf = 0;let _lastMove = null
 const onDragMove = e => {
   if (!dragging.value) return
   _lastMove = e
@@ -105,7 +105,7 @@ const onDragStart = e => {
       <!-- 標題列(可拖曳)-->
       <div class="clearance-widget__bar" @mousedown.prevent="onDragStart">
         <VIcon icon="tabler-clipboard-check" size="18" class="me-1" />
-        <span class="text-body-2 font-weight-bold">{{ t('page.clearanceProgress.title') }}</span>
+        <span class="text-body-medium font-weight-bold">{{ t('page.clearanceProgress.title') }}</span>
         <VSpacer />
         <VBtn icon="tabler-calendar-cog" size="x-small" variant="text" density="comfortable" @click="openDlg" @mousedown.stop>
           <VIcon icon="tabler-calendar-cog" />
@@ -119,7 +119,7 @@ const onDragStart = e => {
 
       <div class="pa-3">
         <!-- 追蹤期間 -->
-        <div class="text-caption text-medium-emphasis mb-2 d-flex align-center ga-1">
+        <div class="text-body-small text-medium-emphasis mb-2 d-flex align-center ga-1">
           <VIcon icon="tabler-calendar" size="14" />{{ store.rangeLabel }}
         </div>
 
@@ -142,7 +142,7 @@ const onDragStart = e => {
             <span class="cw-row__total">{{ fmt(store.parcelTotal) }}</span>
           </div>
         </div>
-        <div class="text-caption text-disabled mt-1">{{ t('page.clearanceProgress.remainTotalHint') }}</div>
+        <div class="text-body-small text-disabled mt-1">{{ t('page.clearanceProgress.remainTotalHint') }}</div>
 
         <!-- 今日貼單單數(去重):業務日 06:00 起算,與報關日區間無關 -->
         <div class="cw-row cw-row--sticker">
@@ -151,7 +151,7 @@ const onDragStart = e => {
             <span class="cw-row__remain text-success">{{ fmt(store.stickerOrderNum) }}</span>
           </div>
         </div>
-        <div class="text-caption text-disabled">{{ t('page.clearanceProgress.stickerHint', { date: store.stickerDate || '—' }) }}</div>
+        <div class="text-body-small text-disabled">{{ t('page.clearanceProgress.stickerHint', { date: store.stickerDate || '—' }) }}</div>
       </div>
     </div>
 
@@ -168,9 +168,9 @@ const onDragStart = e => {
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
         <VCard>
-        <VCardTitle class="text-body-1">{{ t('page.clearanceProgress.setRange') }}</VCardTitle>
+        <VCardTitle class="text-body-large">{{ t('page.clearanceProgress.setRange') }}</VCardTitle>
         <VCardText>
-          <div class="text-caption text-medium-emphasis mb-3">{{ t('page.clearanceProgress.rangeHint') }}</div>
+          <div class="text-body-small text-medium-emphasis mb-3">{{ t('page.clearanceProgress.rangeHint') }}</div>
           <div class="d-flex align-center ga-2">
             <AppDatePicker v-model="dFrom" density="compact" />
             <span class="text-disabled">~</span>

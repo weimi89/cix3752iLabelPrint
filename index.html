@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="zh-Hant">
   <head>
+    <!-- Vuetify 4 cascade layer 順序:必須是文件裡第一個 layer 宣告(先出現者定序)。
+         放在 bundle 裡會被 vite-plugin-vuetify 的元件 CSS 搶先、又被壓縮器合併,順序就錯了。 -->
+    <style>@layer base, vuetify-core, vuetify-components, vuetify-overrides, vuetify-utilities, vuetify-final, overrides;</style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />

@@ -15,23 +15,21 @@ h3,
 h4,
 h5,
 h6,
-.text-h1,
-.text-h2,
-.text-h3,
-.text-h4,
-.text-h5,
-.text-h6,
-.text-button,
-.text-overline,
+.text-display-large,
+.text-display-medium,
+.text-headline-large,
+.text-headline-small,
+.text-title-large,
+.text-label-large,
+.text-label-medium,
 .v-card-title {
   color: rgba(var(--v-theme-on-background), var(--v-high-emphasis-opacity));
 }
 
 body,
-.text-body-1,
-.text-body-2,
-.text-subtitle-1,
-.text-subtitle-2 {
+.text-body-large,
+.text-body-medium,
+.text-title-small {
   color: rgba(var(--v-theme-on-background), var(--v-medium-emphasis-opacity));
 }
 

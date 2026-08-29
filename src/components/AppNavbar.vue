@@ -108,12 +108,12 @@ const copyAddr = async addr => {
           <VIcon icon="tabler-zoom-in-area" size="22" />
         </VBtn>
       </template>
-      <VSheet rounded elevation="3" class="d-flex align-center pa-1">
+      <VSheet rounded elevation="1" class="d-flex align-center pa-1">
         <VBtn icon size="x-small" variant="text" :disabled="zoom <= 0.5" @click="zoomOut">
           <VIcon icon="tabler-minus" size="18" />
           <VTooltip activator="parent" location="bottom">{{ $t('common.zoomOut') }}</VTooltip>
         </VBtn>
-        <span class="text-body-2 font-weight-medium text-center" style="min-width: 44px;">{{ Math.round(zoom * 100) }}%</span>
+        <span class="text-body-medium font-weight-medium text-center" style="min-width: 44px;">{{ Math.round(zoom * 100) }}%</span>
         <VBtn icon size="x-small" variant="text" :disabled="zoom >= 2.0" @click="zoomIn">
           <VIcon icon="tabler-plus" size="18" />
           <VTooltip activator="parent" location="bottom">{{ $t('common.zoomIn') }}</VTooltip>
@@ -162,7 +162,7 @@ const copyAddr = async addr => {
           {{ $t('page.sort.remote.title') }}
         </VCardTitle>
         <VCardText class="px-5 pb-2">
-          <div class="text-caption text-medium-emphasis mb-4">{{ $t('page.sort.remote.hint') }}</div>
+          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.remote.hint') }}</div>
 
           <div v-if="remoteLoading" class="d-flex justify-center py-8">
             <VProgressCircular indeterminate color="primary" />
@@ -179,7 +179,7 @@ const copyAddr = async addr => {
 
             <div v-for="u in remoteUrls" :key="u.addr" class="d-flex align-center ga-2 mb-2">
               <VIcon icon="tabler-network" size="16" class="flex-shrink-0 text-medium-emphasis" />
-              <code class="flex-grow-1 text-truncate text-body-2">{{ u.addr }}</code>
+              <code class="flex-grow-1 text-truncate text-body-medium">{{ u.addr }}</code>
               <VChip size="x-small" variant="tonal">{{ u.name }}</VChip>
               <VBtn icon size="x-small" variant="text" color="default" @click="copyAddr(u.addr)">
                 <VIcon icon="tabler-copy" size="16" />
@@ -203,13 +203,13 @@ const copyAddr = async addr => {
         </VCardTitle>
         <VCardText class="pa-4">
           <div class="mb-2">
-            <span class="text-body-2 text-medium-emphasis">{{ $t('updater.current') }}</span>
+            <span class="text-body-medium text-medium-emphasis">{{ $t('updater.current') }}</span>
             <strong class="ms-1">v{{ updateInfo?.currentVersion }}</strong>
             <VIcon icon="tabler-arrow-right" size="16" class="mx-2" />
-            <span class="text-body-2 text-medium-emphasis">{{ $t('updater.next') }}</span>
+            <span class="text-body-medium text-medium-emphasis">{{ $t('updater.next') }}</span>
             <strong class="ms-1 text-warning">v{{ updateInfo?.version }}</strong>
           </div>
-          <div v-if="updateInfo?.notes" class="text-body-2 update-notes mt-3 pa-3 rounded bg-grey-100">
+          <div v-if="updateInfo?.notes" class="text-body-medium update-notes mt-3 pa-3 rounded bg-grey-100">
             <pre class="ma-0">{{ updateInfo.notes }}</pre>
           </div>
           <VProgressLinear
@@ -220,7 +220,7 @@ const copyAddr = async addr => {
             rounded
             class="mt-4"
           />
-          <div v-if="isDownloading" class="text-caption text-medium-emphasis text-center mt-1">
+          <div v-if="isDownloading" class="text-body-small text-medium-emphasis text-center mt-1">
             {{ $t('updater.downloading') }} {{ downloadProgress }}%
           </div>
           <VAlert v-if="lastError" type="error" variant="tonal" density="compact" class="mt-3">

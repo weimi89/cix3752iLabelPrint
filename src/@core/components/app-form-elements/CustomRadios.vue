@@ -54,10 +54,10 @@ const updateSelectedOption = value => {
                 <VSpacer />
                 <span
                   v-if="item.subtitle"
-                  class="text-disabled text-body-2"
+                  class="text-disabled text-body-medium"
                 >{{ item.subtitle }}</span>
               </div>
-              <p class="text-body-2 mb-0">
+              <p class="text-body-medium mb-0">
                 {{ item.desc }}
               </p>
             </div>

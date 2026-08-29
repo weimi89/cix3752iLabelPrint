@@ -30,7 +30,7 @@ const onBlur = e => {
     @blur="onBlur"
   >
     <template #item="{ item, props: itemProps }">
-      <VListItem v-bind="itemProps" :title="item.raw">
+      <VListItem v-bind="itemProps" :title="item">
         <template #append>
           <VBtn
             icon="tabler-x"

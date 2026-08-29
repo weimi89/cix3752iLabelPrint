@@ -411,23 +411,23 @@ const saveSchedule = async () => {
       <VCardText class="py-3 d-flex flex-wrap align-center gc-6 gr-2">
         <div class="d-flex align-center ga-2">
           <VIcon :icon="pageSched.enabled ? 'tabler-clock-check' : 'tabler-clock-off'" size="20" :color="pageSched.enabled ? 'primary' : 'medium-emphasis'" />
-          <span class="text-body-2 font-weight-medium">
+          <span class="text-body-medium font-weight-medium">
             {{ pageSched.enabled ? $t('page.preGenerate.scheduleTitle') : $t('page.preGenerate.scheduleStatusDisabled') }}
           </span>
         </div>
 
-        <div v-if="pageSched.enabled && pageNextRunText" class="text-caption d-flex align-center ga-1">
+        <div v-if="pageSched.enabled && pageNextRunText" class="text-body-small d-flex align-center ga-1">
           <VIcon icon="tabler-player-play" size="15" color="primary" />
           {{ $t('page.preGenerate.scheduleNextRun') }}：<strong class="text-primary">{{ pageNextRunText }}</strong>
         </div>
 
-        <div v-if="pregenStatus && pregenStatus.last_run_at" class="text-caption d-flex align-center ga-1 flex-wrap">
+        <div v-if="pregenStatus && pregenStatus.last_run_at" class="text-body-small d-flex align-center ga-1 flex-wrap">
           <VIcon :icon="pregenStatus.last_had_error ? 'tabler-alert-triangle' : 'tabler-circle-check'" size="15" :color="pregenStatus.last_had_error ? 'warning' : 'success'" />
           {{ $t('page.preGenerate.scheduleStatusLastRun') }}：<strong>{{ pregenStatus.last_run_at }}</strong>
           <span class="text-medium-emphasis">({{ $t('page.preGenerate.scheduleStatusTrigger') }} {{ pregenStatus.last_trigger }})</span>
           <span class="text-medium-emphasis">{{ $t('page.preGenerate.scheduleStatusResult', { ok: pregenStatus.last_ok, skipped: pregenStatus.last_skipped, fail: pregenStatus.last_fail, empty: pregenStatus.last_empty }) }}</span>
         </div>
-        <div v-else-if="pageSched.enabled" class="text-caption text-medium-emphasis d-flex align-center ga-1">
+        <div v-else-if="pageSched.enabled" class="text-body-small text-medium-emphasis d-flex align-center ga-1">
           <VIcon icon="tabler-hourglass" size="15" />{{ $t('page.preGenerate.scheduleStatusNeverRun') }}
         </div>
 
@@ -464,7 +464,7 @@ const saveSchedule = async () => {
                   </tr>
                 </tbody>
               </VTable>
-              <div v-if="pregenStatus && pregenStatus.last_fail > autoFailedSns.length" class="text-caption text-medium-emphasis mt-1">
+              <div v-if="pregenStatus && pregenStatus.last_fail > autoFailedSns.length" class="text-body-small text-medium-emphasis mt-1">
                 {{ $t('page.preGenerate.failMore', { n: pregenStatus.last_fail - autoFailedSns.length }) }}
               </div>
             </div>
@@ -497,8 +497,8 @@ const saveSchedule = async () => {
           <!-- 主開關:醒目列,顯示啟用 / 關閉狀態 -->
           <div class="sched-switch" :class="{ 'sched-switch--on': sched.enabled }">
             <div>
-              <div class="text-body-1 font-weight-medium">{{ $t('page.preGenerate.scheduleEnabled') }}</div>
-              <div class="text-caption text-medium-emphasis">
+              <div class="text-body-large font-weight-medium">{{ $t('page.preGenerate.scheduleEnabled') }}</div>
+              <div class="text-body-small text-medium-emphasis">
                 {{ sched.enabled ? $t('page.preGenerate.scheduleOn') : $t('page.preGenerate.scheduleOff') }}
               </div>
             </div>
@@ -508,11 +508,11 @@ const saveSchedule = async () => {
           <!-- 下次執行預覽 -->
           <div v-if="nextRunText" class="sched-next">
             <VIcon icon="tabler-player-play" size="16" color="primary" />
-            <span class="text-caption">{{ $t('page.preGenerate.scheduleNextRun') }}：<strong class="text-primary">{{ nextRunText }}</strong></span>
+            <span class="text-body-small">{{ $t('page.preGenerate.scheduleNextRun') }}：<strong class="text-primary">{{ nextRunText }}</strong></span>
           </div>
 
           <!-- 時間點 -->
-          <div class="text-body-2 font-weight-medium mt-4 mb-2">{{ $t('page.preGenerate.scheduleTimes') }}</div>
+          <div class="text-body-medium font-weight-medium mt-4 mb-2">{{ $t('page.preGenerate.scheduleTimes') }}</div>
           <div v-for="(tt, i) in sched.times" :key="i" class="d-flex align-center ga-1 mb-2">
             <VTextField
               :model-value="tt"
@@ -528,7 +528,7 @@ const saveSchedule = async () => {
               <VIcon icon="tabler-trash" size="18" />
             </VBtn>
           </div>
-          <div v-if="!sched.times.length" class="text-caption text-disabled mb-2 d-flex align-center ga-1">
+          <div v-if="!sched.times.length" class="text-body-small text-disabled mb-2 d-flex align-center ga-1">
             <VIcon icon="tabler-clock-off" size="16" />{{ $t('page.preGenerate.scheduleNoTimes') }}
           </div>
           <VBtn variant="tonal" color="primary" size="small" prepend-icon="tabler-plus" @click="addTimeRow">
@@ -536,7 +536,7 @@ const saveSchedule = async () => {
           </VBtn>
 
           <!-- 預產來源:chip 切換 -->
-          <div class="text-body-2 font-weight-medium mt-5 mb-2">{{ $t('page.preGenerate.scheduleSources') }}</div>
+          <div class="text-body-medium font-weight-medium mt-5 mb-2">{{ $t('page.preGenerate.scheduleSources') }}</div>
           <div class="d-flex ga-2">
             <VChip
               :color="sched.sources.includes('clearance') ? 'primary' : 'default'"
@@ -559,16 +559,16 @@ const saveSchedule = async () => {
           <!-- 開機補跑開關 -->
           <div class="sched-switch mt-5" :class="{ 'sched-switch--on': sched.catchUp }">
             <div>
-              <div class="text-body-2 font-weight-medium">{{ $t('page.preGenerate.scheduleCatchUp') }}</div>
-              <div class="text-caption text-medium-emphasis text-wrap">{{ $t('page.preGenerate.scheduleCatchUpHint') }}</div>
+              <div class="text-body-medium font-weight-medium">{{ $t('page.preGenerate.scheduleCatchUp') }}</div>
+              <div class="text-body-small text-medium-emphasis text-wrap">{{ $t('page.preGenerate.scheduleCatchUpHint') }}</div>
             </div>
             <VSwitch v-model="sched.catchUp" color="primary" hide-details density="compact" inset />
           </div>
 
-          <div class="text-caption text-medium-emphasis mt-4 d-flex align-center ga-1">
+          <div class="text-body-small text-medium-emphasis mt-4 d-flex align-center ga-1">
             <VIcon icon="tabler-info-circle" size="15" />{{ $t('page.preGenerate.scheduleDateNote') }}
           </div>
-          <div v-if="scheduleIncomplete" class="text-caption text-warning mt-2 d-flex align-center ga-1">
+          <div v-if="scheduleIncomplete" class="text-body-small text-warning mt-2 d-flex align-center ga-1">
             <VIcon icon="tabler-alert-triangle" size="15" />{{ $t('page.preGenerate.scheduleIncomplete') }}
           </div>
         </VCardText>
@@ -601,7 +601,7 @@ const saveSchedule = async () => {
                 <VAlert v-if="packageError" type="error" variant="tonal" density="compact" class="mt-2">{{ packageError }}</VAlert>
               </template>
               <template v-else>
-                <div class="text-body-2 text-medium-emphasis mb-1">{{ $t('page.preGenerate.dateLabel') }}</div>
+                <div class="text-body-medium text-medium-emphasis mb-1">{{ $t('page.preGenerate.dateLabel') }}</div>
                 <AppDatePicker
                   v-model="clearanceDate"
                   :disabled="isProcessing || dateLoading"
@@ -613,8 +613,8 @@ const saveSchedule = async () => {
               <div class="rerun-opts mt-4">
                 <div class="d-flex align-center justify-space-between">
                   <div class="pe-2">
-                    <div class="text-body-2 font-weight-medium">{{ $t('page.preGenerate.forceRerun') }}</div>
-                    <div class="text-caption text-medium-emphasis text-wrap">{{ $t('page.preGenerate.forceRerunHint') }}</div>
+                    <div class="text-body-medium font-weight-medium">{{ $t('page.preGenerate.forceRerun') }}</div>
+                    <div class="text-body-small text-medium-emphasis text-wrap">{{ $t('page.preGenerate.forceRerunHint') }}</div>
                   </div>
                   <VSwitch v-model="forceRerun" color="primary" hide-details density="compact" inset :disabled="isProcessing" />
                 </div>
@@ -666,35 +666,35 @@ const saveSchedule = async () => {
           <VCardText>
             <div v-if="totalCount === 0" class="text-center py-12">
               <VIcon icon="tabler-photo-down" size="80" color="primary" class="opacity-50" />
-              <h4 class="text-h6 mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
-              <p class="text-body-2 text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
+              <h4 class="text-title-large mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
+              <p class="text-body-medium text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
             </div>
             <template v-else>
               <!-- 統計列 -->
               <div class="d-flex justify-space-around text-center mb-4">
                 <div>
-                  <div class="text-h6">{{ totalCount }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statTotal') }}</div>
+                  <div class="text-title-large">{{ totalCount }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statTotal') }}</div>
                 </div>
                 <div>
-                  <div class="text-h6">{{ completedCount }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statDone') }}</div>
+                  <div class="text-title-large">{{ completedCount }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statDone') }}</div>
                 </div>
                 <div>
-                  <div class="text-h6 text-success">{{ successCount }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statSuccess') }}</div>
+                  <div class="text-title-large text-success">{{ successCount }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statSuccess') }}</div>
                 </div>
                 <div>
-                  <div class="text-h6" :class="failCount ? 'text-error' : 'text-disabled'">{{ failCount }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statFail') }}</div>
+                  <div class="text-title-large" :class="failCount ? 'text-error' : 'text-disabled'">{{ failCount }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statFail') }}</div>
                 </div>
                 <div v-if="skippedCount > 0">
-                  <div class="text-h6 text-medium-emphasis">{{ skippedCount }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statSkipped') }}</div>
+                  <div class="text-title-large text-medium-emphasis">{{ skippedCount }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statSkipped') }}</div>
                 </div>
                 <div>
-                  <div class="text-h6">{{ elapsedText }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.preGenerate.statElapsed') }}</div>
+                  <div class="text-title-large">{{ elapsedText }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.preGenerate.statElapsed') }}</div>
                 </div>
               </div>
               <VProgressLinear :model-value="progressPct" color="primary" height="8" rounded class="mb-4" />
@@ -703,7 +703,7 @@ const saveSchedule = async () => {
               <VCard v-if="downloadStatus.length > 0" border class="mb-4 fail-card">
                 <VCardText class="pa-3">
                   <div class="d-flex align-center flex-wrap ga-2 mb-2">
-                    <div class="text-body-1">
+                    <div class="text-body-large">
                       <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
                       {{ $t('page.preGenerate.downloadWarnings') }}
                       <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ failCount }}</VChip>
@@ -732,7 +732,7 @@ const saveSchedule = async () => {
                       </tbody>
                     </VTable>
                   </div>
-                  <div v-if="failCount > downloadStatus.length" class="text-caption text-medium-emphasis mt-2">
+                  <div v-if="failCount > downloadStatus.length" class="text-body-small text-medium-emphasis mt-2">
                     {{ $t('page.preGenerate.failMore', { n: failCount - downloadStatus.length }) }}
                   </div>
                 </VCardText>

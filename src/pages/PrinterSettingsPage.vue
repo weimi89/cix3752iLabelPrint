@@ -101,11 +101,11 @@ const reset = () => {
       {{ $t('page.printer.noPrinters') }}
     </VAlert>
 
-    <VRow dense>
+    <VRow density="compact">
       <VCol v-for="p in PROVIDERS" :key="p.code" cols="12" md="6" class="py-1">
         <VCard>
           <VCardText>
-            <div class="text-subtitle-1 mb-2">{{ $t(p.nameKey) }}</div>
+            <div class="text-body-large mb-2">{{ $t(p.nameKey) }}</div>
             <VSelect
               v-model="map[p.code]"
               :items="printers"

@@ -101,7 +101,7 @@ const saveSettings = () => {
       <VCard>
         <div class="d-flex align-center px-4" style="min-block-size: 54px;">
           <VIcon icon="tabler-volume" size="24" class="me-2" />
-          <span class="text-h6">{{ $t('soundSettings.title') }}</span>
+          <span class="text-title-large">{{ $t('soundSettings.title') }}</span>
         </div>
         <VDivider />
         <VCardText>
@@ -110,7 +110,7 @@ const saveSettings = () => {
               v-for="event in soundEvents"
               :key="event.key"
             >
-              <label class="text-body-2 font-weight-medium d-block mb-1">{{ event.label }}</label>
+              <label class="text-body-medium font-weight-medium d-block mb-1">{{ event.label }}</label>
               <div class="d-flex align-center ga-2">
                 <VSelect
                   v-model="localSettings[event.key]"
@@ -135,7 +135,7 @@ const saveSettings = () => {
                 </VBtn>
               </div>
             </div>
-            <div class="text-caption text-disabled">
+            <div class="text-body-small text-disabled">
               {{ $t('soundSettings.hint') }}
             </div>
             <div class="d-flex align-center">

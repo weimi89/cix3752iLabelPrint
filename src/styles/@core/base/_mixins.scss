@@ -1,11 +1,15 @@
 @use "sass:map";
+@use "sass:math";
 @use "@styles/variables/vuetify.scss";
 
+// Vuetify 4 的 elevation 只有 0-5 六級(Material 3);Materio 各處仍以舊的 0-24 級呼叫,
+// 這裡把舊級距折半後鎖在 0-5(2→1、4→2、6→3、8→4、10+→5),再取 v4 的 $shadow-key / $shadow-ambient
 @mixin elevation($z, $important: false) {
+  $level: math.clamp(0, math.ceil(math.div($z, 2)), 5);
   @if $important {
-    box-shadow: map.get(vuetify.$shadow-key-umbra, $z), map.get(vuetify.$shadow-key-penumbra, $z), map.get(vuetify.$shadow-key-ambient, $z) !important;
+    box-shadow: map.get(vuetify.$shadow-key, $level), map.get(vuetify.$shadow-ambient, $level) !important;
   } @else {
-    box-shadow: map.get(vuetify.$shadow-key-umbra, $z), map.get(vuetify.$shadow-key-penumbra, $z), map.get(vuetify.$shadow-key-ambient, $z);
+    box-shadow: map.get(vuetify.$shadow-key, $level), map.get(vuetify.$shadow-ambient, $level);
   }
 }
 

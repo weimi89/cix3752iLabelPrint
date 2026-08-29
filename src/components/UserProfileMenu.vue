@@ -37,8 +37,8 @@ const logout = async () => {
             </VAvatar>
           </div>
         </template>
-        <VCardTitle class="text-body-1 font-weight-medium">{{ userName }}</VCardTitle>
-        <VCardSubtitle class="text-caption">{{ userRole }}</VCardSubtitle>
+        <VCardTitle class="text-body-large font-weight-medium">{{ userName }}</VCardTitle>
+        <VCardSubtitle class="text-body-small">{{ userRole }}</VCardSubtitle>
       </VCardItem>
       <VDivider />
       <div class="pa-2">

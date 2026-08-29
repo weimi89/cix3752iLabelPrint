@@ -9,6 +9,8 @@ import i18n from './plugins/i18n'
 import { createLayouts } from '@layouts'
 import { themeConfig } from '@themeConfig'
 
+// Vuetify 4 layer 順序 + 選擇性 CSS reset,必須排在 vuetify/styles 之前
+import './styles/vuetify-layers.css'
 import 'vuetify/styles'
 // OverlayScrollbars 套件自己的 viewport scroll CSS (sidebar nav scrollbar 必需)
 // 之前在 @layouts/styles/index.scss 用 @use 引入,但 Vite/Sass 對 .css 檔的 @use 沒實際載入規則 → 改 JS import

@@ -244,17 +244,17 @@ const resetCustomizer = async () => {
     border="none"
     location="end"
     width="400"
-    elevation="10"
+    elevation="3"
     :scrim="false"
     class="app-customizer"
   >
     <!-- 👉 Header -->
     <div class="customizer-heading d-flex align-center justify-space-between">
       <div>
-        <h6 class="text-h6">
+        <h6 class="text-title-large">
           主题定制
         </h6>
-        <p class="text-body-2 mb-0">
+        <p class="text-body-medium mb-0">
           即時自訂和預覽
         </p>
       </div>
@@ -311,7 +311,7 @@ const resetCustomizer = async () => {
       >
         <!-- 👉 主色 -->
         <div class="d-flex flex-column gap-2">
-          <h6 class="text-h6">
+          <h6 class="text-title-large">
             主色
           </h6>
 
@@ -383,7 +383,7 @@ const resetCustomizer = async () => {
 
         <!-- 👉 主题 -->
         <div class="d-flex flex-column gap-2">
-          <h6 class="text-h6">
+          <h6 class="text-title-large">
             主题
           </h6>
 
@@ -415,7 +415,7 @@ const resetCustomizer = async () => {
 
         <!-- 👉 樣式 -->
         <div class="d-flex flex-column gap-2">
-          <h6 class="text-h6">
+          <h6 class="text-title-large">
             樣式
           </h6>
 
@@ -438,7 +438,7 @@ const resetCustomizer = async () => {
         >
           <VLabel
             for="customizer-semi-dark"
-            class="text-h6 text-high-emphasis"
+            class="text-title-large text-high-emphasis"
           >
             半暗色選單
           </VLabel>

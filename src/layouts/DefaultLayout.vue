@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
         <h1 class="app-logo-title leading-normal">智配通</h1>
         <span
           v-if="appVersion"
-          class="app-version-badge text-caption font-weight-medium"
+          class="app-version-badge text-body-small font-weight-medium"
         >v{{ appVersion }}</span>
       </RouterLink>
       <!-- 桌面：收合/展開按鈕 -->

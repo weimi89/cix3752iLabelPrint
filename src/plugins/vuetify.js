@@ -108,6 +108,11 @@ export default createVuetify({
     defaultTheme: 'light',
     themes: { light: lightTheme, dark: darkTheme },
   },
+  // Vuetify 4 把預設斷點縮小(md 840 / lg 1145 / xl 1545),側欄收合與 d-md-* 切換點會整個位移;
+  // 鎖回 v3 預設維持現行版面行為(SCSS 端 $grid-breakpoints 另在 styles/variables/_vuetify.scss)
+  display: {
+    thresholds: { md: 960, lg: 1280, xl: 1920, xxl: 2560 },
+  },
   icons: {
     defaultSet: 'iconify',
     aliases,

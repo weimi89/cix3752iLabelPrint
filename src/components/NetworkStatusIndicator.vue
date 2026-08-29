@@ -113,7 +113,7 @@ const lines = computed(() => [osLine(), anchorLine(), cloudLine()])
     </template>
     <VCard min-width="280" class="network-popup">
       <VCardItem class="pb-2">
-        <VCardTitle class="text-body-1 font-weight-medium d-flex align-center">
+        <VCardTitle class="text-body-large font-weight-medium d-flex align-center">
           <VIcon :icon="overallIcon" :color="overallColor" size="20" class="me-2" />
           {{ overallTooltip }}
         </VCardTitle>
@@ -158,17 +158,17 @@ const lines = computed(() => [osLine(), anchorLine(), cloudLine()])
               class="me-2"
             />
           </template>
-          <VListItemTitle class="text-body-2">{{ ln.label }}</VListItemTitle>
-          <VListItemSubtitle class="text-caption">{{ ln.detail }}</VListItemSubtitle>
+          <VListItemTitle class="text-body-medium">{{ ln.label }}</VListItemTitle>
+          <VListItemSubtitle class="text-body-small">{{ ln.detail }}</VListItemSubtitle>
         </VListItem>
       </VList>
       <VDivider />
       <div class="pa-2 d-flex align-center">
         <div class="flex-grow-1">
-          <div class="text-caption text-medium-emphasis">
+          <div class="text-body-small text-medium-emphasis">
             {{ $t('network.lastCheckedAt') }} {{ lastCheckedText }}
           </div>
-          <div class="text-caption text-disabled">
+          <div class="text-body-small text-disabled">
             {{ $t('network.nextCheckIn', { n: effectiveIntervalSecs }) }}
           </div>
         </div>

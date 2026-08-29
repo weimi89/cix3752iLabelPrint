@@ -411,14 +411,14 @@ const groupedStatus = computed(() => {
                 hide-details
                 inset
               />
-              <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+              <span class="text-body-large ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
                 {{ $t('page.scan.printScopeMultiple') }}
               </span>
             </VCardTitle>
             <VCardText>
               <div class="d-flex ga-3 my-3">
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                     {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -430,7 +430,7 @@ const groupedStatus = computed(() => {
                   />
                 </div>
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                     {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -452,7 +452,7 @@ const groupedStatus = computed(() => {
               </div>
               <div class="mt-3">
                 <VLabel
-                  class="mb-1 text-body-2"
+                  class="mb-1 text-body-medium"
                   style="line-height: 15px;"
                   :class="{ 'text-error font-weight-bold': printTypeMultiple }"
                 >
@@ -472,7 +472,7 @@ const groupedStatus = computed(() => {
                     @update:model-value="checked => togglePrintType(opt.value, checked)"
                   />
                 </div>
-                <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                <div v-else class="text-medium-emphasis text-body-medium px-1 py-2">
                   {{ $t('common.noPrintersConfigured') }}
                 </div>
               </div>
@@ -531,7 +531,7 @@ const groupedStatus = computed(() => {
 
         <VCard v-if="Object.keys(groupedStatus).length > 0" class="mt-3" variant="flat" border>
           <VCardItem>
-            <VCardTitle class="text-body-1 d-flex align-center">
+            <VCardTitle class="text-body-large d-flex align-center">
               <VIcon icon="tabler-alert-triangle" color="error" class="me-1" />
               {{ $t('page.scan.printWarnings') }}
               <VChip size="x-small" color="error" variant="elevated" class="ms-2">{{ printStatus.length }}</VChip>
@@ -542,7 +542,7 @@ const groupedStatus = computed(() => {
             <div v-for="(snList, code) in groupedStatus" :key="code" class="mb-3">
               <div class="d-flex align-center mb-1">
                 <VIcon :icon="statusIcon(code)" :color="statusGroupColor(code)" size="18" class="me-1" />
-                <span class="text-body-2 font-weight-medium" :class="`text-${statusGroupColor(code)}`">
+                <span class="text-body-medium font-weight-medium" :class="`text-${statusGroupColor(code)}`">
                   {{ statusLabel(code) }}
                 </span>
                 <VSpacer />
@@ -569,8 +569,8 @@ const groupedStatus = computed(() => {
           <VCardText>
             <div v-if="printList.length === 0" class="empty-state">
               <VIcon icon="tabler-printer" size="80" color="primary" class="empty-state__icon" />
-              <h4 class="text-h6 mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
-              <p class="text-body-2 text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
+              <h4 class="text-title-large mt-4 mb-1">{{ $t('page.preGenerate.empty') }}</h4>
+              <p class="text-body-medium text-medium-emphasis">{{ $t('page.preGenerate.emptyHint') }}</p>
               <div class="empty-state__steps">
                 <div class="step-item">
                   <span class="step-num">1</span>
@@ -660,11 +660,11 @@ const groupedStatus = computed(() => {
               <template #prepend>
                 <VIcon icon="tabler-printer-off" color="warning" size="18" class="me-2" />
               </template>
-              <VListItemTitle class="text-body-2 font-weight-medium">
+              <VListItemTitle class="text-body-medium font-weight-medium">
                 {{ providerDisplay(code) }}
                 <VChip size="x-small" color="warning" variant="tonal" class="ms-2">{{ sns.length }}</VChip>
               </VListItemTitle>
-              <VListItemSubtitle class="text-caption">
+              <VListItemSubtitle class="text-body-small">
                 {{ sns.slice(0, 5).join(', ') }}<span v-if="sns.length > 5">…</span>
               </VListItemSubtitle>
             </VListItem>

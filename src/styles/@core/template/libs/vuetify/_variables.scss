@@ -19,159 +19,86 @@ $typography-body-1-line-height: 1.375rem;
   ) !default,
 
   // 👉 Shadows
-  $shadow-key-umbra: (
+  // 👉 Elevation(Vuetify 4 改為 Material 3 的 6 級 0-5;沿用 Materio 原 umbra 0/2/4/6/8/10 級的陰影,
+  // 顏色與透明度走主題變數 --v-shadow-key-umbra-color / --v-shadow-*-opacity,由 plugins/vuetify.js 提供)
+  $shadow-key: (
     0: (0 0 0 0 rgba(var(--v-shadow-key-umbra-color), 1)),
-    1: (0 2px 4px rgba(var(--v-shadow-key-umbra-color), 0.12)),
-    2: (0 1px 6px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-xs-opacity))),
-    3: (0 3px 8px rgba(var(--v-shadow-key-umbra-color), 0.14)),
-    4: (0 2px 8px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-sm-opacity))),
-    5: (0 4px 10px rgba(var(--v-shadow-key-umbra-color), 0.15)),
-    6: (0 3px 12px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-md-opacity))),
-    7: (0 4px 18px rgba(var(--v-shadow-key-umbra-color), 0.1)),
-    8: (0 4px 18px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-lg-opacity))),
-    9: (0 5px 14px rgba(var(--v-shadow-key-umbra-color), 0.18)),
-    10: (0 5px 30px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-xl-opacity))),
-    11: (0 5px 16px rgba(var(--v-shadow-key-umbra-color), 0.2)),
-    12: (0 6px 17px rgba(var(--v-shadow-key-umbra-color), 0.22)),
-    13: (0 6px 18px rgba(var(--v-shadow-key-umbra-color), 0.22)),
-    14: (0 6px 19px rgba(var(--v-shadow-key-umbra-color), 0.24)),
-    15: (0 7px 20px rgba(var(--v-shadow-key-umbra-color), 0.24)),
-    16: (0 7px 21px rgba(var(--v-shadow-key-umbra-color), 0.26)),
-    17: (0 7px 22px rgba(var(--v-shadow-key-umbra-color), 0.26)),
-    18: (0 8px 23px rgba(var(--v-shadow-key-umbra-color), 0.28)),
-    19: (0 8px 24px 6px rgba(var(--v-shadow-key-umbra-color), 0.28)),
-    20: (0 9px 25px rgba(var(--v-shadow-key-umbra-color), 0.3)),
-    21: (0 9px 26px rgba(var(--v-shadow-key-umbra-color), 0.32)),
-    22: (0 9px 27px rgba(var(--v-shadow-key-umbra-color), 0.32)),
-    23: (0 10px 28px rgba(var(--v-shadow-key-umbra-color), 0.34)),
-    24: (0 10px 30px rgba(var(--v-shadow-key-umbra-color), 0.34))
+    1: (0 1px 6px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-xs-opacity))),
+    2: (0 2px 8px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-sm-opacity))),
+    3: (0 3px 12px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-md-opacity))),
+    4: (0 4px 18px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-lg-opacity))),
+    5: (0 5px 30px rgba(var(--v-shadow-key-umbra-color), var(--v-shadow-xl-opacity)))
   ) !default,
-
-  $shadow-key-penumbra: (
+  $shadow-ambient: (
     0: (0 0 transparent),
     1: (0 0 transparent),
     2: (0 0 transparent),
     3: (0 0 transparent),
     4: (0 0 transparent),
-    5: (0 0 transparent),
-    6: (0 0 transparent),
-    7: (0 0 transparent),
-    8: (0 0 transparent),
-    9: (0 0 transparent),
-    10: (0 0 transparent),
-    11: (0 0 transparent),
-    12: (0 0 transparent),
-    13: (0 0 transparent),
-    14: (0 0 transparent),
-    15: (0 0 transparent),
-    16: (0 0 transparent),
-    17: (0 0 transparent),
-    18: (0 0 transparent),
-    19: (0 0 transparent),
-    20: (0 0 transparent),
-    21: (0 0 transparent),
-    22: (0 0 transparent),
-    23: (0 0 transparent),
-    24: (0 0 transparent),
-  ) !default,
-
-  $shadow-key-ambient: (
-    0: (0 0 transparent),
-    1: (0 0 transparent),
-    2: (0 0 transparent),
-    3: (0 0 transparent),
-    4: (0 0 transparent),
-    5: (0 0 transparent),
-    6: (0 0 transparent),
-    7: (0 0 transparent),
-    8: (0 0 transparent),
-    9: (0 0 transparent),
-    10: (0 0 transparent),
-    11: (0 0 transparent),
-    12: (0 0 transparent),
-    13: (0 0 transparent),
-    14: (0 0 transparent),
-    15: (0 0 transparent),
-    16: (0 0 transparent),
-    17: (0 0 transparent),
-    18: (0 0 transparent),
-    19: (0 0 transparent),
-    20: (0 0 transparent),
-    21: (0 0 transparent),
-    22: (0 0 transparent),
-    23: (0 0 transparent),
-    24: (0 0 transparent),
+    5: (0 0 transparent)
   ) !default,
 
   // 👉 Typography
+  // 對照 Vuetify 4 升級指南的 MD2→MD3 對應表換 key,尺寸/行高沿用 Materio 原值,
+  // 讓 codemod 換過名的 class(text-headline-small 等)長得跟原本的 text-h5 一樣
   $typography: (
-    "h1": (
+    "display-large": (
       "size": 2.875rem,
       "weight": 500,
       "line-height": 4.25rem,
       "letter-spacing": normal
     ),
-    "h2": (
-      "size": 2.375rem,
-      "weight": 500,
-      "line-height": 3.5rem,
-      "letter-spacing": normal
-    ),
-    "h3": (
+    "display-medium": (
       "size": 1.75rem,
       "weight": 500,
       "line-height": 2.625rem
     ),
-    "h4": (
+    "headline-large": (
       "size": 1.5rem,
       "weight": 500,
       "line-height": 2.375rem,
       "letter-spacing": normal
     ),
-    "h5": (
+    "headline-small": (
       "size": $typography-h5-font-size,
       "weight": 500,
       "line-height": 1.75rem
     ),
-    "h6":(
+    "title-large": (
       "size": 0.9375rem,
       "line-height": 1.375rem,
       "letter-spacing": normal
     ),
-    "body-1":(
+    "body-large": (
       "size": $typography-body-1-font-size,
+      "weight": 400,
       "line-height": $typography-body-1-line-height,
       "letter-spacing": normal
     ),
-    "body-2": (
+    "body-medium": (
       "size": 0.8125rem,
       "line-height": 1.25rem,
       "letter-spacing": normal
     ),
-    "subtitle-1":(
-      "size": 0.9375rem,
-      "weight": 400,
-      "line-height": 1.375rem
-    ),
-    "subtitle-2": (
+    "title-small": (
       "size": 0.8125rem,
       "weight": 400,
       "line-height": 1.25rem,
       "letter-spacing": normal
     ),
-    "button": (
+    "label-large": (
       "size": 0.9375rem,
       "weight": 500,
       "line-height": 1.125rem,
       "letter-spacing": 0.0269rem,
       "text-transform": capitalize
     ),
-    "caption":(
+    "body-small": (
       "size": 0.8125rem,
       "line-height": 1.125rem,
       "letter-spacing": 0.025rem
     ),
-    "overline": (
+    "label-medium": (
       "size": 0.75rem,
       "weight": 400,
       "line-height": 0.875rem,
@@ -311,12 +238,12 @@ $typography-body-1-line-height: 1.375rem;
   $snackbar-action-margin: 16px !default,
 
   // 👉 switch
-  $switch-inset-track-width: 1.875rem !default,
-  $switch-inset-track-height: 1.125rem !default,
-  $switch-inset-thumb-height: 0.875rem !default,
-  $switch-inset-thumb-width: 0.875rem !default,
-  $switch-inset-thumb-off-height: 0.875rem !default,
-  $switch-inset-thumb-off-width: 0.875rem !default,
+  $switch-inset-track-width: 30px !default,
+  $switch-inset-track-height: 18px !default,
+  $switch-inset-thumb-height: 14px !default,
+  $switch-inset-thumb-width: 14px !default,
+  $switch-inset-thumb-off-height: 14px !default,
+  $switch-inset-thumb-off-width: 14px !default,
   $switch-thumb-elevation: 2 !default,
   $switch-track-opacity: 1 !default,
   $switch-track-background: rgba(var(--v-theme-on-surface), var(--v-focus-opacity)) !default,

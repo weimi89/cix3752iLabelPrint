@@ -53,6 +53,13 @@
 - 本機已裝 `cargo-audit`、`cargo-outdated`（Homebrew）。`src-tauri/.cargo/audit.toml` 例外 RUSTSEC-2023-0071（rsa,只被未啟用的 sqlx-mysql 宣告,任何 target 都不編進 binary）;其餘 19 筆為 unmaintained/unsound 警告,來源皆為 tauri 上游（glib/gtk Linux、urlpattern 的 unic-*）,本專案側無法處理。
 - **跨主版號未升（需各自遷移,未做）**:axum 0.7→0.8、sqlx 0.8→0.9、reqwest 0.12→0.13、keyring 3→4、tokio-tungstenite 0.24→0.30、toml 0.8→1.1、tower-http 0.6→0.7、base64 0.22→0.23、imageproc 0.25→0.27、barcoders 1→2。keyring 4 的 feature 名稱已變（apple-native/windows-native/sync-secret-service 標 obsolete）,升時要對照 [[project_keyring_features]] 的坑。
 
+**E. Vuetify 3.13 → 4.1.12 升級（分支 `vuetify-4`，未併入 main、未列入 v0.18.0）**
+- 依官方升級指南（docs 原始檔 `packages/docs/src/pages/en/getting-started/upgrade-guide.md`）＋ `npx vuetify-codemods@latest --files "src/**/*.vue"`（字級 284、grid dense 20、elevation 2、select item slot 1）。
+- 手動處理：Materio switch 尺寸 rem→px（v4 用 `- 12px` 算，單位不相容）；`shadow-key-umbra/penumbra/ambient` 25 級 map 改 v4 `$shadow-key/$shadow-ambient` 6 級，`mixins.elevation($z)` 把舊級距折半鎖 0-5；`$typography` map 換 MD3 key；Materio overrides 的 `.text-h*` 等選擇器換名；`vuetify-defaults.js` `color: undefined`→`null`（v4 略過 undefined）；`display.thresholds` 鎖回 v3（840/1145/1545 會讓側欄收合點位移）；`src/styles/vuetify-layers.css` 補回選擇性 CSS reset；**layer 順序宣告放 `index.html` head**（放 bundle 會被 vite-plugin-vuetify 的元件 CSS 搶先、被壓縮器合併，順序倒過來）。
+- **關鍵發現**：Materio 的 `$typography`／多數 Vuetify 變數覆寫**從來沒作用到 Vuetify 自己的 utility class**（vite-plugin-vuetify 沒設 `styles.configFile`，`vuetify/styles` 是預編譯 CSS）；所以 v3 時 `.text-h5` 就是 Vuetify 預設 1.5rem。升級後為維持現況，`main.scss` 末段把 title-large／headline-large／display-*／body-large／body-small 鎖回 v3 數值。
+- 驗證：`vite build` 綠、`yarn audit` 0、編譯後 CSS 確認 MD3 class 存在／舊 class 0 殘留／layer 宣告在 stylesheet link 之前。**畫面完全未實機看**（App 在主人另一個視窗後面，未強制前景）。`AppDateTimePicker.vue` 仍用 VInput slot 的 `.value`（專案未使用該元件，未動）。
+- 合併前必做：主人實機走一遍主要頁面（儀表板、掃描列印、件數核對、設定頁、對話框、深色主題），特別看陰影、標題字級、側欄收合、表格間距。切回 main 後要 `yarn install` 還原 v3 node_modules。
+
 ### 尚未處理
 - 兩 repo 都未 commit；雲端要先部署，中介端再發版。
 - 浮動框兩處視覺（新列、貼單列）需 `npm run tauri:dev` 看一眼。
