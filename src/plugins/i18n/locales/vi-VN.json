@@ -701,7 +701,7 @@
       "printed": "Đã in",
       "remaining": "Còn lại",
       "stickerOrders": "Số đơn đã dán (không trùng)",
-      "stickerHint": "Số đơn dán hôm nay, ngày làm việc {date} tính từ 06:00"
+      "stickerHint": "Từ 06:00 {date}"
     },
     "warehouseScanner": {
       "title": "Quét nhập kho",
