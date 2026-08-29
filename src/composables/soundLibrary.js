@@ -1,9 +1,9 @@
 // 提示音音效庫(單一來源)— SoundSettingsDialog 的可選清單 + loadStoredSoundMap 的存在性驗證。
 // 每項為 [i18n key, 音檔路徑];名稱翻譯見 soundSettings.library.*。
 //
-// 全部為 mp3/wav:原本 91 個新音效為 .m4a(AAC),Linux WebKitGTK 常缺 AAC 解碼,
-// 使用者自訂成 .m4a 後該提示音會靜默無聲(play/decode 失敗被 catch 吞掉)。已一律轉為 mp3,
-// 與部署已驗證可播的 effect-*.mp3 同格式,跨平台(Windows WebView2 / macOS WKWebView / Linux WebKitGTK)皆可解碼。
+// **音檔一律 mp3/wav,不可加入 .m4a(AAC)**:Linux WebKitGTK 常缺 AAC 解碼,選到該音效時
+// 會靜默無聲(play/decode 失敗被 catch 吞掉)。mp3 在三平台 webview(Windows WebView2 /
+// macOS WKWebView / Linux WebKitGTK)皆可解碼。
 export const SOUND_LIBRARY = [
   ['effect_01', '/sounds/effect-01.mp3'],
   ['effect_02', '/sounds/effect-02.mp3'],

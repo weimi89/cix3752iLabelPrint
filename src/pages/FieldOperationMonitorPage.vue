@@ -125,7 +125,7 @@ const applyDates = () => {
             <div class="progress-tile">
               <div class="d-flex align-center ga-2 mb-1">
                 <VIcon icon="tabler-packages" size="20" class="text-medium-emphasis" />
-                <span class="text-body-large font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceBags') }}</span>
+                <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceBags') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
                 <span class="text-display-medium font-weight-bold text-info">{{ fmt(progress.bag_remaining) }}</span>
@@ -138,7 +138,7 @@ const applyDates = () => {
             <div class="progress-tile">
               <div class="d-flex align-center ga-2 mb-1">
                 <VIcon icon="tabler-file-invoice" size="20" class="text-medium-emphasis" />
-                <span class="text-body-large font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceParcels') }}</span>
+                <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceParcels') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
                 <span class="text-display-medium font-weight-bold text-warning">{{ fmt(progress.parcel_remaining) }}</span>
@@ -152,7 +152,7 @@ const applyDates = () => {
             <div class="progress-tile">
               <div class="d-flex align-center ga-2 mb-1">
                 <VIcon icon="tabler-truck-delivery" size="20" class="text-medium-emphasis" />
-                <span class="text-body-large font-weight-medium">{{ $t('page.fieldOperationMonitor.storageParcels') }}</span>
+                <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.storageParcels') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
                 <span class="text-display-medium font-weight-bold text-primary">{{ fmt(progress.storage_remaining) }}</span>
@@ -172,7 +172,7 @@ const applyDates = () => {
           <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
             <div class="d-flex align-center ga-2">
               <VIcon icon="tabler-truck" size="20" class="text-medium-emphasis" />
-              <span class="text-body-large font-weight-medium">{{ $t('page.fieldOperationMonitor.byProvider') }}</span>
+              <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.byProvider') }}</span>
             </div>
             <VBtn variant="text" size="small" @click="showProviders = !showProviders">
               <VIcon :icon="showProviders ? 'tabler-chevron-up' : 'tabler-chevron-down'" size="18" class="me-1" />

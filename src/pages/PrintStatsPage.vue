@@ -42,7 +42,7 @@ const I18N_TO_DATE_LOCALE = { 'zh-Hant': 'zh-TW', 'vi-VN': 'vi-VN', en: 'en-US' 
 const dateLocale = computed(() => I18N_TO_DATE_LOCALE[locale.value] || 'en-US')
 
 // VDatePicker 內部用 useDate() → inject(DateOptionsSymbol) 重新建 instance,
-// 所以要 provide 的是 DateOptions。先 hardcode 'zh-Hant' → 'zh-TW' 驗證 provide 有效。
+// 所以這裡 provide 的必須是 DateOptions(含 i18n locale → Intl locale 的對照)。
 const DateOptionsSymbol = Symbol.for('vuetify:date-options')
 const customDateOptions = {
   adapter: VuetifyDateAdapter,
@@ -55,11 +55,11 @@ const customDateOptions = {
 }
 provide(DateOptionsSymbol, customDateOptions)
 
-// 根因:createVueI18nAdapter 拿的 i18n.global.locale ref 跟 useI18n().locale 沒同步,
-// vuetify locale.current.value 一直停在 'en'(initialization race?),導致 createInstance
-// 用 options.locale['en'] = 'en-US' 而不是 zh-TW。手動 watch i18n locale → vuetify
-// locale.current 強制同步,配合上面 customDateOptions 中 'zh-Hant'/'vi-VN' 的 mapping,
-// VDatePicker 重新 createInstance 時就會用到正確的 Intl locale。
+// createVueI18nAdapter 拿的 i18n.global.locale ref 與 useI18n().locale 不同步,vuetify
+// locale.current.value 會停在 'en',createInstance 因而用 options.locale['en'] = 'en-US'
+// 而非 zh-TW(日曆月份/星期顯示成英文)。**必須手動 watch i18n locale 強制同步到
+// vuetify locale.current**,配合上面 customDateOptions 的 mapping,VDatePicker 重建
+// instance 時才拿得到正確的 Intl locale。
 const vuetifyLocale = useLocale()
 watchEffect(() => {
   if (vuetifyLocale?.current && vuetifyLocale.current.value !== locale.value) {
@@ -473,7 +473,7 @@ onUnmounted(() => {
     </VAlert>
 
     <!-- 概況卡片:4 張等寬,「本場累計」主色描邊突出 + 重置按鈕 -->
-    <VRow dense>
+    <VRow density="compact">
       <VCol cols="6" md="3">
         <VCard class="card-shadow kpi-card kpi-card--primary h-100">
           <VCardText class="d-flex align-center gap-3">
@@ -481,12 +481,12 @@ onUnmounted(() => {
               <VIcon icon="tabler-restore" />
             </VAvatar>
             <div class="flex-grow-1">
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
-              <div class="text-h3 font-weight-bold text-primary">{{ summary?.since_reset ?? 0 }}</div>
-              <div class="text-caption text-medium-emphasis mt-1">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
+              <div class="text-display-medium font-weight-bold text-primary">{{ summary?.since_reset ?? 0 }}</div>
+              <div class="text-body-small text-medium-emphasis mt-1">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_since_reset ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
-              <div class="text-caption text-medium-emphasis" style="font-size: 10px;">
+              <div class="text-body-small text-medium-emphasis" style="font-size: 10px;">
                 {{ $t('page.printStats.sinceLabel') }} {{ summary?.since_reset_at || '—' }}
               </div>
             </div>
@@ -500,9 +500,9 @@ onUnmounted(() => {
               <VIcon icon="tabler-clock-hour-4" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
-              <div class="text-h5 font-weight-medium">{{ summary?.past_24h ?? 0 }}</div>
-              <div class="text-caption text-medium-emphasis mt-1">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
+              <div class="text-headline-small font-weight-medium">{{ summary?.past_24h ?? 0 }}</div>
+              <div class="text-body-small text-medium-emphasis mt-1">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_past_24h ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
             </div>
@@ -516,9 +516,9 @@ onUnmounted(() => {
               <VIcon icon="tabler-calendar-week" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.last7Days') }}</div>
-              <div class="text-h5 font-weight-medium">{{ summary?.last_7_days ?? 0 }}</div>
-              <div class="text-caption text-medium-emphasis mt-1">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.last7Days') }}</div>
+              <div class="text-headline-small font-weight-medium">{{ summary?.last_7_days ?? 0 }}</div>
+              <div class="text-body-small text-medium-emphasis mt-1">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_last_7_days ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
             </div>
@@ -532,9 +532,9 @@ onUnmounted(() => {
               <VIcon icon="tabler-calendar-month" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.last30Days') }}</div>
-              <div class="text-h5 font-weight-medium">{{ summary?.last_30_days ?? 0 }}</div>
-              <div class="text-caption text-medium-emphasis mt-1">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.last30Days') }}</div>
+              <div class="text-headline-small font-weight-medium">{{ summary?.last_30_days ?? 0 }}</div>
+              <div class="text-body-small text-medium-emphasis mt-1">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_last_30_days ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
             </div>
@@ -625,17 +625,17 @@ onUnmounted(() => {
             <div v-if="summary?.noread_range_total > 0" class="d-flex align-center ga-1 pe-3 noread-stat">
               <VIcon icon="tabler-scan-eye" size="18" color="warning" />
               <div>
-                <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.noreadRangeTotal') }}</div>
-                <div class="text-h5 font-weight-bold text-warning">{{ summary.noread_range_total }}</div>
+                <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.noreadRangeTotal') }}</div>
+                <div class="text-headline-small font-weight-bold text-warning">{{ summary.noread_range_total }}</div>
               </div>
             </div>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.rangeTotal') }}</div>
-              <div class="text-caption text-medium-emphasis">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.rangeTotal') }}</div>
+              <div class="text-body-small text-medium-emphasis">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_range_total ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
             </div>
-            <div class="text-h4 font-weight-bold text-primary">{{ summary?.range_total ?? 0 }}</div>
+            <div class="text-headline-large font-weight-bold text-primary">{{ summary?.range_total ?? 0 }}</div>
           </div>
         </div>
 
@@ -643,7 +643,7 @@ onUnmounted(() => {
         <template v-if="summary?.by_source?.length">
           <VDivider class="my-3" />
           <div class="d-flex flex-wrap align-center gap-2">
-            <span class="text-caption text-medium-emphasis me-1">{{ $t('page.printStats.bySourceLabel') }}</span>
+            <span class="text-body-small text-medium-emphasis me-1">{{ $t('page.printStats.bySourceLabel') }}</span>
             <VChip
               v-for="s in summary.by_source"
               :key="s.source"
@@ -664,7 +664,7 @@ onUnmounted(() => {
     </VCard>
 
     <!-- 依分揀通道 + 最新 8 小時 -->
-    <VRow dense class="mt-3">
+    <VRow density="compact" class="mt-3">
       <VCol cols="12" md="7">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -690,7 +690,7 @@ onUnmounted(() => {
                 </div>
                 <div class="stat-row__value">
                   {{ c.count }}
-                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(c.count, channelsTotal) }}%)</span>
+                  <span class="text-body-small text-medium-emphasis ms-1">({{ sharePct(c.count, channelsTotal) }}%)</span>
                 </div>
               </div>
             </div>
@@ -730,7 +730,7 @@ onUnmounted(() => {
     </VRow>
 
     <!-- 物流商分組 + 貼標人員分組 -->
-    <VRow dense class="mt-3">
+    <VRow density="compact" class="mt-3">
       <VCol cols="12" md="6">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -756,7 +756,7 @@ onUnmounted(() => {
                 </div>
                 <div class="stat-row__value">
                   {{ p.count }}
-                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(p.count, providersTotal) }}%)</span>
+                  <span class="text-body-small text-medium-emphasis ms-1">({{ sharePct(p.count, providersTotal) }}%)</span>
                 </div>
               </div>
             </div>
@@ -789,7 +789,7 @@ onUnmounted(() => {
                 </div>
                 <div class="stat-row__value">
                   {{ p.count }}
-                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(p.count, stickersTotal) }}%)</span>
+                  <span class="text-body-small text-medium-emphasis ms-1">({{ sharePct(p.count, stickersTotal) }}%)</span>
                 </div>
               </div>
             </div>
@@ -799,7 +799,7 @@ onUnmounted(() => {
     </VRow>
 
     <!-- 每日趨勢 -->
-    <VRow dense class="mt-3">
+    <VRow density="compact" class="mt-3">
       <VCol cols="12">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -824,8 +824,8 @@ onUnmounted(() => {
       </VCol>
     </VRow>
 
-    <!-- 階段 2 - 操作人員排行 + 歷史比對 -->
-    <VRow dense class="mt-3">
+    <!-- 操作人員排行 + 歷史比對 -->
+    <VRow density="compact" class="mt-3">
       <VCol cols="12" md="6">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -851,7 +851,7 @@ onUnmounted(() => {
                 </div>
                 <div class="stat-row__value">
                   {{ p.count }}
-                  <span class="text-caption text-medium-emphasis ms-1">({{ sharePct(p.count, scannersTotal) }}%)</span>
+                  <span class="text-body-small text-medium-emphasis ms-1">({{ sharePct(p.count, scannersTotal) }}%)</span>
                 </div>
               </div>
             </div>
@@ -877,12 +877,12 @@ onUnmounted(() => {
                 {{ c.label === 'week' ? $t('page.printStats.compareWeek') : $t('page.printStats.compareMonth') }}
               </div>
               <div class="compare-row__nums">
-                <span class="text-h5 font-weight-bold">{{ c.current }}</span>
-                <span class="text-caption text-medium-emphasis ms-1">vs {{ c.previous }}</span>
+                <span class="text-headline-small font-weight-bold">{{ c.current }}</span>
+                <span class="text-body-small text-medium-emphasis ms-1">vs {{ c.previous }}</span>
               </div>
               <div class="compare-row__delta">
                 <template v-if="c.delta_ratio === null">
-                  <span class="text-caption text-medium-emphasis">—</span>
+                  <span class="text-body-small text-medium-emphasis">—</span>
                 </template>
                 <template v-else>
                   <VIcon
@@ -901,8 +901,8 @@ onUnmounted(() => {
       </VCol>
     </VRow>
 
-    <!-- 階段 3-4 - 失敗率 + 平均每袋 + 重印分布 KPI 列 -->
-    <VRow dense class="mt-3">
+    <!-- 失敗率 + 平均每袋 + 重印分布 KPI 列 -->
+    <VRow density="compact" class="mt-3">
       <VCol cols="6" md="4">
         <VCard class="card-shadow kpi-card h-100">
           <VCardText class="d-flex align-center gap-3">
@@ -910,11 +910,11 @@ onUnmounted(() => {
               <VIcon :icon="failure?.failure_rate > 0.05 ? 'tabler-alert-triangle' : 'tabler-check'" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.failureRate') }}</div>
-              <div class="text-h5 font-weight-medium">
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.failureRate') }}</div>
+              <div class="text-headline-small font-weight-medium">
                 {{ failure ? ((failure.failure_rate || 0) * 100).toFixed(2) + '%' : '—' }}
               </div>
-              <div class="text-caption text-medium-emphasis mt-1">
+              <div class="text-body-small text-medium-emphasis mt-1">
                 {{ failure?.failure_count ?? 0 }} / {{ (failure?.failure_count ?? 0) + (failure?.success_count ?? 0) }}
               </div>
             </div>
@@ -928,9 +928,9 @@ onUnmounted(() => {
               <VIcon icon="tabler-packages" size="20" />
             </VAvatar>
             <div>
-              <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.avgPerPackage') }}</div>
-              <div class="text-h5 font-weight-medium">{{ avgOrdersPerPackage ?? '—' }}</div>
-              <div class="text-caption text-medium-emphasis mt-1">{{ $t('page.printStats.avgPerPackageHint') }}</div>
+              <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.avgPerPackage') }}</div>
+              <div class="text-headline-small font-weight-medium">{{ avgOrdersPerPackage ?? '—' }}</div>
+              <div class="text-body-small text-medium-emphasis mt-1">{{ $t('page.printStats.avgPerPackageHint') }}</div>
             </div>
           </VCardText>
         </VCard>
@@ -943,20 +943,20 @@ onUnmounted(() => {
                 <VIcon icon="tabler-repeat" size="18" />
               </VAvatar>
             </template>
-            <VCardTitle class="text-body-1">{{ $t('page.printStats.reprintTitle') }}</VCardTitle>
+            <VCardTitle class="text-body-large">{{ $t('page.printStats.reprintTitle') }}</VCardTitle>
           </VCardItem>
           <VCardText class="pt-0">
             <div v-for="b in reprintBuckets" :key="b.key" class="d-flex align-center justify-space-between mb-1">
-              <span class="text-body-2">{{ b.label }}</span>
-              <span class="text-body-2 font-weight-medium">{{ b.count }} <span class="text-caption text-medium-emphasis">({{ sharePct(b.count, reprintTotal) }}%)</span></span>
+              <span class="text-body-medium">{{ b.label }}</span>
+              <span class="text-body-medium font-weight-medium">{{ b.count }} <span class="text-body-small text-medium-emphasis">({{ sharePct(b.count, reprintTotal) }}%)</span></span>
             </div>
           </VCardText>
         </VCard>
       </VCol>
     </VRow>
 
-    <!-- 階段 3 - 失敗代碼分類 + 物流×來源 cross-tab -->
-    <VRow dense class="mt-3">
+    <!-- 失敗代碼分類 + 物流×來源 cross-tab -->
+    <VRow density="compact" class="mt-3">
       <VCol cols="12" md="4">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -1034,8 +1034,8 @@ onUnmounted(() => {
       </VCol>
     </VRow>
 
-    <!-- 階段 3 - 24h × 7d 熱力圖 -->
-    <VRow dense class="mt-3">
+    <!-- 24h × 7d 熱力圖 -->
+    <VRow density="compact" class="mt-3">
       <VCol cols="12">
         <VCard class="card-shadow">
           <VCardItem>
@@ -1065,7 +1065,7 @@ onUnmounted(() => {
         <VCardTitle>{{ $t('page.printStats.resetDialogTitle') }}</VCardTitle>
         <VCardText>
           {{ $t('page.printStats.resetDialogBody') }}
-          <div class="text-caption text-medium-emphasis mt-2">
+          <div class="text-body-small text-medium-emphasis mt-2">
             {{ $t('page.printStats.sinceLabel') }} {{ summary?.since_reset_at || '—' }}
           </div>
         </VCardText>

@@ -1,12 +1,12 @@
 // 面單預產「已處理訂單」記憶 —— 供面單預產(PreGeneratePage)判斷略過用。
 //
-// 【2026-07-01 改為後端共用】原本這層記憶存前端 localStorage、只由手動頁自己寫,
-// 與「自動排程」的後端記憶體去重各記一份、互不同步 → 自動跑完後手動又全部重打雲端、
-// 全報「成功」。現在統一由後端 pregen_done(DB 持久化、cache_day 範圍)當單一來源:
+// **去重的單一來源是後端 pregen_done**(DB 持久化、cache_day 範圍),本層只是它的前端鏡像;
+// 前端自行記一份(localStorage 等)會與自動排程各記各的 → 自動跑完後手動又整批重打雲端、
+// 且每筆都報「成功」。分工:
 //   - loadProcessed():批次開始前向後端取快照(含自動排程已預產的),載入前端記憶體。
 //   - isOrderProcessed():讀前端記憶體(同步、快),決定是否略過、不重打雲端。
 //   - markOrderProcessed():標記進記憶體 + pending;persistProcessed() 批次寫回後端。
-// cache_day 範圍與跨日清除由後端負責(見 pregen::PregenDoneStore),前端不再自算 08:00 界。
+// cache_day 範圍與跨日清除由後端負責(見 pregen::PregenDoneStore),前端不自算 08:00 界。
 //
 // 注意:仍是「已成功預產」的樂觀記憶,不即時驗證快取檔是否仍在(快取另有 max_size_mb LRU
 // 可能提早驅逐)。即使略過了卻剛好被 LRU 清掉,工控機 / 掃描 / 自動印單路徑仍會在需要時

@@ -63,7 +63,7 @@ export function useParcelAlert() {
   }
 
   // 錯誤面單產生了但「印不出來」(無印表機 / 列印失敗 / 暫存失敗)。
-  // 這以前只在後端 tracing::warn,操作員完全無感 → 現在 emit 事件跳 toast,避免靜默盲區。
+  // 只記後端 log 操作員完全無感,故 emit 事件跳 toast,避免靜默盲區。
   const handleLabelFailed = payload => {
     const reason = payload?.reason || 'print_failed'
     const queryNo = payload?.query_no || ''

@@ -29,7 +29,7 @@ const props = defineProps({
             {{ props.stats }}
           </h5>
         </div>
-        <div class="text-body-large">
+        <div class="text-subtitle-1">
           {{ props.title }}
         </div>
       </div>

@@ -14,9 +14,9 @@ const DEFAULT_CONFIG = {
 const load = () => {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {}
-    // 棄用 'system' 模式預設(對齊 Materio 始終 light)
+    // 不支援 'system' 模式,存到這個值一律退回預設(始終 light)
     if (saved.mode === 'system') delete saved.mode
-    // 舊版 contentWidth 用 'wide' / 'compact';新版對齊 @layouts ContentWidth 用 'fluid' / 'boxed'
+    // contentWidth 只認 @layouts ContentWidth 的 'fluid' / 'boxed';機器上可能存有 'wide' / 'compact'
     if (saved.contentWidth === 'wide') saved.contentWidth = 'fluid'
     if (saved.contentWidth === 'compact') saved.contentWidth = 'boxed'
     return { ...DEFAULT_CONFIG, ...saved }

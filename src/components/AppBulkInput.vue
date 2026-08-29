@@ -58,8 +58,8 @@ const isExpanded = ref(false)
 const isFocused = ref(false)
 const inputRef = ref(null)
 
-// 父層每次以新陣列替換 modelValue(參考已變即觸發 watch),deep 對可能達數千筆的 SN 陣列
-// 做深層響應式遍歷是多餘成本 → 移除
+// 父層每次以新陣列替換 modelValue(參考已變即觸發 watch),故不加 deep ——
+// 對可能達數千筆的 SN 陣列做深層響應式遍歷是白費成本
 watch(() => props.modelValue, (newVal) => {
   internalValue.value = new Set(newVal)
 })
@@ -165,7 +165,7 @@ defineExpose({ focusInput })
       <VLabel
         v-if="label"
         :for="elementId"
-        class="text-body-2 text-wrap"
+        class="text-body-medium text-wrap"
         style="line-height: 15px;"
       >
         {{ label }}

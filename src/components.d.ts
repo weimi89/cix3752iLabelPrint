@@ -20,6 +20,7 @@ declare module 'vue' {
     DisplayLauncher: typeof import('./components/DisplayLauncher.vue')['default']
     KioskShell: typeof import('./components/KioskShell.vue')['default']
     LocaleSwitcher: typeof import('./components/LocaleSwitcher.vue')['default']
+    MultiNoField: typeof import('./components/MultiNoField.vue')['default']
     NetworkStatusIndicator: typeof import('./components/NetworkStatusIndicator.vue')['default']
     PersonnelCombobox: typeof import('./components/PersonnelCombobox.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
