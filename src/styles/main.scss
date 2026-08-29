@@ -575,3 +575,11 @@ body {
   min-block-size: 0;
   block-size: auto;
 }
+
+// 可點擊圖示(VIcon 掛 @click,Vuetify 會給 tabindex 讓它可聚焦):滑鼠點完焦點留在圖示上,
+// WebKit 會畫內建焦點框(Vuetify 3/4 都沒為它定義樣式,只是 v4 配色基底不同讓框變色)。
+// 本 App 全為滑鼠/觸控操作,點完不留框;側欄收合鈕、各頁的圖示按鈕一併適用。
+.v-icon--clickable:focus,
+.v-icon--clickable:focus-visible {
+  outline: none;
+}
