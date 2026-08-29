@@ -518,3 +518,32 @@ body {
   font-style: italic;
   font-weight: 400;
 }
+
+// 書籤式分頁(面單預產輸入模式、現場作業監控廠別):選中頁籤與下方卡片同色接合
+.bookmark-tabs {
+  min-block-size: 42px;
+}
+.bookmark-tabs .v-tab.v-btn {
+  border-start-start-radius: 10px !important;
+  border-start-end-radius: 10px !important;
+  border-end-start-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+  margin-inline-end: 3px;
+  min-block-size: 42px;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.bookmark-tabs .v-tab.v-btn:last-child {
+  margin-inline-end: 0;
+}
+.bookmark-tabs .v-tab--selected {
+  background: rgb(var(--v-theme-primary)) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+.bookmark-card {
+  border-start-start-radius: 0 !important;
+  border-start-end-radius: 0 !important;
+}

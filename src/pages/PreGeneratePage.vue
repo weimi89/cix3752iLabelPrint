@@ -136,7 +136,7 @@ const processShipments = async snList => {
   isProcessing.value = true
   abortRequested = false
   // 批次開始前先與後端同步「今日已預產」快照:才能吃到自動排程(或其他機台)已做的部分,
-  // 已預產者直接略過、不重打雲端(這正是自動跑完後手動不再一堆「成功」的關鍵)。
+  // 已預產者直接略過、不重打雲端(少了這步,自動排程跑完後手動會整批重打並全報「成功」)。
   if (!forceRerun.value) await loadProcessed()
   startElapsedTimer()
   const total = snList.length
@@ -821,34 +821,7 @@ const saveSchedule = async () => {
 }
 
 /* 書籤式分頁:平均寬、上圓角,選中頁籤白底高亮並與下方卡片連成一體 */
-.bookmark-tabs {
-  min-block-size: 42px;
-}
-.bookmark-tabs :deep(.v-tab.v-btn) {
-  border-start-start-radius: 10px !important;
-  border-start-end-radius: 10px !important;
-  border-end-start-radius: 0 !important;
-  border-end-end-radius: 0 !important;
-  margin-inline-end: 3px;
-  min-block-size: 42px;
-  background: rgba(var(--v-theme-on-surface), 0.05);
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  text-transform: none;
-  letter-spacing: normal;
-}
-.bookmark-tabs :deep(.v-tab.v-btn:last-child) {
-  margin-inline-end: 0;
-}
-.bookmark-tabs :deep(.v-tab--selected) {
-  background: rgb(var(--v-theme-primary)) !important;
-  color: #fff !important;
-  font-weight: 700;
-}
 /* 卡片上緣左右改直角,與上方 tab 列平接成一體 */
-.bookmark-card {
-  border-start-start-radius: 0 !important;
-  border-start-end-radius: 0 !important;
-}
 
 .label-grid {
   display: grid;
@@ -886,7 +859,7 @@ const saveSchedule = async () => {
   padding: 8px;
 }
 
-// 黑底錯誤遮罩(對齐 ScanPrintPage / web 端 .error-mask)
+// 黑底錯誤遮罩(對齊 ScanPrintPage / web 端 .error-mask)
 .cell__error {
   position: absolute;
   inset: 0;
