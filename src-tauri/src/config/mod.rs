@@ -35,7 +35,7 @@ pub struct AppConfig {
 ///
 /// 刻意設計成**獨立總開關**,與 `label_path.mode`(面單路徑呈現拓撲)正交:開啟後不論面單模式設什麼,
 /// 一律純分揀。件核對(bag_check)、查詢統計(daily_stats request/success)、請求記錄(parcel_query_log
-/// 含相機存證照片)照常運作 —— 包裹實體仍在過機分揀,這些稽核資料仍有意義。預設關閉(維持原有出單行為)。
+/// 含相機存證照片)照常運作 —— 包裹實體仍在過機分揀,這些稽核資料仍有意義。預設關閉(照常出單)。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SortOnlyConfig {
     /// 總開關(預設關;開啟後 GET /api/parcel 只回分揀通道、不出面單、不記印單)
@@ -236,6 +236,9 @@ pub struct CloudConfig {
     /// 清關進度浮動框 — 指定報關日區間聚合(袋數/件數/已印/剩餘)path
     #[serde(default = "default_clearance_progress_path")]
     pub clearance_progress_path: String,
+    /// 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與網頁版同一份資料)path
+    #[serde(default = "default_field_operation_monitor_path")]
+    pub field_operation_monitor_path: String,
     /// 入倉驗單 — 資源基底 path(子路由 /options /examine /create-package /remove-goods /remove-package /label-data)
     #[serde(default = "default_warehouse_scanner_path")]
     pub warehouse_scanner_path: String,
@@ -266,6 +269,7 @@ impl Default for CloudConfig {
             clearance_progress_path: default_clearance_progress_path(),
             clearance_store_path: default_clearance_store_path(),
             clearance_dispatch_path: default_clearance_dispatch_path(),
+            field_operation_monitor_path: default_field_operation_monitor_path(),
             warehouse_scanner_path: default_warehouse_scanner_path(),
             webhook_path: default_webhook_path(),
         }
@@ -437,6 +441,7 @@ fn default_clearance_options_path() -> String { "/api/v1/local-middleware/cleara
 fn default_clearance_progress_path() -> String { "/api/v1/local-middleware/clearance/progress".to_string() }
 fn default_clearance_store_path() -> String { "/api/v1/local-middleware/clearance/store".to_string() }
 fn default_clearance_dispatch_path() -> String { "/api/v1/local-middleware/clearance/dispatch".to_string() }
+fn default_field_operation_monitor_path() -> String { "/api/v1/local-middleware/field-operation-monitor".to_string() }
 fn default_warehouse_scanner_path() -> String { "/api/v1/local-middleware/warehouse-scanner".to_string() }
 fn default_webhook_path() -> String { "/webhook/logistic-cat".to_string() }
 fn default_net_interval() -> u64 { 15 }

@@ -253,6 +253,30 @@ export const clearanceProgress = async (from, to = '') => {
   return await invoke('cloud_clearance_progress', { req: { from, to: to || from } })
 }
 
+// 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與雲端網頁版同一份資料)
+export const fieldOperationMonitor = async (from, to = '') => {
+  if (!isTauri) {
+    const row = (name, min, max, p, o, sys = false) => ({ name, is_system: sys, min_time: min, max_time: max, package_num: p, order_num: o })
+    return {
+      respond_code: 'OK',
+      progress: {
+        bag_total: 379, bag_remaining: 6, parcel_total: 9998, parcel_remaining: 9, printed: 9989,
+        storage_total: 120, storage_printed: 95, storage_remaining: 25,
+        providers: [
+          { name: '順豐', bag_total: 200, bag_remaining: 3, clearance_total: 5000, clearance_remaining: 4, storage_total: 60, storage_remaining: 10 },
+          { name: '7-ELEVEN', bag_total: 179, bag_remaining: 3, clearance_total: 4998, clearance_remaining: 5, storage_total: 60, storage_remaining: 15 },
+        ],
+      },
+      progressRange: { from, to: to || from, range: to && to !== from ? `${from} to ${to}` : from },
+      scopes: {
+        taoyuan: { business_date: from, updated_at: '20:15:00', rows: [row('王小明', '08:02:11', '17:40:03', 120, 3210), row('陳美玲', '08:10:45', '17:38:20', 98, 2877), row('物流貓', '07:55:00', '18:01:12', 40, 900, true)], total: { package_num: 240, order_num: 6980 } },
+        taichung: { business_date: from, updated_at: '20:15:00', rows: [row('李大華', '09:00:00', '16:30:00', 12, 300)], total: { package_num: 12, order_num: 300 } },
+      },
+    }
+  }
+  return await invoke('cloud_field_operation_monitor', { req: { from, to: to || from } })
+}
+
 // 清關進度浮動框 — 設定要即時追蹤的報關日(開啟/換日期傳日期陣列;關閉傳空陣列退訂)
 export const progressSetDates = async (dates = []) => {
   if (!isTauri) return

@@ -18,6 +18,7 @@ import SortChannelsPage from '@/pages/SortChannelsPage.vue'
 import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
 import ClearanceAddPage from '@/pages/ClearanceAddPage.vue'
 import ClearanceDispatchPage from '@/pages/ClearanceDispatchPage.vue'
+import FieldOperationMonitorPage from '@/pages/FieldOperationMonitorPage.vue'
 import WarehouseScannerPage from '@/pages/WarehouseScannerPage.vue'
 
 const routes = [
@@ -37,6 +38,8 @@ const routes = [
     meta: { title: 'nav.clearanceAdd', icon: 'tabler-scan', group: 'nav.section.clearance' } },
   { path: '/clearance-dispatch', name: 'clearance-dispatch', component: ClearanceDispatchPage,
     meta: { title: 'nav.clearanceDispatch', icon: 'tabler-truck-delivery', group: 'nav.section.clearance' } },
+  { path: '/field-operation-monitor', name: 'field-operation-monitor', component: FieldOperationMonitorPage,
+    meta: { title: 'nav.fieldOperationMonitor', icon: 'tabler-user-check', group: 'nav.section.clearance' } },
   { path: '/warehouse-scanner', name: 'warehouse-scanner', component: WarehouseScannerPage,
     meta: { title: 'nav.warehouseScanner', icon: 'tabler-package-import', group: 'nav.section.clearance' } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,

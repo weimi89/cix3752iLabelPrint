@@ -55,6 +55,7 @@ struct CloudState {
     clearance_progress_path: String,
     clearance_store_path: String,
     clearance_dispatch_path: String,
+    field_operation_monitor_path: String,
     warehouse_scanner_path: String,
     webhook_path: String,
 }
@@ -89,6 +90,7 @@ impl CloudClient {
             clearance_progress_path: config.cloud.clearance_progress_path.clone(),
             clearance_store_path: config.cloud.clearance_store_path.clone(),
             clearance_dispatch_path: config.cloud.clearance_dispatch_path.clone(),
+            field_operation_monitor_path: config.cloud.field_operation_monitor_path.clone(),
             warehouse_scanner_path: config.cloud.warehouse_scanner_path.clone(),
             webhook_path: config.cloud.webhook_path.clone(),
         };
@@ -127,6 +129,7 @@ impl CloudClient {
         s.clearance_progress_path = config.cloud.clearance_progress_path.clone();
         s.clearance_store_path = config.cloud.clearance_store_path.clone();
         s.clearance_dispatch_path = config.cloud.clearance_dispatch_path.clone();
+        s.field_operation_monitor_path = config.cloud.field_operation_monitor_path.clone();
         s.warehouse_scanner_path = config.cloud.warehouse_scanner_path.clone();
         s.webhook_path = config.cloud.webhook_path.clone();
     }
@@ -456,6 +459,19 @@ impl CloudClient {
         parse_cloud_json(&text, "clearance/progress")
     }
 
+    /// 現場作業監控:清關/轉寄進度看板 + 每日貼單作業人員統計(透傳雲端 JSON,與網頁版同一份資料)
+    pub async fn fetch_field_operation_monitor(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> AppResult<serde_json::Value> {
+        let path = self.inner.state.read().field_operation_monitor_path.clone();
+        let text = self
+            .authed_get(&path, &[("from", from), ("to", to)])
+            .await?;
+        parse_cloud_json(&text, "field-operation-monitor")
+    }
+
     /// 清關作業:新增清關包裹,對齊雲端 clearance/store
     /// `package_sn` 以逗號 / 空白 / 換行分隔的多筆袋號字串(雲端會再去重、轉大寫)
     pub async fn store_clearance_packages(
@@ -601,7 +617,7 @@ impl CloudClient {
         let path = self.inner.state.read().cloud_print_path.clone();
         let url = join_url(&base, &path);
 
-        // 對齐雲端 controller：print_type 是 array,enforce 用 0/1 numeric
+        // 對齊雲端 controller：print_type 是 array,enforce 用 0/1 numeric
         let body = json!({
             "order_sn": order_sn,
             "print_type": print_type,

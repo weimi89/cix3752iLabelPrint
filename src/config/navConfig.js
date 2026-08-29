@@ -19,6 +19,7 @@ export const navItems = [
   { title: 'nav.clearanceAdd', icon: { icon: 'tabler-scan' }, to: { name: 'clearance-add' } },
   { title: 'nav.clearanceDispatch', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'clearance-dispatch' } },
   { title: 'nav.warehouseScanner', icon: { icon: 'tabler-package-import' }, to: { name: 'warehouse-scanner' } },
+  { title: 'nav.fieldOperationMonitor', icon: { icon: 'tabler-user-check' }, to: { name: 'field-operation-monitor' } },
 
   { heading: 'nav.section.logs' },
   { title: 'nav.printStats', icon: { icon: 'tabler-chart-bar' }, to: { name: 'print-stats' } },

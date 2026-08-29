@@ -107,7 +107,7 @@ pub(crate) async fn pregen_label_to_cache(state: &SharedState, order_sn: &str) -
 /// 給 GUI 掃描 / 自動印單用:前端拿到後以「該物流商在印表機設定的同一台印表機」印出,
 /// 與正常面單同出口 —— 避免後端 find_any_printer(sort_channels DB / 系統預設)與
 /// 前端 printerMap(localStorage)印表機來源不一致,導致正常面單印得出、錯誤面單卻印不出或印錯台。
-/// 寫檔失敗回 None(前端略過,後端不再 fallback 列印,與正常面單失敗時行為一致)。
+/// 寫檔失敗回 None(前端略過,後端不自行 fallback 列印,與正常面單失敗時行為一致)。
 async fn build_error_label_url(
     state: &SharedState,
     query_no: &str,
@@ -234,9 +234,9 @@ pub async fn cloud_fetch_label(
         // 雲端 4xx 業務錯誤(dingo errorFormat 帶機器碼):合成失敗結果,落回與
         // 「200 + 失敗狀態」**同一條失敗流程** —— 記 print_failure_event、產錯誤面單 URL
         // 回前端用 printerMap 同台印表機印(單一出口,對齊 build_error_label_url 設計)。
-        // 舊行為(後端 spawn_error_label_print + find_any_printer)印表機來源與前端不一致:
-        // 只設前端 printerMap 的站點會印錯台或印不出;且 4xx 失敗完全沒進失敗統計。
-        // Download 模式(面單預產)下方流程整段跳過 → 預產失敗不再實體印錯誤面單(本就不該印)。
+        // **不可改由後端自己找印表機列印**:後端來源(sort_channels / 系統預設)與前端 printerMap
+        // 不一致,只設前端的站點會印錯台或印不出;此路徑漏接則 4xx 失敗也進不了失敗統計。
+        // Download 模式(面單預產)下方流程整段跳過 → 預產失敗不實體印錯誤面單(本就不該印)。
         // **僅限帶機器碼的業務錯誤**:code 為純數字 = 雲端沒回 dingo body、僅 HTTP 狀態碼 fallback
         //(502/503 部署重啟等暫時性故障)→ 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單。
         Err(AppError::Cloud { code, message, shipping_provider, shipping_no, .. })
@@ -385,6 +385,16 @@ pub async fn cloud_clearance_progress(
 ) -> AppResult<serde_json::Value> {
     let to = req.to.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&req.from);
     state.cloud.fetch_clearance_progress(&req.from, to).await
+}
+
+/// 現場作業監控頁:指定報關日區間 → 進度看板 + 各廠別作業人員貼單統計(透傳雲端 JSON)
+#[tauri::command]
+pub async fn cloud_field_operation_monitor(
+    state: State<'_, SharedState>,
+    req: ClearanceProgressRequest,
+) -> AppResult<serde_json::Value> {
+    let to = req.to.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&req.from);
+    state.cloud.fetch_field_operation_monitor(&req.from, to).await
 }
 
 /// 設定清關進度浮動框要即時追蹤的報關日(浮動框開啟/換日期/關閉時呼叫;空=退訂所有日期頻道)。
@@ -555,8 +565,8 @@ pub async fn cloud_fetch_cloud_print(
     {
         Ok(r) => r,
         // 雲端 4xx 業務錯誤:合成失敗結果落回下方失敗流程(記 print_failure_event +
-        // 產錯誤面單 URL 回前端印)—— 對齊 cloud_fetch_label;舊行為此路徑完全不產
-        // 錯誤面單,自動印單遇同型錯誤時異常包裹撿不出來。
+        // 產錯誤面單 URL 回前端印)—— 對齊 cloud_fetch_label。此路徑漏接錯誤面單時,
+        // 自動印單遇同型錯誤異常包裹就撿不出來。
         // 僅限帶機器碼的業務錯誤:code 純數字 = HTTP 狀態碼 fallback(502/503 暫時性故障)
         // → 照舊回 Err,不可把可重試的正常包裹當異常件印錯誤面單、灌失敗統計。
         Err(AppError::Cloud { code, message, shipping_provider, shipping_no, .. })
