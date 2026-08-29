@@ -3,6 +3,8 @@
 //   - 已印  (clearance-date 頻道)→ applyPrinted:剩餘 -1(某袋印完則袋剩 -1)
 //   - 新增  (報關日補上/改成本日期)→ applyAdded:件總/件剩 +,新袋則袋總/袋剩 +
 //   - 移除  (報關日由本日期改走)→ applyRemoved:扣回對應總數/剩餘
+// 另附「今日貼單單數(去重)」:雲端依業務日(06:00 起算)算 distinct 單數,與現場作業監控頁同口徑、
+// 與報關日區間無關;區間內某件首次列印時本機 +1,區間外的件要等下次重抓(重整 / 重開 / 重連)才會反映。
 // 內部以兩個 Map 維護(非響應式):_bagAll(每袋全部單號,算總數)、_bagUnprinted(每袋未印單號,算剩餘)。
 import { defineStore } from 'pinia'
 import { clearanceProgress, progressSetDates } from '@/api/tauri'
@@ -40,6 +42,8 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     bagRemaining: 0,
     parcelTotal: 0,
     parcelRemaining: 0,
+    stickerOrderNum: 0,   // 今日貼單單數(去重)
+    stickerDate: '',      // 貼單數所屬業務日(Y-m-d)
     loading: false,
     error: '',
     loaded: false,
@@ -83,6 +87,8 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
         const r = await clearanceProgress(this.from, this.to)
         if (r.from) this.from = r.from
         if (r.to) this.to = r.to
+        this.stickerOrderNum = Number(r.sticker?.order_num) || 0
+        this.stickerDate = r.sticker?.business_date || ''
         const parcels = r.parcels || []
         const all = new Map()
         const unp = new Map()
@@ -116,7 +122,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     },
 
     // aggregate 模式(無明細)下的 WS 事件處理:無法做精準增量,改「去抖重拉」——
-    // 2.5s 合併一次 loadRange 重抓雲端總計,零重複計數風險(取代原本的凍結/互踩)。
+    // 2.5s 合併一次 loadRange 重抓雲端總計,零重複計數風險。
     // 計時器到期時若上一次 loadRange 還在跑(大區間查詢動輒數秒)→ **重排而非丟棄**:
     // 丟棄會讓「該袋最後一件」的更新永久遺失,剩餘數字凍結在 1 不歸零。
     _scheduleAggregateRefresh() {
@@ -154,6 +160,8 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
       if (!set || !set.has(shippingNo)) return
       set.delete(shippingNo)
       if (this.parcelRemaining > 0) this.parcelRemaining--
+      // 首次列印(仍在未印集合)才算新貼一單;補印同一件不重複計
+      this.stickerOrderNum++
       if (set.size === 0) {
         this._bagUnprinted.delete(pkg)
         if (this.bagRemaining > 0) this.bagRemaining--

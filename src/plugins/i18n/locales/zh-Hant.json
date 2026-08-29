@@ -699,7 +699,9 @@
       "bags": "袋",
       "parcels": "件",
       "printed": "已印",
-      "remaining": "剩餘"
+      "remaining": "剩餘",
+      "stickerOrders": "貼單單數(去重)",
+      "stickerHint": "今日貼單數,業務日 {date} 06:00 起算"
     },
     "warehouseScanner": {
       "title": "入倉驗單",
@@ -750,6 +752,8 @@
     "alertLog": {
       "title": "查件異常",
       "subtitle": "雲端查件回報的異常(門市關轉、未確認、查無此件 …)",
+      "keyword": "關鍵字",
+      "keywordPlaceholder": "查詢單號 / 物流單號 / 訊息",
       "empty": "目前沒有異常記錄",
       "col": {
         "time": "時間",

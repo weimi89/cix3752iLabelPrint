@@ -143,6 +143,15 @@ const onDragStart = e => {
           </div>
         </div>
         <div class="text-caption text-disabled mt-1">{{ t('page.clearanceProgress.remainTotalHint') }}</div>
+
+        <!-- 今日貼單單數(去重):業務日 06:00 起算,與報關日區間無關 -->
+        <div class="cw-row cw-row--sticker">
+          <div class="cw-row__label">{{ t('page.clearanceProgress.stickerOrders') }}</div>
+          <div class="cw-row__val">
+            <span class="cw-row__remain text-success">{{ fmt(store.stickerOrderNum) }}</span>
+          </div>
+        </div>
+        <div class="text-caption text-disabled">{{ t('page.clearanceProgress.stickerHint', { date: store.stickerDate || '—' }) }}</div>
       </div>
     </div>
 
@@ -208,6 +217,7 @@ const onDragStart = e => {
 
   & + & { border-block-start: 1px solid rgba(var(--v-border-color), 0.12); }
 }
+.cw-row--sticker { margin-block-start: 6px; border-block-start: 1px dashed rgba(var(--v-border-color), 0.25); }
 .cw-row__label { font-size: 1rem; font-weight: 600; opacity: 0.8; flex: 0 0 auto; }
 .cw-row__val { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: end; }
 .cw-row__remain { font-size: 1.5rem; font-weight: 800; line-height: 1; }

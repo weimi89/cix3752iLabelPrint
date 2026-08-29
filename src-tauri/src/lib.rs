@@ -2,7 +2,7 @@ mod bag_check;
 mod cache;
 mod camera;
 mod cloud;
-mod commands;
+pub mod commands;
 mod config;
 mod db;
 mod error;
@@ -149,7 +149,7 @@ pub fn run() {
             commands::sort_channel_commands::sticker_history_list,
             commands::sort_channel_commands::sticker_history_add,
             commands::sort_channel_commands::sticker_history_delete,
-            commands::parcel_alert_commands::recent_parcel_alerts,
+            commands::parcel_alert_commands::parcel_alert_list,
             commands::health_commands::network_health_get,
             commands::health_commands::network_health_check,
             commands::parcel_query_log_commands::parcel_query_log_list,

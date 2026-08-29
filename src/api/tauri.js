@@ -4,7 +4,10 @@ import { enable as autostartEnable, disable as autostartDisable, isEnabled as au
 const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 健康檢查
-export const ping = () => invoke('ping')
+export const ping = async () => {
+  if (!isTauri) return 'pong'
+  return await invoke('ping')
+}
 
 // 開機自動啟動(走 tauri-plugin-autostart)
 export const getAutoStart = async () => {
@@ -123,19 +126,82 @@ export const pregenClearDone = async () => {
 
 // 雲端
 const MOCK_SESSION = { logged_in: false, api_base: '', user_label: null }
-export const cloudPing = () => invoke('cloud_ping')
-export const cloudLogin = (apiBase, token) => invoke('cloud_login', { req: { api_base: apiBase, token } })
-export const cloudLogout = () => invoke('cloud_logout')
+export const cloudPing = async () => {
+  if (!isTauri) return { ok: true }
+  return await invoke('cloud_ping')
+}
+export const cloudLogin = async (apiBase, token) => {
+  if (!isTauri) {
+    // 寫回共用的 MOCK_SESSION,讓緊接著的 cloudSession() 讀到一致的登入狀態(否則畫面會先顯示登入成功、下一秒被 cloudSession() 的初始值蓋回未登入)
+    MOCK_SESSION.api_base = apiBase
+    MOCK_SESSION.logged_in = true
+    MOCK_SESSION.user_label = '瀏覽器預覽模式'
+    return { ...MOCK_SESSION }
+  }
+  return await invoke('cloud_login', { req: { api_base: apiBase, token } })
+}
+export const cloudLogout = async () => {
+  if (!isTauri) {
+    MOCK_SESSION.logged_in = false
+    MOCK_SESSION.api_base = ''
+    MOCK_SESSION.user_label = null
+    return
+  }
+  return await invoke('cloud_logout')
+}
 export const cloudSession = async () => {
   if (!isTauri) return { ...MOCK_SESSION }
   return await invoke('cloud_session')
 }
-export const cloudFetchLabel = (orderSn, { printTypes = ['ALL'], enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '', force = false } = {}) =>
-  invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printTypes, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser, force_refetch: force } })
-export const cloudFetchCloudPrint = (orderSn, { printTypes = ['ALL'], enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) =>
-  invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printTypes, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
-export const cloudExaminePackage = shipmentNo =>
-  invoke('cloud_examine_package', { req: { shipment_no: shipmentNo } })
+export const cloudFetchLabel = async (orderSn, { printTypes = ['ALL'], enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '', force = false } = {}) => {
+  if (!isTauri) {
+    // 'LABEL-PROCESS' 是後端 cloud_fetch_label 唯一的成功值,ScanPrintPage 與 PreGeneratePage
+    // 都拿這個字串判斷是否成功;帶非空 print_file_path 讓成功分支真的演練得起來
+    return {
+      print_view_status: 'LABEL-PROCESS',
+      print_shipping_no: orderSn,
+      print_shipping_provider: 'H',
+      print_file_path: `/mock/cache/images/${orderSn}.png`,
+      print_time: [new Date().toISOString().slice(0, 19).replace('T', ' ')],
+      print_num: 1,
+      error_label_path: null,
+      respond_message: null,
+    }
+  }
+  return await invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printTypes, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser, force_refetch: force } })
+}
+export const cloudFetchCloudPrint = async (orderSn, { printTypes = ['ALL'], enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) => {
+  if (!isTauri) {
+    // 'PRINT-SUCCESS' 是 AutoPrintPage 的 respond_code 判斷成功送印的唯一值
+    return {
+      respond_code: 'PRINT-SUCCESS',
+      respond_message: null,
+      shipment_no: orderSn,
+      package_sn: packageSn || 'MOCK-PKG-001',
+      provider_code: 'H',
+      image_path: `/mock/cache/images/${orderSn}.png`,
+      file_path: `/mock/cache/images/${orderSn}.png`,
+      print_num: 1,
+      error_label_path: null,
+    }
+  }
+  return await invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printTypes, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
+}
+export const cloudExaminePackage = async shipmentNo => {
+  if (!isTauri) {
+    // 'FIND-PACKAGE-ORDER' 是 AutoPrintPage 判斷成功反查整袋訂單的唯一值,
+    // 與 cloudPackageOrders / cloudOrdersByDate 的 mock 用同一個真實 code
+    return {
+      respond_code: 'FIND-PACKAGE-ORDER',
+      respond_message: null,
+      package_sn: 'MOCK-PKG-001',
+      orders: [
+        { order_sn: 'SO-MOCK-1', shipping_no: shipmentNo, shipping_provider: 'H', last_print_time: null, status: 'pending' },
+      ],
+    }
+  }
+  return await invoke('cloud_examine_package', { req: { shipment_no: shipmentNo } })
+}
 // 面單預產:袋號反查整袋訂單編號
 export const cloudPackageOrders = async packageSn => {
   if (!isTauri) {
@@ -182,7 +248,7 @@ export const clearanceProgress = async (from, to = '') => {
     }))
     const printed = parcels.filter(p => p.printed).length
     const bagRemaining = new Set(parcels.filter(p => !p.printed).map(p => p.package_sn)).size
-    return { respond_code: 'OK', from, to: to || from, bag_total: 2, bag_remaining: bagRemaining, parcel_total: parcels.length, printed, remaining: parcels.length - printed, parcels }
+    return { respond_code: 'OK', from, to: to || from, bag_total: 2, bag_remaining: bagRemaining, parcel_total: parcels.length, printed, remaining: parcels.length - printed, parcels, sticker: { business_date: from, package_num: 2, order_num: 1234 } }
   }
   return await invoke('cloud_clearance_progress', { req: { from, to: to || from } })
 }
@@ -197,7 +263,7 @@ export const progressSetDates = async (dates = []) => {
 export const cloudClearanceStore = async ({ transportPackageSn, clearanceCompany = '', clearanceDate = '', storageCode = '33843' }) => {
   if (!isTauri) {
     const n = transportPackageSn.split(/[,\s]+/).filter(Boolean).length
-    return { success: true, upserted: n, confirm_success: n, confirm_failed: 0, message: `已新增 ${n} 個包裹，訂單自動確認成功 ${n} / 失敗 0` }
+    return { success: true, upserted: n, confirm_success: n, confirm_failed: 0, message: `已新增 ${n} 個包裹,訂單自動確認成功 ${n} / 失敗 0` }
   }
   return await invoke('cloud_clearance_store', {
     req: { transport_package_sn: transportPackageSn, clearance_company: clearanceCompany, clearance_date: clearanceDate, storage_code: storageCode },
@@ -274,26 +340,55 @@ export const warehousePrintLabels = async (printerName, labels) => {
 }
 
 // 印表機
-export const listPrinters = () => invoke('list_printers')
-export const printImage = ({ printerName, imageBase64, imagePath }) =>
-  invoke('print_image', { req: { printer_name: printerName, image_base64: imageBase64, image_path: imagePath } })
+export const listPrinters = async () => {
+  if (!isTauri) {
+    return [
+      { name: 'EPSON L6190 (預覽)', system_name: 'EPSON_L6190', driver_name: 'EPSON', is_default: true, state: 'idle' },
+      { name: 'HP LaserJet M404dn (預覽)', system_name: 'HP_M404dn', driver_name: 'HP', is_default: false, state: 'idle' },
+    ]
+  }
+  return await invoke('list_printers')
+}
+export const printImage = async ({ printerName, imageBase64, imagePath }) => {
+  if (!isTauri) return
+  return await invoke('print_image', { req: { printer_name: printerName, image_base64: imageBase64, image_path: imagePath } })
+}
 
 // Server
 export const serverStatus = async () => {
   if (!isTauri) return { running: false, bind_addr: '' }
   return await invoke('server_status')
 }
-export const serverRestart = () => invoke('server_restart')
+export const serverRestart = async () => {
+  if (!isTauri) return { running: false, bind_addr: '' }
+  return await invoke('server_restart')
+}
 
-// 雲端查件異常記錄(門市關轉 等)
-export const recentParcelAlerts = async () => {
-  if (!isTauri) {
-    return [
-      { id: 2, kind: 'store_closed', code: 'STORE_CLOSED', query_no: 'SF1398806613', shipping_no: 'SF1398806613', message: '門市關轉,請改投其他門市', channel_code: 'L3', created_at: '2026-06-18 14:24:02' },
-      { id: 1, kind: 'not_found', code: 'NOT_FOUND', query_no: 'SF0000000001', shipping_no: null, message: '查無此件', channel_code: null, created_at: '2026-06-18 13:10:55' },
-    ]
+// 雲端查件異常記錄(門市關轉 等):關鍵字 / 類別篩選 + 分頁
+const MOCK_PARCEL_ALERTS = Array.from({ length: 63 }, (_, i) => {
+  const kinds = ['store_closed', 'store_closed', 'not_found', 'error', 'unconfirmed']
+  const kind = kinds[i % kinds.length]
+  const no = kind === 'not_found' ? `2608${String(19170892 + i)}` : `74Z0${String(1340000 + i)}`
+  return {
+    id: 63 - i,
+    kind,
+    code: kind.toUpperCase(),
+    query_no: no,
+    shipping_no: kind === 'not_found' ? null : no,
+    message: kind === 'store_closed' ? '無法列印，訂單門市關轉' : kind === 'not_found' ? '查無訂單，請確認訂單編號是否正確' : kind === 'error' ? '無法列印，訂單當前狀態異常' : '訂單尚未確認',
+    channel_code: kind === 'not_found' ? null : ['L1', 'L2', 'R1', 'R3'][i % 4],
+    created_at: `2026-08-${String(28 - Math.floor(i / 8)).padStart(2, '0')} ${String(20 - (i % 8)).padStart(2, '0')}:05:${String(59 - i % 60).padStart(2, '0')}`,
   }
-  return await invoke('recent_parcel_alerts')
+})
+export const parcelAlertList = async ({ keyword = null, kind = null, limit = 25, offset = 0 } = {}) => {
+  if (!isTauri) {
+    const kw = (keyword || '').toLowerCase()
+    let list = MOCK_PARCEL_ALERTS
+    if (kw) list = list.filter(r => [r.query_no, r.shipping_no, r.message].some(v => (v || '').toLowerCase().includes(kw)))
+    if (kind) list = list.filter(r => r.kind === kind)
+    return { items: list.slice(offset, offset + limit), total: list.length }
+  }
+  return await invoke('parcel_alert_list', { req: { keyword, kind, limit, offset } })
 }
 
 // 本機 LAN IP 清單(工控機連線位址)
@@ -326,7 +421,10 @@ export const cacheStats = async () => {
   if (!isTauri) return { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 }
   return await invoke('cache_stats')
 }
-export const cacheClear = () => invoke('cache_clear')
+export const cacheClear = async () => {
+  if (!isTauri) return 0
+  return await invoke('cache_clear')
+}
 
 // Event log
 export const eventLogList = async ({ level = null, category = null, keyword = null, limit = 200, offset = 0 } = {}) => {
@@ -545,7 +643,7 @@ export const printStatsBySticker = async ({ startDate = '', endDate = '' } = {})
   return await invoke('print_stats_by_sticker', { req: { start_date: startDate, end_date: endDate } })
 }
 
-// 階段 2-5 擴充統計 + 重置 ===================================================
+// 擴充統計(人員 / 熱力圖 / 失敗率 / 歷史比對)+ 重置 ==========================
 const MOCK_STATS_SCANNERS = [
   { scanner_user: '阿仁', count: 92 },
   { scanner_user: '小婷', count: 48 },
@@ -620,7 +718,7 @@ export const workSessionReset = async () => {
 
 // 分揀袋件核對 — 後端常駐記憶體狀態(由工控機 GET /api/parcel 事件驅動更新,
 // 並 emit 'bag-check-updated' 推播)。前端只讀快照(切頁保留)與清除。
-// 假資料設計成新保留邏輯的「prune 後快照」:未印件袋(missing>0)全部保留(超過舊 3 上限)、
+// 假資料即後端 prune 後的快照樣態:未印件袋(missing>0)全部保留、
 // 已完成袋(missing==0)只留最新一個。front = 最新。
 const MOCK_BAG_CHECK = [
   {
