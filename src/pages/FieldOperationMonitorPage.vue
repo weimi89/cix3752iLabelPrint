@@ -256,10 +256,10 @@ const applyDates = () => {
       </VCol>
     </VRow>
 
-    <VTabs v-model="currentTab" grow height="44">
+    <VTabs v-model="currentTab" grow hide-slider class="bookmark-tabs">
       <VTab v-for="tab in tabs" :key="tab.value" :value="tab.value">{{ tab.label }}</VTab>
     </VTabs>
-    <VCard>
+    <VCard class="bookmark-card">
       <VTable hover>
         <thead>
           <tr>
