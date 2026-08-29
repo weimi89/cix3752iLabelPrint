@@ -226,7 +226,7 @@ const applyDates = () => {
       </VChip>
     </div>
 
-    <VRow class="mb-1">
+    <VRow class="mb-4">
       <VCol cols="12" sm="4">
         <VCard variant="tonal" color="primary" class="pa-4 d-flex align-center ga-3">
           <VIcon icon="tabler-printer" size="36" />
