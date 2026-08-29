@@ -10,6 +10,12 @@ pub struct ParcelAlertListReq {
     /// 關鍵字(在 query_no / shipping_no / message 做 LIKE 模糊)
     #[serde(default)]
     pub keyword: Option<String>,
+    /// 查詢單號(單獨欄位,LIKE 模糊)
+    #[serde(default)]
+    pub query_no: Option<String>,
+    /// 物流單號(單獨欄位,LIKE 模糊)
+    #[serde(default)]
+    pub shipping_no: Option<String>,
     /// 異常類別(store_closed / unconfirmed / not_found …);省略或空字串 = 全部
     #[serde(default)]
     pub kind: Option<String>,
@@ -41,6 +47,7 @@ pub struct ParcelAlertListResp {
 
 /// 桌面回看用:雲端查件異常清單(門市關轉 / 未確認 / 找不到 …),依 id DESC 分頁
 /// - keyword 對 query_no / shipping_no / message 做 LIKE
+/// - query_no / shipping_no 各自對單一欄位做 LIKE(可與 keyword 疊加)
 /// - kind 精確比對類別
 ///
 /// 注意:不可用 `?1` 編號參數混搭匿名 `?`,sqlx 依 bind 順序做位置綁定,
@@ -61,12 +68,10 @@ pub async fn list_parcel_alerts(
     let limit = req.limit.clamp(1, 1000);
     let offset = req.offset.max(0);
 
-    let like = req
-        .keyword
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|kw| format!("%{kw}%"));
+    let to_like = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|kw| format!("%{kw}%"));
+    let like = to_like(&req.keyword);
+    let query_like = to_like(&req.query_no);
+    let shipping_like = to_like(&req.shipping_no);
     let kind = req
         .kind
         .as_deref()
@@ -77,6 +82,12 @@ pub async fn list_parcel_alerts(
     let mut where_clauses: Vec<&str> = Vec::new();
     if like.is_some() {
         where_clauses.push("(query_no LIKE ? OR shipping_no LIKE ? OR message LIKE ?)");
+    }
+    if query_like.is_some() {
+        where_clauses.push("query_no LIKE ?");
+    }
+    if shipping_like.is_some() {
+        where_clauses.push("shipping_no LIKE ?");
     }
     if kind.is_some() {
         where_clauses.push("kind = ?");
@@ -96,21 +107,30 @@ pub async fn list_parcel_alerts(
     );
     let count_sql = format!("SELECT COUNT(*) AS n FROM parcel_alert {where_sql}");
 
-    let mut query = sqlx::query(&sql);
+    // 兩句 SQL 的 WHERE 相同,綁定順序必須與 where_clauses 推入順序一致
+    let mut binds: Vec<&str> = Vec::new();
     if let Some(like) = like.as_deref() {
-        query = query.bind(like).bind(like).bind(like);
+        binds.extend([like, like, like]);
+    }
+    if let Some(v) = query_like.as_deref() {
+        binds.push(v);
+    }
+    if let Some(v) = shipping_like.as_deref() {
+        binds.push(v);
     }
     if let Some(k) = kind.as_deref() {
-        query = query.bind(k);
+        binds.push(k);
+    }
+
+    let mut query = sqlx::query(&sql);
+    for b in &binds {
+        query = query.bind(*b);
     }
     let rows = query.bind(limit).bind(offset).fetch_all(db).await?;
 
     let mut count_query = sqlx::query(&count_sql);
-    if let Some(like) = like.as_deref() {
-        count_query = count_query.bind(like).bind(like).bind(like);
-    }
-    if let Some(k) = kind.as_deref() {
-        count_query = count_query.bind(k);
+    for b in &binds {
+        count_query = count_query.bind(*b);
     }
     let total: i64 = count_query
         .fetch_one(db)

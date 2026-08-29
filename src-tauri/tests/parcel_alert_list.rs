@@ -29,7 +29,35 @@ async fn setup() -> sqlx::SqlitePool {
 }
 
 fn req(keyword: Option<&str>, kind: Option<&str>, limit: i64, offset: i64) -> ParcelAlertListReq {
-    ParcelAlertListReq { keyword: keyword.map(String::from), kind: kind.map(String::from), limit, offset }
+    ParcelAlertListReq { keyword: keyword.map(String::from), query_no: None, shipping_no: None, kind: kind.map(String::from), limit, offset }
+}
+
+#[tokio::test]
+async fn dedicated_query_no_and_shipping_no_fields() {
+    let pool = setup().await;
+    let mut r1 = req(None, None, 25, 0);
+    r1.query_no = Some("Q001".into());
+    let r = list_parcel_alerts(&pool, &r1).await.unwrap();
+    assert_eq!(r.total, 10, "Q0010..Q0019");
+    assert!(r.items.iter().all(|a| a.query_no.as_deref().unwrap().starts_with("Q001")));
+
+    let mut r2 = req(None, None, 25, 0);
+    r2.shipping_no = Some("74Z00000012".into());
+    let r = list_parcel_alerts(&pool, &r2).await.unwrap();
+    assert_eq!(r.total, 1);
+    assert_eq!(r.items[0].id, 12);
+
+    // 三個條件疊加:query_no Q001x ∧ shipping_no 有值(store_closed 才有)∧ kind store_closed → 10,12,14,16,18
+    let mut r3 = req(Some("門市"), Some("store_closed"), 25, 0);
+    r3.query_no = Some("Q001".into());
+    r3.shipping_no = Some("74Z".into());
+    let r = list_parcel_alerts(&pool, &r3).await.unwrap();
+    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![18, 16, 14, 12, 10]);
+    assert_eq!(r.total, 5);
+
+    let mut r4 = req(None, None, 25, 0);
+    r4.query_no = Some("  ".into());
+    assert_eq!(list_parcel_alerts(&pool, &r4).await.unwrap().total, 30, "空白視為無條件");
 }
 
 #[tokio::test]

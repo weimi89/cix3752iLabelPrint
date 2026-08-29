@@ -380,15 +380,19 @@ const MOCK_PARCEL_ALERTS = Array.from({ length: 63 }, (_, i) => {
     created_at: `2026-08-${String(28 - Math.floor(i / 8)).padStart(2, '0')} ${String(20 - (i % 8)).padStart(2, '0')}:05:${String(59 - i % 60).padStart(2, '0')}`,
   }
 })
-export const parcelAlertList = async ({ keyword = null, kind = null, limit = 25, offset = 0 } = {}) => {
+export const parcelAlertList = async ({ keyword = null, queryNo = null, shippingNo = null, kind = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {
     const kw = (keyword || '').toLowerCase()
+    const qn = (queryNo || '').toLowerCase()
+    const sn = (shippingNo || '').toLowerCase()
     let list = MOCK_PARCEL_ALERTS
     if (kw) list = list.filter(r => [r.query_no, r.shipping_no, r.message].some(v => (v || '').toLowerCase().includes(kw)))
+    if (qn) list = list.filter(r => (r.query_no || '').toLowerCase().includes(qn))
+    if (sn) list = list.filter(r => (r.shipping_no || '').toLowerCase().includes(sn))
     if (kind) list = list.filter(r => r.kind === kind)
     return { items: list.slice(offset, offset + limit), total: list.length }
   }
-  return await invoke('parcel_alert_list', { req: { keyword, kind, limit, offset } })
+  return await invoke('parcel_alert_list', { req: { keyword, query_no: queryNo, shipping_no: shippingNo, kind, limit, offset } })
 }
 
 // 本機 LAN IP 清單(工控機連線位址)

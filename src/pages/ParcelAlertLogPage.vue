@@ -27,12 +27,14 @@ const KIND_ITEMS = computed(() => [
 ])
 
 const searchKeyword = ref('')
+const searchQueryNo = ref('')
+const searchShippingNo = ref('')
 const searchKind = ref(null)
 const searchOpen = ref(0)
 const page = ref(1)
 const pageSize = ref(25)
 
-const resetSearch = () => { searchKeyword.value = ''; searchKind.value = null }
+const resetSearch = () => { searchKeyword.value = ''; searchQueryNo.value = ''; searchShippingNo.value = ''; searchKind.value = null }
 
 const load = async () => {
   loading.value = true
@@ -40,6 +42,8 @@ const load = async () => {
   try {
     const resp = await parcelAlertList({
       keyword: searchKeyword.value || null,
+      queryNo: searchQueryNo.value || null,
+      shippingNo: searchShippingNo.value || null,
       kind: searchKind.value,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
@@ -53,7 +57,7 @@ const load = async () => {
   }
 }
 
-watch([searchKeyword, searchKind], () => { page.value = 1 })
+watch([searchKeyword, searchQueryNo, searchShippingNo, searchKind], () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 
@@ -81,7 +85,7 @@ onBeforeUnmount(() => {
   if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null }
 })
 
-const hasFilter = computed(() => !!searchKeyword.value || !!searchKind.value)
+const hasFilter = computed(() => !!searchKeyword.value || !!searchQueryNo.value || !!searchShippingNo.value || !!searchKind.value)
 const empty = computed(() => !loading.value && items.value.length === 0)
 </script>
 
@@ -103,7 +107,19 @@ const empty = computed(() => !loading.value && items.value.length === 0)
         <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
-            <VCol cols="12" md="8" class="px-2 py-1">
+            <VCol cols="12" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.alertLog.col.queryNo') }}</label>
+                <VTextField v-model="searchQueryNo" density="compact" hide-details variant="outlined" clearable @keyup.enter="load" />
+              </div>
+            </VCol>
+            <VCol cols="12" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.alertLog.col.shippingNo') }}</label>
+                <VTextField v-model="searchShippingNo" density="compact" hide-details variant="outlined" clearable @keyup.enter="load" />
+              </div>
+            </VCol>
+            <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.alertLog.keyword') }}</label>
                 <VTextField
@@ -117,7 +133,7 @@ const empty = computed(() => !loading.value && items.value.length === 0)
                 />
               </div>
             </VCol>
-            <VCol cols="12" md="4" class="px-2 py-1">
+            <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.alertLog.col.kind') }}</label>
                 <VSelect
