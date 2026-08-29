@@ -768,8 +768,6 @@
     "parcelQueryLog": {
       "title": "請求記錄",
       "subtitle": "工控機呼叫 GET /api/parcel 的查詢歷史",
-      "keyword": "關鍵字",
-      "keywordPlaceholder": "查詢條碼 / 物流單號 / label_key",
       "msField": "耗時欄位",
       "msFieldAny": "任一欄位",
       "minMs": "耗時超過 (ms)",

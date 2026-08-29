@@ -9,7 +9,6 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
-const searchKeyword = ref('')
 const searchQueryNo = ref('')
 const searchTrackingNo = ref('')
 const msField = ref(null)
@@ -49,14 +48,13 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.v
 
 const searchOpen = ref(0)
 
-const resetSearch = () => { searchKeyword.value = ''; searchQueryNo.value = ''; searchTrackingNo.value = ''; msField.value = null; minMs.value = null }
+const resetSearch = () => { searchQueryNo.value = ''; searchTrackingNo.value = ''; msField.value = null; minMs.value = null }
 
 const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
     const resp = await parcelQueryLogList({
-      keyword: searchKeyword.value || null,
       queryNo: searchQueryNo.value || null,
       trackingNo: searchTrackingNo.value || null,
       msField: msField.value,
@@ -73,7 +71,7 @@ const load = async () => {
   }
 }
 
-watch([searchKeyword, searchQueryNo, searchTrackingNo, msField, minMs], () => { page.value = 1 })
+watch([searchQueryNo, searchTrackingNo, msField, minMs], () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _unlisten = null
@@ -162,20 +160,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
                 <MultiNoField v-model="searchTrackingNo" @search="load" />
               </div>
             </VCol>
-            <VCol cols="12" md="6" class="px-2 py-1">
-              <div class="search-field">
-                <label>{{ $t('page.parcelQueryLog.keyword') }}</label>
-                <VTextField
-                  v-model="searchKeyword"
-                  :placeholder="$t('page.parcelQueryLog.keywordPlaceholder')"
-                  density="compact"
-                  hide-details
-                  variant="outlined"
-                  @keyup.enter="load"
-                />
-              </div>
-            </VCol>
-            <VCol cols="6" md="3" class="px-2 py-1">
+            <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.parcelQueryLog.msField') }}</label>
                 <VSelect
@@ -187,7 +172,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
                 />
               </div>
             </VCol>
-            <VCol cols="6" md="3" class="px-2 py-1">
+            <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.parcelQueryLog.minMs') }}</label>
                 <VNumberInput

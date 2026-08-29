@@ -7,9 +7,6 @@ use crate::{AppResult, SharedState};
 
 #[derive(Debug, Deserialize)]
 pub struct ParcelQueryLogListReq {
-    /// 關鍵字(在 query_no / tracking_no / label_key 做 LIKE 模糊)
-    #[serde(default)]
-    pub keyword: Option<String>,
     /// 查詢條碼:可一次多組(逗號 / 空白 / 換行分隔),精確比對
     #[serde(default)]
     pub query_no: Option<String>,
@@ -57,7 +54,7 @@ pub struct ParcelQueryLogListResp {
 
 /// 列出 GET /api/parcel 的查詢歷史
 /// - 預設依 created_at DESC 排序
-/// - keyword 對 query_no / tracking_no / label_key 做 LIKE
+/// - query_no / tracking_no 各為多組單號 IN 清單、精確比對
 #[tauri::command]
 pub async fn parcel_query_log_list(
     state: State<'_, SharedState>,
@@ -66,26 +63,17 @@ pub async fn parcel_query_log_list(
     let limit = req.limit.clamp(1, 1000);
     let offset = req.offset.max(0);
 
-    let like = req
-        .keyword
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|kw| format!("%{kw}%"));
     let query_nos = split_nos(req.query_no.as_deref());
     let tracking_nos = split_nos(req.tracking_no.as_deref());
     let min_ms = req.min_ms.filter(|v| *v > 0);
     // 耗時欄位白名單(避免拼 SQL 注入);非三者之一視為「任一欄位」
     let ms_single = matches!(req.ms_field.as_deref(), Some("cloud") | Some("label") | Some("total"));
 
-    // 動態組 WHERE(關鍵字 / 耗時門檻可任意組合)
+    // 動態組 WHERE(單號清單 / 耗時門檻可任意組合)
     // 注意:不可用 `?1` 編號參數混搭匿名 `?` —— sqlx 依 bind 順序做位置綁定,
-    // 與 SQLite 的參數編號規則對不上,LIKE 字串會被綁進 LIMIT 造成
+    // 與 SQLite 的參數編號規則對不上,字串會被綁進 LIMIT 造成
     // datatype mismatch(見 tests/parcel_query_log_keyword.rs)
     let mut where_clauses: Vec<String> = Vec::new();
-    if like.is_some() {
-        where_clauses.push("(query_no LIKE ? OR tracking_no LIKE ? OR label_key LIKE ?)".into());
-    }
     if !query_nos.is_empty() {
         where_clauses.push(in_clause("query_no", query_nos.len()));
     }
@@ -117,9 +105,6 @@ pub async fn parcel_query_log_list(
     let count_sql = format!("SELECT COUNT(*) AS n FROM parcel_query_log {where_sql}");
 
     let mut query = sqlx::query(&sql);
-    if let Some(like) = like.as_deref() {
-        query = query.bind(like).bind(like).bind(like);
-    }
     for v in &query_nos { query = query.bind(v.as_str()); }
     for v in &tracking_nos { query = query.bind(v.as_str()); }
     if let Some(ms) = min_ms {
@@ -131,9 +116,6 @@ pub async fn parcel_query_log_list(
     let rows = query.bind(limit).bind(offset).fetch_all(&state.db).await?;
 
     let mut count_query = sqlx::query(&count_sql);
-    if let Some(like) = like.as_deref() {
-        count_query = count_query.bind(like).bind(like).bind(like);
-    }
     for v in &query_nos { count_query = count_query.bind(v.as_str()); }
     for v in &tracking_nos { count_query = count_query.bind(v.as_str()); }
     if let Some(ms) = min_ms {

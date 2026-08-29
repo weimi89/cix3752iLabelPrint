@@ -529,19 +529,11 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   // 每 3 筆有一張讀碼站快照(獨立 captures 目錄,key 無前綴;預覽模式檔案不存在,VImg 落 error 樣板)
   photo_path: i % 3 === 0 ? `${16021200 - i}_20260626001425.jpg` : null,
 }))
-export const parcelQueryLogList = async ({ keyword = null, queryNo = null, trackingNo = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
+export const parcelQueryLogList = async ({ queryNo = null, trackingNo = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {
-    const kw = (keyword || '').toLowerCase()
     let list = MOCK_PARCEL_QUERY_LOG
     const qn = splitNos(queryNo); if (qn.length) list = list.filter(r => qn.includes(r.query_no))
     const tn = splitNos(trackingNo); if (tn.length) list = list.filter(r => tn.includes(r.tracking_no))
-    if (kw) {
-      list = list.filter(r =>
-        (r.query_no || '').toLowerCase().includes(kw) ||
-        (r.tracking_no || '').toLowerCase().includes(kw) ||
-        (r.label_key || '').toLowerCase().includes(kw)
-      )
-    }
     if (minMs > 0) {
       list = list.filter(r => {
         if (msField === 'cloud') return (r.cloud_ms ?? 0) >= minMs
@@ -552,7 +544,7 @@ export const parcelQueryLogList = async ({ keyword = null, queryNo = null, track
     }
     return { items: list.slice(offset, offset + limit), total: list.length }
   }
-  return await invoke('parcel_query_log_list', { req: { keyword, query_no: queryNo, tracking_no: trackingNo, ms_field: msField, min_ms: minMs, limit, offset } })
+  return await invoke('parcel_query_log_list', { req: { query_no: queryNo, tracking_no: trackingNo, ms_field: msField, min_ms: minMs, limit, offset } })
 }
 
 // 網路健康偵測
