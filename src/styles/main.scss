@@ -557,7 +557,8 @@ body {
 .text-title-large { font-size: 1.25rem !important; font-weight: 500; line-height: 2rem; letter-spacing: 0.0125em !important; }
 .text-headline-large { font-size: 2.125rem !important; line-height: 2.5rem; letter-spacing: 0.0073529412em !important; }
 .text-display-medium { font-size: 3rem !important; line-height: 3.125rem; letter-spacing: normal !important; }
-.text-display-large { font-size: 6rem !important; font-weight: 300; line-height: 6rem; letter-spacing: -0.015625em !important; }
+// 官方對照把 h1、h2 都併成 display-large;專案只用過 h2(儀表板本場累計),鎖回 h2 的數值
+.text-display-large { font-size: 3.75rem !important; font-weight: 300; line-height: 3.75rem; letter-spacing: -0.0083333333em !important; }
 .text-body-large { line-height: 1.5rem; }
 .text-body-small { line-height: 1.25rem; }
 
