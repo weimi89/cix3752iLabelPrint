@@ -33,7 +33,8 @@
     "all": "Tất cả",
     "pick": "Chọn",
     "clearAll": "Xoá hết",
-    "advancedSearch": "Tìm kiếm nâng cao"
+    "advancedSearch": "Tìm kiếm nâng cao",
+    "multiNoPlaceholder": "Có thể dán nhiều mã, cách nhau bằng dấu phẩy, khoảng trắng hoặc xuống dòng"
   },
   "locale": {
     "label": "Ngôn ngữ giao diện",

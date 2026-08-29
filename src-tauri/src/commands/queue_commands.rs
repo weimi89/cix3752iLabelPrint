@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
+use super::search_terms::{in_clause, split_nos};
 use crate::queue::QueueStats;
 use crate::{AppResult, SharedState};
 
@@ -17,6 +18,9 @@ pub struct QueueListReq {
     /// 關鍵字(對 tracking_no / sort_channel / job_sticker 做 LIKE 模糊比對)
     #[serde(default)]
     pub keyword: Option<String>,
+    /// 物流單號:可一次多組(逗號 / 空白 / 換行分隔),精確比對
+    #[serde(default)]
+    pub tracking_no: Option<String>,
     /// 只列出「工控機從未回報」的項目(直印模式下用來抓工控機回報鏈是否斷掉)
     #[serde(default)]
     pub unreported_only: bool,
@@ -64,16 +68,21 @@ pub async fn queue_list(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
 
-    // 動態組 WHERE(status / keyword 可任意組合)
-    let mut where_clauses: Vec<&str> = Vec::new();
+    let tracking_nos = split_nos(req.tracking_no.as_deref());
+
+    // 動態組 WHERE(status / keyword / 單號清單可任意組合)
+    let mut where_clauses: Vec<String> = Vec::new();
     if req.status.is_some() {
-        where_clauses.push("status = ?");
+        where_clauses.push("status = ?".into());
     }
     if keyword.is_some() {
-        where_clauses.push("(tracking_no LIKE ? OR sort_channel LIKE ? OR job_sticker LIKE ?)");
+        where_clauses.push("(tracking_no LIKE ? OR sort_channel LIKE ? OR job_sticker LIKE ?)".into());
+    }
+    if !tracking_nos.is_empty() {
+        where_clauses.push(in_clause("tracking_no", tracking_nos.len()));
     }
     if req.unreported_only {
-        where_clauses.push("ipc_reported_at IS NULL");
+        where_clauses.push("ipc_reported_at IS NULL".into());
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -100,6 +109,7 @@ pub async fn queue_list(
     if let Some(like) = like.as_deref() {
         query = query.bind(like).bind(like).bind(like);
     }
+    for v in &tracking_nos { query = query.bind(v.as_str()); }
     let rows = query.bind(limit).bind(offset).fetch_all(&state.db).await?;
 
     Ok(rows

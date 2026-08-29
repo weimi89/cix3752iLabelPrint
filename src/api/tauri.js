@@ -364,6 +364,9 @@ export const serverRestart = async () => {
   return await invoke('server_restart')
 }
 
+// 多組單號輸入拆成清單(與後端 search_terms::split_nos 同規則:逗號 / 分號 / 頓號 / 空白 / 換行,去重)
+export const splitNos = raw => [...new Set(String(raw || '').split(/[,;、\s]+/).map(v => v.trim()).filter(Boolean))]
+
 // 雲端查件異常記錄(門市關轉 等):關鍵字 / 類別篩選 + 分頁
 const MOCK_PARCEL_ALERTS = Array.from({ length: 63 }, (_, i) => {
   const kinds = ['store_closed', 'store_closed', 'not_found', 'error', 'unconfirmed']
@@ -383,12 +386,12 @@ const MOCK_PARCEL_ALERTS = Array.from({ length: 63 }, (_, i) => {
 export const parcelAlertList = async ({ keyword = null, queryNo = null, shippingNo = null, kind = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {
     const kw = (keyword || '').toLowerCase()
-    const qn = (queryNo || '').toLowerCase()
-    const sn = (shippingNo || '').toLowerCase()
+    const qn = splitNos(queryNo)
+    const sn = splitNos(shippingNo)
     let list = MOCK_PARCEL_ALERTS
     if (kw) list = list.filter(r => [r.query_no, r.shipping_no, r.message].some(v => (v || '').toLowerCase().includes(kw)))
-    if (qn) list = list.filter(r => (r.query_no || '').toLowerCase().includes(qn))
-    if (sn) list = list.filter(r => (r.shipping_no || '').toLowerCase().includes(sn))
+    if (qn.length) list = list.filter(r => qn.includes(r.query_no))
+    if (sn.length) list = list.filter(r => sn.includes(r.shipping_no))
     if (kind) list = list.filter(r => r.kind === kind)
     return { items: list.slice(offset, offset + limit), total: list.length }
   }
@@ -414,8 +417,8 @@ export const queueStats = async () => {
   if (!isTauri) return { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 }
   return await invoke('queue_stats')
 }
-export const queueList = ({ status = null, keyword = null, unreportedOnly = false, limit = 100, offset = 0 } = {}) =>
-  invoke('queue_list', { req: { status, keyword, unreported_only: unreportedOnly, limit, offset } })
+export const queueList = ({ status = null, keyword = null, trackingNo = null, unreportedOnly = false, limit = 100, offset = 0 } = {}) =>
+  invoke('queue_list', { req: { status, keyword, tracking_no: trackingNo, unreported_only: unreportedOnly, limit, offset } })
 export const queueRetryFailed = () => invoke('queue_retry_failed')
 export const queuePurge = ({ status = 'success', olderThanDays = 7 } = {}) =>
   invoke('queue_purge', { req: { status, older_than_days: olderThanDays } })
@@ -526,10 +529,12 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   // 每 3 筆有一張讀碼站快照(獨立 captures 目錄,key 無前綴;預覽模式檔案不存在,VImg 落 error 樣板)
   photo_path: i % 3 === 0 ? `${16021200 - i}_20260626001425.jpg` : null,
 }))
-export const parcelQueryLogList = async ({ keyword = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
+export const parcelQueryLogList = async ({ keyword = null, queryNo = null, trackingNo = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
   if (!isTauri) {
     const kw = (keyword || '').toLowerCase()
     let list = MOCK_PARCEL_QUERY_LOG
+    const qn = splitNos(queryNo); if (qn.length) list = list.filter(r => qn.includes(r.query_no))
+    const tn = splitNos(trackingNo); if (tn.length) list = list.filter(r => tn.includes(r.tracking_no))
     if (kw) {
       list = list.filter(r =>
         (r.query_no || '').toLowerCase().includes(kw) ||
@@ -547,7 +552,7 @@ export const parcelQueryLogList = async ({ keyword = null, msField = null, minMs
     }
     return { items: list.slice(offset, offset + limit), total: list.length }
   }
-  return await invoke('parcel_query_log_list', { req: { keyword, ms_field: msField, min_ms: minMs, limit, offset } })
+  return await invoke('parcel_query_log_list', { req: { keyword, query_no: queryNo, tracking_no: trackingNo, ms_field: msField, min_ms: minMs, limit, offset } })
 }
 
 // 網路健康偵測

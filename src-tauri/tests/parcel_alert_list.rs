@@ -33,34 +33,6 @@ fn req(keyword: Option<&str>, kind: Option<&str>, limit: i64, offset: i64) -> Pa
 }
 
 #[tokio::test]
-async fn dedicated_query_no_and_shipping_no_fields() {
-    let pool = setup().await;
-    let mut r1 = req(None, None, 25, 0);
-    r1.query_no = Some("Q001".into());
-    let r = list_parcel_alerts(&pool, &r1).await.unwrap();
-    assert_eq!(r.total, 10, "Q0010..Q0019");
-    assert!(r.items.iter().all(|a| a.query_no.as_deref().unwrap().starts_with("Q001")));
-
-    let mut r2 = req(None, None, 25, 0);
-    r2.shipping_no = Some("74Z00000012".into());
-    let r = list_parcel_alerts(&pool, &r2).await.unwrap();
-    assert_eq!(r.total, 1);
-    assert_eq!(r.items[0].id, 12);
-
-    // 三個條件疊加:query_no Q001x ∧ shipping_no 有值(store_closed 才有)∧ kind store_closed → 10,12,14,16,18
-    let mut r3 = req(Some("門市"), Some("store_closed"), 25, 0);
-    r3.query_no = Some("Q001".into());
-    r3.shipping_no = Some("74Z".into());
-    let r = list_parcel_alerts(&pool, &r3).await.unwrap();
-    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![18, 16, 14, 12, 10]);
-    assert_eq!(r.total, 5);
-
-    let mut r4 = req(None, None, 25, 0);
-    r4.query_no = Some("  ".into());
-    assert_eq!(list_parcel_alerts(&pool, &r4).await.unwrap().total, 30, "空白視為無條件");
-}
-
-#[tokio::test]
 async fn paging_without_filter_is_newest_first() {
     let pool = setup().await;
     let p1 = list_parcel_alerts(&pool, &req(None, None, 25, 0)).await.unwrap();
@@ -115,4 +87,36 @@ async fn kind_filter_and_combination() {
 
     let r = list_parcel_alerts(&pool, &req(None, None, 0, -5)).await.unwrap();
     assert_eq!(r.items.len(), 1, "limit 最小 clamp 到 1、offset 負值歸 0");
+}
+
+#[tokio::test]
+async fn dedicated_no_fields_are_exact_and_multi() {
+    let pool = setup().await;
+    // 精確比對:前綴不命中
+    let mut r1 = req(None, None, 25, 0);
+    r1.query_no = Some("Q001".into());
+    assert_eq!(list_parcel_alerts(&pool, &r1).await.unwrap().total, 0, "不做模糊");
+
+    // 多組:逗號 / 換行 / 空白混用、重複略過、不存在的略過
+    let mut r2 = req(None, None, 25, 0);
+    r2.query_no = Some("Q0003, Q0010\nQ0007 Q0003 ZZZZ".into());
+    let r = list_parcel_alerts(&pool, &r2).await.unwrap();
+    assert_eq!(r.total, 3);
+    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![10, 7, 3]);
+
+    let mut r3 = req(None, None, 25, 0);
+    r3.shipping_no = Some("74Z00000012;74Z00000014".into());
+    let r = list_parcel_alerts(&pool, &r3).await.unwrap();
+    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![14, 12]);
+
+    // 與關鍵字／狀態疊加:query_no ∈ {4,5,6} ∧ store_closed ∧ 訊息含「門市」→ 4,6
+    let mut r4 = req(Some("門市"), Some("store_closed"), 25, 0);
+    r4.query_no = Some("Q0004 Q0005 Q0006".into());
+    let r = list_parcel_alerts(&pool, &r4).await.unwrap();
+    assert_eq!(r.items.iter().map(|a| a.id).collect::<Vec<_>>(), vec![6, 4]);
+    assert_eq!(r.total, 2);
+
+    let mut r5 = req(None, None, 25, 0);
+    r5.query_no = Some("  \n ".into());
+    assert_eq!(list_parcel_alerts(&pool, &r5).await.unwrap().total, 30, "空白視為無條件");
 }

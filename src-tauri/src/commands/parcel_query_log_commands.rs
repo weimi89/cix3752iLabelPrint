@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
+use super::search_terms::{in_clause, split_nos};
 use crate::{AppResult, SharedState};
 
 #[derive(Debug, Deserialize)]
@@ -9,6 +10,12 @@ pub struct ParcelQueryLogListReq {
     /// 關鍵字(在 query_no / tracking_no / label_key 做 LIKE 模糊)
     #[serde(default)]
     pub keyword: Option<String>,
+    /// 查詢條碼:可一次多組(逗號 / 空白 / 換行分隔),精確比對
+    #[serde(default)]
+    pub query_no: Option<String>,
+    /// 物流單號:可一次多組,精確比對
+    #[serde(default)]
+    pub tracking_no: Option<String>,
     /// 耗時篩選欄位:"cloud" / "label" / "total";省略或其他值 = 任一欄位超過即列出
     #[serde(default)]
     pub ms_field: Option<String>,
@@ -65,6 +72,8 @@ pub async fn parcel_query_log_list(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|kw| format!("%{kw}%"));
+    let query_nos = split_nos(req.query_no.as_deref());
+    let tracking_nos = split_nos(req.tracking_no.as_deref());
     let min_ms = req.min_ms.filter(|v| *v > 0);
     // 耗時欄位白名單(避免拼 SQL 注入);非三者之一視為「任一欄位」
     let ms_single = matches!(req.ms_field.as_deref(), Some("cloud") | Some("label") | Some("total"));
@@ -73,9 +82,15 @@ pub async fn parcel_query_log_list(
     // 注意:不可用 `?1` 編號參數混搭匿名 `?` —— sqlx 依 bind 順序做位置綁定,
     // 與 SQLite 的參數編號規則對不上,LIKE 字串會被綁進 LIMIT 造成
     // datatype mismatch(見 tests/parcel_query_log_keyword.rs)
-    let mut where_clauses: Vec<&str> = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
     if like.is_some() {
-        where_clauses.push("(query_no LIKE ? OR tracking_no LIKE ? OR label_key LIKE ?)");
+        where_clauses.push("(query_no LIKE ? OR tracking_no LIKE ? OR label_key LIKE ?)".into());
+    }
+    if !query_nos.is_empty() {
+        where_clauses.push(in_clause("query_no", query_nos.len()));
+    }
+    if !tracking_nos.is_empty() {
+        where_clauses.push(in_clause("tracking_no", tracking_nos.len()));
     }
     if min_ms.is_some() {
         where_clauses.push(match req.ms_field.as_deref() {
@@ -83,7 +98,7 @@ pub async fn parcel_query_log_list(
             Some("label") => "label_ms >= ?",
             Some("total") => "total_ms >= ?",
             _ => "(cloud_ms >= ? OR label_ms >= ? OR total_ms >= ?)",
-        });
+        }.into());
     }
     let where_sql = if where_clauses.is_empty() {
         String::new()
@@ -105,6 +120,8 @@ pub async fn parcel_query_log_list(
     if let Some(like) = like.as_deref() {
         query = query.bind(like).bind(like).bind(like);
     }
+    for v in &query_nos { query = query.bind(v.as_str()); }
+    for v in &tracking_nos { query = query.bind(v.as_str()); }
     if let Some(ms) = min_ms {
         query = query.bind(ms);
         if !ms_single {
@@ -117,6 +134,8 @@ pub async fn parcel_query_log_list(
     if let Some(like) = like.as_deref() {
         count_query = count_query.bind(like).bind(like).bind(like);
     }
+    for v in &query_nos { count_query = count_query.bind(v.as_str()); }
+    for v in &tracking_nos { count_query = count_query.bind(v.as_str()); }
     if let Some(ms) = min_ms {
         count_query = count_query.bind(ms);
         if !ms_single {

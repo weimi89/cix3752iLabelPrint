@@ -3,12 +3,15 @@ import { parcelQueryLogList, getConfig } from '@/api/tauri'
 import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
+import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const searchKeyword = ref('')
+const searchQueryNo = ref('')
+const searchTrackingNo = ref('')
 const msField = ref(null)
 const minMs = ref(null)
 const items = ref([])
@@ -46,7 +49,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.v
 
 const searchOpen = ref(0)
 
-const resetSearch = () => { searchKeyword.value = ''; msField.value = null; minMs.value = null }
+const resetSearch = () => { searchKeyword.value = ''; searchQueryNo.value = ''; searchTrackingNo.value = ''; msField.value = null; minMs.value = null }
 
 const load = async () => {
   loading.value = true
@@ -54,6 +57,8 @@ const load = async () => {
   try {
     const resp = await parcelQueryLogList({
       keyword: searchKeyword.value || null,
+      queryNo: searchQueryNo.value || null,
+      trackingNo: searchTrackingNo.value || null,
       msField: msField.value,
       minMs: Number(minMs.value) > 0 ? Number(minMs.value) : null,
       limit: pageSize.value,
@@ -68,7 +73,7 @@ const load = async () => {
   }
 }
 
-watch([searchKeyword, msField, minMs], () => { page.value = 1 })
+watch([searchKeyword, searchQueryNo, searchTrackingNo, msField, minMs], () => { page.value = 1 })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _unlisten = null
@@ -145,6 +150,18 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
         <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
+            <VCol cols="12" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.parcelQueryLog.col.queryNo') }}</label>
+                <MultiNoField v-model="searchQueryNo" @search="load" />
+              </div>
+            </VCol>
+            <VCol cols="12" md="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.parcelQueryLog.col.trackingNo') }}</label>
+                <MultiNoField v-model="searchTrackingNo" @search="load" />
+              </div>
+            </VCol>
             <VCol cols="12" md="6" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.parcelQueryLog.keyword') }}</label>

@@ -1,7 +1,8 @@
 <script setup>
-import { queueList, queueRetryFailed, queuePurge } from '@/api/tauri'
+import { queueList, queueRetryFailed, queuePurge, splitNos } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
+import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -9,6 +10,7 @@ const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNA
 
 const queueStatus = ref(null)
 const searchKeyword = ref('')
+const searchTrackingNo = ref('')
 /// null = 全部;true = 只看工控機沒回報的(直印模式下用來抓工控機回報鏈是否斷掉)
 const unreportedOnly = ref(null)
 const queueItems = ref([])
@@ -27,6 +29,7 @@ const searchOpen = ref(0)
 const resetSearch = () => {
   queueStatus.value = null
   searchKeyword.value = ''
+  searchTrackingNo.value = ''
   unreportedOnly.value = null
 }
 
@@ -53,7 +56,11 @@ const REPORTED_FILTERS = computed(() => [
 
 const CHANNELS_SAMPLE = ['A1', 'A2', 'B1', 'B2', 'C1']
 const STICKERS_SAMPLE = ['小美', '阿傑', '阿宏', '貓宅']
-const STATUSES_SAMPLE = ['success', 'success', 'success', 'pending', 'sending', 'failed']
+// cancelled 現場應為少數(直印攔截才會發生),故只佔 7 分之 1,低於 success 的 7 分之 3
+const STATUSES_SAMPLE = ['success', 'success', 'success', 'pending', 'sending', 'failed', 'cancelled']
+// cancelled 是直印模式列印失敗時寫進 last_error 的攔截原因樣本,輪替多種樣態,
+// 讓佇列歷史頁狀態欄的 last_error tooltip 實際有值可驗
+const CANCEL_REASONS_SAMPLE = ['印表機離線,已攔截未送印', '下載面單失敗,已攔截未送印', '通道未設定印表機,已攔截未送印', '本機送印失敗,已攔截未送印']
 
 // 瀏覽器預覽模式 mock 資料(80 筆,展示分頁)
 // 來源刻意涵蓋三種樣態:工控機回報、中介機直印自補(已回報 / 未回報 / 遲到回報)
@@ -71,7 +78,12 @@ const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
     sort_channel: CHANNELS_SAMPLE[i % CHANNELS_SAMPLE.length],
     job_sticker: STICKERS_SAMPLE[i % STICKERS_SAMPLE.length],
     status,
-    last_error: status === 'failed' ? '推送逾時,將自動重試' : null,
+    // cancelled = 直印模式攔截(印表機離線 / 面單下載失敗 / 通道未設定印表機…),不是推送失敗,
+    // 攔截後不會送出雲端(sent_at 維持 null)也不會重試(retry_count 維持 0)
+    last_error:
+      status === 'failed' ? '推送逾時,將自動重試'
+      : status === 'cancelled' ? CANCEL_REASONS_SAMPLE[i % CANCEL_REASONS_SAMPLE.length]
+      : null,
     retry_count: status === 'failed' ? (i % 5) + 1 : 0,
     created_at: createdAt,
     sent_at: sentAt,
@@ -106,6 +118,8 @@ const load = async () => {
     let result = MOCK_QUEUE
     if (queueStatus.value) result = result.filter(r => r.status === queueStatus.value)
     if (unreportedOnly.value) result = result.filter(r => !r.ipc_reported_at)
+    const nos = splitNos(searchTrackingNo.value)
+    if (nos.length) result = result.filter(r => nos.includes(r.tracking_no))
     if (searchKeyword.value) {
       const kw = searchKeyword.value.toLowerCase()
       result = result.filter(r =>
@@ -125,6 +139,7 @@ const load = async () => {
     queueItems.value = await queueList({
       status: queueStatus.value,
       keyword: searchKeyword.value.trim() || null,
+      trackingNo: searchTrackingNo.value || null,
       unreportedOnly: unreportedOnly.value === true,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
@@ -158,7 +173,7 @@ const handlePurge = async () => {
   }
 }
 
-watch([queueStatus, searchKeyword, unreportedOnly], () => { page.value = 1; load() })
+watch([queueStatus, searchKeyword, searchTrackingNo, unreportedOnly], () => { page.value = 1; load() })
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _timer = null
@@ -232,19 +247,25 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
         <VExpansionPanelTitle class="advanced-search__title">{{ $t('common.advancedSearch') }}</VExpansionPanelTitle>
         <VExpansionPanelText>
           <VRow no-gutters class="mx-n2">
-            <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
+            <VCol cols="12" sm="6" lg="3" class="px-2 py-1">
+              <div class="search-field">
+                <label>{{ $t('page.queue.col.trackingNo') }}</label>
+                <MultiNoField v-model="searchTrackingNo" @search="load" />
+              </div>
+            </VCol>
+            <VCol cols="12" sm="6" lg="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.eventLog.keyword') }}</label>
                 <VTextField v-model="searchKeyword" :placeholder="$t('page.queue.keywordPlaceholder')" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
-            <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
+            <VCol cols="12" sm="6" lg="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.queue.col.source') }}</label>
                 <VSelect v-model="unreportedOnly" :items="REPORTED_FILTERS" density="compact" hide-details variant="outlined" />
               </div>
             </VCol>
-            <VCol cols="12" sm="6" lg="4" class="px-2 py-1">
+            <VCol cols="12" sm="6" lg="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.queue.col.status') }}</label>
                 <VSelect v-model="queueStatus" :items="QUEUE_STATUSES" density="compact" hide-details variant="outlined" />

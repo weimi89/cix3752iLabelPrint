@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
+use super::search_terms::{in_clause, split_nos};
 use crate::db::DbPool;
 use crate::{AppResult, SharedState};
 
@@ -10,10 +11,10 @@ pub struct ParcelAlertListReq {
     /// 關鍵字(在 query_no / shipping_no / message 做 LIKE 模糊)
     #[serde(default)]
     pub keyword: Option<String>,
-    /// 查詢單號(單獨欄位,LIKE 模糊)
+    /// 查詢單號:可一次多組(逗號 / 空白 / 換行分隔),精確比對
     #[serde(default)]
     pub query_no: Option<String>,
-    /// 物流單號(單獨欄位,LIKE 模糊)
+    /// 物流單號:可一次多組,精確比對
     #[serde(default)]
     pub shipping_no: Option<String>,
     /// 異常類別(store_closed / unconfirmed / not_found …);省略或空字串 = 全部
@@ -47,7 +48,7 @@ pub struct ParcelAlertListResp {
 
 /// 桌面回看用:雲端查件異常清單(門市關轉 / 未確認 / 找不到 …),依 id DESC 分頁
 /// - keyword 對 query_no / shipping_no / message 做 LIKE
-/// - query_no / shipping_no 各自對單一欄位做 LIKE(可與 keyword 疊加)
+/// - query_no / shipping_no 各自為多組單號 IN 清單、精確比對(可與 keyword 疊加)
 /// - kind 精確比對類別
 ///
 /// 注意:不可用 `?1` 編號參數混搭匿名 `?`,sqlx 依 bind 順序做位置綁定,
@@ -68,10 +69,14 @@ pub async fn list_parcel_alerts(
     let limit = req.limit.clamp(1, 1000);
     let offset = req.offset.max(0);
 
-    let to_like = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|kw| format!("%{kw}%"));
-    let like = to_like(&req.keyword);
-    let query_like = to_like(&req.query_no);
-    let shipping_like = to_like(&req.shipping_no);
+    let like = req
+        .keyword
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|kw| format!("%{kw}%"));
+    let query_nos = split_nos(req.query_no.as_deref());
+    let shipping_nos = split_nos(req.shipping_no.as_deref());
     let kind = req
         .kind
         .as_deref()
@@ -79,18 +84,18 @@ pub async fn list_parcel_alerts(
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
 
-    let mut where_clauses: Vec<&str> = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
     if like.is_some() {
-        where_clauses.push("(query_no LIKE ? OR shipping_no LIKE ? OR message LIKE ?)");
+        where_clauses.push("(query_no LIKE ? OR shipping_no LIKE ? OR message LIKE ?)".into());
     }
-    if query_like.is_some() {
-        where_clauses.push("query_no LIKE ?");
+    if !query_nos.is_empty() {
+        where_clauses.push(in_clause("query_no", query_nos.len()));
     }
-    if shipping_like.is_some() {
-        where_clauses.push("shipping_no LIKE ?");
+    if !shipping_nos.is_empty() {
+        where_clauses.push(in_clause("shipping_no", shipping_nos.len()));
     }
     if kind.is_some() {
-        where_clauses.push("kind = ?");
+        where_clauses.push("kind = ?".into());
     }
     let where_sql = if where_clauses.is_empty() {
         String::new()
@@ -112,12 +117,8 @@ pub async fn list_parcel_alerts(
     if let Some(like) = like.as_deref() {
         binds.extend([like, like, like]);
     }
-    if let Some(v) = query_like.as_deref() {
-        binds.push(v);
-    }
-    if let Some(v) = shipping_like.as_deref() {
-        binds.push(v);
-    }
+    binds.extend(query_nos.iter().map(String::as_str));
+    binds.extend(shipping_nos.iter().map(String::as_str));
     if let Some(k) = kind.as_deref() {
         binds.push(k);
     }

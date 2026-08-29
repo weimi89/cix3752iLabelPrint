@@ -19,3 +19,4 @@ pub mod sort_channel_commands;
 pub fn ping() -> &'static str {
     "pong"
 }
+pub mod search_terms;

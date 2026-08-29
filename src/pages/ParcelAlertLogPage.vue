@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
+import MultiNoField from '@/components/MultiNoField.vue'
 import { parcelAlertList } from '@/api/tauri'
 
 const { t } = useI18n()
@@ -110,13 +111,13 @@ const empty = computed(() => !loading.value && items.value.length === 0)
             <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.alertLog.col.queryNo') }}</label>
-                <VTextField v-model="searchQueryNo" density="compact" hide-details variant="outlined" clearable @keyup.enter="load" />
+                <MultiNoField v-model="searchQueryNo" @search="load" />
               </div>
             </VCol>
             <VCol cols="12" md="3" class="px-2 py-1">
               <div class="search-field">
                 <label>{{ $t('page.alertLog.col.shippingNo') }}</label>
-                <VTextField v-model="searchShippingNo" density="compact" hide-details variant="outlined" clearable @keyup.enter="load" />
+                <MultiNoField v-model="searchShippingNo" @search="load" />
               </div>
             </VCol>
             <VCol cols="12" md="3" class="px-2 py-1">

@@ -33,7 +33,8 @@
     "all": "全部",
     "pick": "選擇",
     "clearAll": "清空",
-    "advancedSearch": "進階查詢"
+    "advancedSearch": "進階查詢",
+    "multiNoPlaceholder": "可貼多個單號,用逗號、空白或換行分隔"
   },
   "locale": {
     "label": "介面語言",

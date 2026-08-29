@@ -31,6 +31,11 @@
 - 驗證：`cargo check`、`cargo test --test parcel_alert_list`（3 passed）、`vite build` 綠。**畫面未實機看**（Chrome 擴充開不了 localhost），元件與請求記錄頁同一套。
 - 手機端 `GET /api/alerts` 仍走 `fetch_recent_alerts`，未動。
 
+**A2. 三頁單號欄位獨立、多組、精確比對**（查件異常／請求記錄／佇列歷史）
+- 共用 `commands/search_terms.rs`：`split_nos`（逗號／分號／頓號／空白／換行切分、去重）+ `in_clause`；三支 list 指令各加 `query_no`／`shipping_no`／`tracking_no` 參數走 `IN (...)`。關鍵字欄位維持 LIKE。
+- 前端共用 `components/MultiNoField.vue`：攔 paste 把多行貼上轉空白（瀏覽器對單行輸入會直接吃掉換行、單號黏成一串）；`api/tauri.js` 的 `splitNos` 供 mock 同規則。
+- 驗證：`search_terms` 單元測試 2、`parcel_alert_list` 整合測試 4（含精確不命中前綴、多組混分隔、疊加關鍵字／狀態）、`parcel_query_log_keyword` 3 全綠；`cargo check`、`vite build` 綠。**三頁畫面與貼上行為未實機看**（GUI 自動化已停）。
+
 **B. 清關進度浮動框加「貼單單數（去重）」**
 - 口徑＝雲端「現場作業監控」頁的貼單單數：**今日業務日（06:00 起算）`order_print_log` distinct `order_sn`，不分廠別**；與浮動框的報關日區間無關。
 - 雲端 cix3752iWeb（**未 commit、未部署**）：`OrderPrintService::stickerBusinessDayWindow()` / `stickerDistinctTotals()` 抽成共用，`FieldOperationMonitorController` 改用（口徑單一來源）；`clearance/progress` 回應多 `sticker: {business_date, package_num, order_num}`。
