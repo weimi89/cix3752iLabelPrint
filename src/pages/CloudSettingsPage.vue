@@ -184,7 +184,7 @@ const handleLogout = async () => {
         <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">API Base URL</VLabel>
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">API Base URL</VLabel>
           <VTextField
             v-model="form.api_base"
             placeholder="https://your-domain.example.com"
@@ -194,7 +194,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">Personal Access Token</VLabel>
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">Personal Access Token</VLabel>
           <VTextField
             v-model="form.token"
             type="password"
@@ -205,7 +205,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cloud.jobUserLabel') }}</VLabel>
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cloud.jobUserLabel') }}</VLabel>
           <VTextField
             v-model="form.job_user"
             :placeholder="$t('page.cloud.jobUserPlaceholder')"
@@ -215,7 +215,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cloud.parcelModeLabel') }}</VLabel>
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cloud.parcelModeLabel') }}</VLabel>
           <VSelect
             v-model="form.parcel_mode"
             :items="PARCEL_MODES"
@@ -228,8 +228,8 @@ const handleLogout = async () => {
 
         <div class="d-flex align-center justify-space-between">
           <div>
-            <div class="text-body-1 font-weight-medium">{{ $t('page.cloud.skipSslTitle') }}</div>
-            <div class="text-caption text-medium-emphasis">
+            <div class="text-body-large font-weight-medium">{{ $t('page.cloud.skipSslTitle') }}</div>
+            <div class="text-body-small text-medium-emphasis">
               {{ $t('page.cloud.skipSslDesc') }}
             </div>
           </div>
@@ -250,7 +250,7 @@ const handleLogout = async () => {
           {{ $t('page.cloud.advancedPaths') }}
         </VExpansionPanelTitle>
         <VExpansionPanelText>
-          <div class="text-caption text-disabled mb-3">
+          <div class="text-body-small text-disabled mb-3">
             {{ $t('page.cloud.advancedPathsHint') }}
           </div>
           <VRow no-gutters class="mx-n2">

@@ -39,7 +39,7 @@ const routes = [
   { path: '/clearance-dispatch', name: 'clearance-dispatch', component: ClearanceDispatchPage,
     meta: { title: 'nav.clearanceDispatch', icon: 'tabler-truck-delivery', group: 'nav.section.clearance' } },
   { path: '/field-operation-monitor', name: 'field-operation-monitor', component: FieldOperationMonitorPage,
-    meta: { title: 'nav.fieldOperationMonitor', icon: 'tabler-user-check', group: 'nav.section.clearance' } },
+    meta: { title: 'nav.fieldOperationMonitor', icon: 'tabler-user-check', group: 'nav.section.main' } },
   { path: '/warehouse-scanner', name: 'warehouse-scanner', component: WarehouseScannerPage,
     meta: { title: 'nav.warehouseScanner', icon: 'tabler-package-import', group: 'nav.section.clearance' } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,

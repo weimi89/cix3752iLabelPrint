@@ -103,10 +103,10 @@ export function useDeviceAlert() {
 
     // 去抖 key 一律用 alert_type(對齊檔頭與 CLAUDE.md 聲明的 per-type 語意):
     // 工控機常在 message 夾變動內容(通道位置 / 重試計數 / 時間戳),若 key 含 message,
-    // 每筆都是新 key → 去抖完全失效 → 每筆 stopCurrent() 打斷前一筆語音、toast 洗版
-    // (正是 v0.10.0 引入去抖要修的原始故障),且 Map 以無限 message 為 key 無界增長。
-    // 代價:同 type 的第二個不同故障(L2 與 R4 都卡)在 20s 窗內只提示一次 —— 語音本來就唸
-    // 固定雙語文案不含 message,現場聽到「卡包裹」即會巡線,可接受。
+    // 每筆都是新 key → 去抖完全失效 → 每筆 stopCurrent() 打斷前一筆語音、一個字都聽不完、
+    // toast 洗版,且 Map 以無限 message 為 key 無界增長。
+    // 限制:同 type 的第二個不同故障(L2 與 R4 都卡)在 20s 窗內只提示一次 —— 語音唸的是
+    // 固定雙語文案、不含 message,現場聽到「卡包裹」即會巡線。
     // 窗以「上次實際廣播」為基準,持續洪水下約每 20s 才會再提示一次。
     const now = Date.now()
     // 順手清過期(key 空間 = type 集合,本就極小;清掉讓長班常駐記憶體恆定)

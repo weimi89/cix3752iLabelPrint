@@ -33,10 +33,10 @@ const props = defineProps({
         <VIcon :icon="props.icon" />
       </VAvatar>
 
-      <h5 class="text-h5 pt-2 mb-1">
+      <h5 class="text-headline-small pt-2 mb-1">
         {{ props.stats }}
       </h5>
-      <div class="text-body-1">
+      <div class="text-body-large">
         {{ props.title }}
       </div>
     </VCardText>

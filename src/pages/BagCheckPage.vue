@@ -229,6 +229,8 @@ onUnmounted(() => {
   th, td { white-space: nowrap; }
 }
 .bag-card__toggle {
+  // 滑鼠點完焦點留在這格,WebKit 會畫內建焦點框;本頁為觸控/滑鼠操作,點完不留框(鍵盤 Enter/Space 仍可用)
+  &:focus, &:focus-visible { outline: none; }
   display: flex;
   align-items: center;
   justify-content: center;
@@ -336,8 +338,8 @@ onUnmounted(() => {
     <VCard v-if="!bags.length" class="py-10">
       <div class="d-flex flex-column align-center justify-center text-medium-emphasis">
         <VIcon icon="tabler-package-off" size="48" class="mb-3" />
-        <div class="text-h6 mb-1">{{ $t('page.bagCheck.empty') }}</div>
-        <div class="text-body-2">{{ $t('page.bagCheck.emptyHint') }}</div>
+        <div class="text-title-large mb-1">{{ $t('page.bagCheck.empty') }}</div>
+        <div class="text-body-medium">{{ $t('page.bagCheck.emptyHint') }}</div>
       </div>
     </VCard>
 
@@ -346,7 +348,7 @@ onUnmounted(() => {
       <VCard v-if="!missingOverview.length" class="py-10">
         <div class="d-flex flex-column align-center justify-center text-success">
           <VIcon icon="tabler-circle-check" size="48" class="mb-3" />
-          <div class="text-h6">{{ $t('page.bagCheck.allComplete') }}</div>
+          <div class="text-title-large">{{ $t('page.bagCheck.allComplete') }}</div>
         </div>
       </VCard>
       <VCard v-else>
@@ -370,7 +372,7 @@ onUnmounted(() => {
     <!-- 精簡列表:每袋一行 -->
     <template v-else-if="viewMode === 'compact'">
       <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
-        <div class="text-body-1">{{ $t('page.bagCheck.noMatch') }}</div>
+        <div class="text-body-large">{{ $t('page.bagCheck.noMatch') }}</div>
       </VCard>
       <VCard v-else>
         <VTable class="bag-compact">
@@ -402,7 +404,7 @@ onUnmounted(() => {
     <!-- 詳細卡片:Masonry 瀑布流(row-major,4 個一列填滿),展開/收合/刷新由 ResizeObserver 自動重排 -->
     <template v-else>
       <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
-        <div class="text-body-1">{{ $t('page.bagCheck.noMatch') }}</div>
+        <div class="text-body-large">{{ $t('page.bagCheck.noMatch') }}</div>
       </VCard>
       <div v-else ref="masonryEl" class="bag-masonry" :class="{ 'bag-masonry--ready': masonryReady }">
       <!-- columnWidth 量測基準(不參與佈局,僅供 Masonry 計算欄寬) -->
@@ -415,7 +417,7 @@ onUnmounted(() => {
               </VAvatar>
             </template>
             <VCardTitle class="text-truncate">{{ bag.package_sn }}</VCardTitle>
-            <VCardSubtitle class="text-caption">
+            <VCardSubtitle class="text-body-small">
               {{ $t('page.bagCheck.lastRequestAt') }}:{{ formatTime(bag.last_request_at) }}
             </VCardSubtitle>
             <template #append>
@@ -437,15 +439,15 @@ onUnmounted(() => {
             <div class="d-flex justify-space-around text-center">
               <div class="bag-stat flex-column">
                 <span class="bag-stat__num">{{ bag.total }}</span>
-                <span class="text-caption text-medium-emphasis">{{ $t('page.bagCheck.total') }}</span>
+                <span class="text-body-small text-medium-emphasis">{{ $t('page.bagCheck.total') }}</span>
               </div>
               <div class="bag-stat flex-column">
                 <span class="bag-stat__num text-success">{{ bag.printed }}</span>
-                <span class="text-caption text-medium-emphasis">{{ $t('page.bagCheck.printed') }}</span>
+                <span class="text-body-small text-medium-emphasis">{{ $t('page.bagCheck.printed') }}</span>
               </div>
               <div class="bag-stat flex-column">
                 <span class="bag-stat__num" :class="bag.missing > 0 ? 'text-warning' : 'text-disabled'">{{ bag.missing }}</span>
-                <span class="text-caption text-medium-emphasis">{{ $t('page.bagCheck.missing') }}</span>
+                <span class="text-body-small text-medium-emphasis">{{ $t('page.bagCheck.missing') }}</span>
               </div>
             </div>
           </VCardText>
@@ -460,7 +462,7 @@ onUnmounted(() => {
               @keydown.enter="toggleExpand(bag)"
               @keydown.space.prevent="toggleExpand(bag)"
             >
-              <span class="text-caption font-weight-medium text-primary">
+              <span class="text-body-small font-weight-medium text-primary">
                 {{ isExpanded(bag) ? $t('page.bagCheck.collapse') : $t('page.bagCheck.expand') }}
               </span>
               <VIcon

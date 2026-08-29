@@ -249,7 +249,7 @@ const confirmDelete = async () => {
             <template #code>{{ deleteTarget.code }}</template>
           </i18n-t>
           <br>
-          <span class="text-caption text-disabled">{{ $t('page.dispatch.confirmDeleteHint') }}</span>
+          <span class="text-body-small text-disabled">{{ $t('page.dispatch.confirmDeleteHint') }}</span>
         </VCardText>
         <VCardActions>
           <VSpacer />

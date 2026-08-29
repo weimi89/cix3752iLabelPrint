@@ -195,7 +195,7 @@ const saveAll = async () => {
     }
     // direct_print 模式下,會實際接件的通道(有代碼 + 有指派物流)一定要有印表機,否則
     // 該通道每一件都會「工控機收 200、統計與袋核對記已印,實體卻沒印」的靜默漏印。
-    // 此檢查取代舊「指派物流」頁被移除的 errPrinterNameRequired,不可省略。
+    // 這是印表機必填的唯一把關處(「指派物流」頁不再檢查),不可省略。
     if (isDirectPrintMode.value && code && ch.dispatch_codes?.length && !ch.printer_name) {
       errors.push(t('page.sort.printerRequired', { pos: POSITION_LABELS.value[pos] }))
       continue // 保留 dirty 供修正
@@ -438,8 +438,8 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           class="flex-shrink-0"
         />
         <div class="flex-grow-1">
-          <div class="text-body-2 font-weight-medium">{{ $t('label.settings.sortOnly') }}</div>
-          <div class="text-caption text-medium-emphasis">{{ $t('label.settings.sortOnlyHint') }}</div>
+          <div class="text-body-medium font-weight-medium">{{ $t('label.settings.sortOnly') }}</div>
+          <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.sortOnlyHint') }}</div>
         </div>
         <VSwitch
           :model-value="sortOnly"
@@ -468,7 +468,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           :color="unassignedCode ? 'primary' : 'warning'"
           class="flex-shrink-0"
         />
-        <span class="text-body-2 flex-grow-1">未指派物流通道 — 預設回傳代碼</span>
+        <span class="text-body-medium flex-grow-1">未指派物流通道 — 預設回傳代碼</span>
         <VBtn
           :color="unassignedCode ? 'primary' : 'warning'"
           :variant="unassignedCode ? 'flat' : 'tonal'"
@@ -501,7 +501,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           {{ $t('page.sort.unassigned.label') }}
         </VCardTitle>
         <VCardText class="px-5 pb-2">
-          <div class="text-caption text-medium-emphasis mb-4">{{ $t('page.sort.unassigned.hint') }}</div>
+          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.unassigned.hint') }}</div>
           <VTextField
             v-model="unassignedDraft"
             :label="$t('page.sort.unassigned.placeholder')"
@@ -606,7 +606,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   hide-details
                   @update:model-value="markDirty(pos)"
                 />
-                <div v-if="printerMissing(pos)" class="text-caption text-error mt-1 d-flex align-center">
+                <div v-if="printerMissing(pos)" class="text-body-small text-error mt-1 d-flex align-center">
                   <VIcon icon="tabler-alert-triangle" size="13" class="me-1" />
                   {{ $t('page.sort.printerMissingHint') }}
                 </div>
@@ -723,7 +723,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   hide-details
                   @update:model-value="markDirty(pos)"
                 />
-                <div v-if="printerMissing(pos)" class="text-caption text-error mt-1 d-flex align-center">
+                <div v-if="printerMissing(pos)" class="text-body-small text-error mt-1 d-flex align-center">
                   <VIcon icon="tabler-alert-triangle" size="13" class="me-1" />
                   {{ $t('page.sort.printerMissingHint') }}
                 </div>

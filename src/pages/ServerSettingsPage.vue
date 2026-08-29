@@ -110,13 +110,13 @@ const restart = async () => {
 
     <VCard class="mb-4">
       <VCardText>
-        <VRow dense>
+        <VRow density="compact">
           <VCol cols="12" md="8">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.server.listenIp') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.listenIp') }}</VLabel>
             <VTextField v-model="config.server.listen_ip" hide-details />
           </VCol>
           <VCol cols="12" md="4">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.server.port') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.port') }}</VLabel>
             <VNumberInput v-model="config.server.port" :min="1" :max="65535" />
           </VCol>
         </VRow>
@@ -125,8 +125,8 @@ const restart = async () => {
 
         <div class="d-flex align-center justify-space-between">
           <div>
-            <div class="text-body-1 font-weight-medium">{{ $t('page.server.autoStartTitle') }}</div>
-            <div class="text-caption text-medium-emphasis">{{ $t('page.server.autoStartDesc') }}</div>
+            <div class="text-body-large font-weight-medium">{{ $t('page.server.autoStartTitle') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('page.server.autoStartDesc') }}</div>
           </div>
           <VSwitch
             v-model="config.server.auto_start"
@@ -138,7 +138,7 @@ const restart = async () => {
 
         <VDivider class="my-4" />
 
-        <div class="text-body-2">
+        <div class="text-body-medium">
           <span class="text-medium-emphasis">{{ $t('page.server.currentBind') }}</span>
           <code class="ms-2">{{ status.bind_addr || $t('page.dashboard.notStarted') }}</code>
         </div>
@@ -147,13 +147,13 @@ const restart = async () => {
 
     <VCard class="mb-4">
       <VCardItem>
-        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('page.server.appSection') }}</VCardTitle>
+        <VCardTitle class="text-body-large font-weight-medium">{{ $t('page.server.appSection') }}</VCardTitle>
       </VCardItem>
       <VCardText>
         <div class="d-flex align-center justify-space-between">
           <div>
-            <div class="text-body-1 font-weight-medium">{{ $t('locale.label') }}</div>
-            <div class="text-caption text-medium-emphasis">{{ $t('page.server.localeDesc') }}</div>
+            <div class="text-body-large font-weight-medium">{{ $t('locale.label') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('page.server.localeDesc') }}</div>
           </div>
           <VSelect
             :model-value="currentLocale"
@@ -172,33 +172,33 @@ const restart = async () => {
 
     <VCard class="mb-4">
       <VCardItem>
-        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('network.settings.section') }}</VCardTitle>
-        <VCardSubtitle class="text-caption">{{ $t('network.settings.desc') }}</VCardSubtitle>
+        <VCardTitle class="text-body-large font-weight-medium">{{ $t('network.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-body-small">{{ $t('network.settings.desc') }}</VCardSubtitle>
       </VCardItem>
       <VCardText>
-        <VRow dense>
+        <VRow density="compact">
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.anchorAddr') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.anchorAddr') }}</VLabel>
             <VTextField v-model="config.network.anchor_addr" placeholder="1.1.1.1:443" hide-details density="compact" variant="outlined" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.intervalSecs') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.intervalSecs') }}</VLabel>
             <VNumberInput v-model="config.network.interval_secs" :min="5" :max="3600" density="compact" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.degradeIntervalSecs') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.degradeIntervalSecs') }}</VLabel>
             <VNumberInput v-model="config.network.degrade_interval_secs" :min="5" :max="3600" density="compact" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.anchorTimeoutMs') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.anchorTimeoutMs') }}</VLabel>
             <VNumberInput v-model="config.network.anchor_timeout_ms" :min="100" :max="10000" :step="100" density="compact" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.cloudTimeoutSecs') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.cloudTimeoutSecs') }}</VLabel>
             <VNumberInput v-model="config.network.cloud_timeout_secs" :min="1" :max="60" density="compact" />
           </VCol>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('network.settings.failThreshold') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('network.settings.failThreshold') }}</VLabel>
             <VNumberInput v-model="config.network.fail_threshold" :min="1" :max="10" density="compact" />
           </VCol>
         </VRow>
@@ -207,29 +207,29 @@ const restart = async () => {
 
     <VCard v-if="config.sync" class="mb-4">
       <VCardItem>
-        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('sync.settings.section') }}</VCardTitle>
-        <VCardSubtitle class="text-caption text-wrap">{{ $t('sync.settings.desc') }}</VCardSubtitle>
+        <VCardTitle class="text-body-large font-weight-medium">{{ $t('sync.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-body-small text-wrap">{{ $t('sync.settings.desc') }}</VCardSubtitle>
       </VCardItem>
       <VCardText>
         <div class="d-flex align-center justify-space-between mb-1">
           <div class="pe-2">
-            <div class="text-body-1 font-weight-medium">{{ $t('sync.settings.enable') }}</div>
-            <div class="text-caption text-medium-emphasis text-wrap">{{ $t('sync.settings.enableDesc') }}</div>
+            <div class="text-body-large font-weight-medium">{{ $t('sync.settings.enable') }}</div>
+            <div class="text-body-small text-medium-emphasis text-wrap">{{ $t('sync.settings.enableDesc') }}</div>
           </div>
           <VSwitch v-model="config.sync.enabled" hide-details color="primary" inset />
         </div>
 
-        <VRow v-if="config.sync.enabled" dense class="mt-1">
+        <VRow v-if="config.sync.enabled" density="compact" class="mt-1">
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.host') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('sync.settings.host') }}</VLabel>
             <VTextField v-model="config.sync.reverb_host" :placeholder="$t('sync.settings.hostPlaceholder')" hide-details density="compact" variant="outlined" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.port') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('sync.settings.port') }}</VLabel>
             <VNumberInput v-model="config.sync.reverb_port" :min="1" :max="65535" density="compact" />
           </VCol>
           <VCol cols="6" md="3">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.scheme') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('sync.settings.scheme') }}</VLabel>
             <VSelect
               v-model="config.sync.reverb_scheme"
               :items="['wss', 'ws']"
@@ -239,26 +239,26 @@ const restart = async () => {
             />
           </VCol>
           <VCol cols="12">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('sync.settings.appKey') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('sync.settings.appKey') }}</VLabel>
             <VTextField v-model="config.sync.reverb_app_key" :placeholder="$t('sync.settings.appKeyPlaceholder')" hide-details density="compact" variant="outlined" />
           </VCol>
         </VRow>
 
         <VAlert v-if="config.sync.enabled" type="info" variant="tonal" density="compact" class="mt-3" :icon="false">
-          <div class="text-caption">{{ $t('sync.settings.hint') }}</div>
+          <div class="text-body-small">{{ $t('sync.settings.hint') }}</div>
         </VAlert>
       </VCardText>
     </VCard>
 
     <VCard class="mb-4">
       <VCardItem>
-        <VCardTitle class="text-body-1 font-weight-medium">{{ $t('label.settings.section') }}</VCardTitle>
-        <VCardSubtitle class="text-caption">{{ $t('label.settings.desc') }}</VCardSubtitle>
+        <VCardTitle class="text-body-large font-weight-medium">{{ $t('label.settings.section') }}</VCardTitle>
+        <VCardSubtitle class="text-body-small">{{ $t('label.settings.desc') }}</VCardSubtitle>
       </VCardItem>
       <VCardText>
-        <VRow dense>
+        <VRow density="compact">
           <VCol cols="12" md="4">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.mode') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('label.settings.mode') }}</VLabel>
             <VSelect
               v-model="config.label_path.mode"
               :items="labelPathModeItems"
@@ -271,7 +271,7 @@ const restart = async () => {
             />
           </VCol>
           <VCol v-if="config.label_path.mode === 'share' && !config.sort_only.enabled" cols="12" md="8">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.shareRoot') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('label.settings.shareRoot') }}</VLabel>
             <VTextField
               v-model="config.label_path.share_root"
               :placeholder="$t('label.settings.shareRootPlaceholder')"
@@ -281,7 +281,7 @@ const restart = async () => {
             />
           </VCol>
           <VCol v-if="config.label_path.mode === 'direct_print' && !config.sort_only.enabled" cols="12" md="4">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('label.settings.reportDelay') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('label.settings.reportDelay') }}</VLabel>
             <VTextField
               v-model.number="config.label_path.direct_print_report_delay_secs"
               type="number"
@@ -303,7 +303,7 @@ const restart = async () => {
           class="mt-3"
           :icon="false"
         >
-          <div class="text-caption">{{ $t('label.settings.reportDelayHint') }}</div>
+          <div class="text-body-small">{{ $t('label.settings.reportDelayHint') }}</div>
         </VAlert>
 
         <VAlert
@@ -313,7 +313,7 @@ const restart = async () => {
           class="mt-3"
           :icon="false"
         >
-          <div class="text-caption">
+          <div class="text-body-small">
             {{
               config.sort_only.enabled
                 ? $t('label.settings.sortOnlyActiveHint')

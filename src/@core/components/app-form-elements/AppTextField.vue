@@ -30,7 +30,7 @@ defineExpose({
     <VLabel
       v-if="label"
       :for="elementId"
-      class="mb-1 text-body-2 text-wrap"
+      class="mb-1 text-body-medium text-wrap"
       style="line-height: 15px;"
       :text="label"
     />

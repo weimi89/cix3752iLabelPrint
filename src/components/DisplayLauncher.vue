@@ -79,7 +79,7 @@ const launch = async (mon, { fullscreen, borderless }) => {
     </template>
 
     <VCard min-width="280" class="pa-1">
-      <VCardText class="text-caption text-medium-emphasis pb-1">
+      <VCardText class="text-body-small text-medium-emphasis pb-1">
         {{ $t('page.display.pickScreen') }}
       </VCardText>
 

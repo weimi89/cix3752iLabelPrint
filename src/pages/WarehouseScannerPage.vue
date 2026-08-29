@@ -1,9 +1,8 @@
 <script setup>
 // 入倉驗單 — 掃描包裹入倉。業務邏輯全在雲端 WarehouseScannerService,本頁透過
 // api/tauri.js → Tauri command → 雲端 api_v1 取結果;箱標走本地印表機列印。
-// 由 cix3752iWeb resources/js/pages/warehouse-scanner.vue 移植改寫(axios/route → invoke、
-// Inertia options prop → warehouseOptions();音效沿用雲端設計:useAmplifiedSound 放大 +
-// 入箱成功播預錄箱號人聲 box-{serial}.mp3,缺檔退回 useSpeech 雙語 TTS)。
+// 操作流程與雲端 cix3752iWeb 入倉頁一致(兩端行為需同步);音效同樣走 useAmplifiedSound 放大 +
+// 入箱成功播預錄箱號人聲 box-{serial}.mp3,缺檔退回 useSpeech 雙語 TTS。
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
@@ -51,7 +50,7 @@ watch(() => formData.scanner_user, v => localStorage.setItem(SCANNER_USER_KEY, v
 const currentPackageSn = ref('')
 const currentStorageWarehouse = ref('')
 // 已建箱身分:建箱/載箱成功時記下當時的(倉庫/物流商/日期/箱號)。examine 以此 tuple 比對
-// 目前表單,判斷「箱號是否已建立且未被改動」——不再自行重算雲端 package_sn 字串格式,
+// 目前表單,判斷「箱號是否已建立且未被改動」——**不可自行重算雲端 package_sn 字串格式**,
 // 避免與雲端 WarehouseScannerService 的組法耦合(補零/日期切法一有差異就全擋、功能失效)。
 const builtBox = ref(null)
 const currentBoxTuple = () => ({
@@ -371,7 +370,7 @@ const printLabels = async () => {
           <VCardText>
             <!-- 倉庫選擇 -->
             <div class="my-4">
-              <label class="text-body-1 font-weight-medium d-block mb-2">{{ t('page.warehouseScanner.warehouse') }}</label>
+              <label class="text-body-large font-weight-medium d-block mb-2">{{ t('page.warehouseScanner.warehouse') }}</label>
               <VRadioGroup v-model="formData.storage_warehouse" inline hide-details>
                 <VRadio
                   v-for="(name, value) in options.warehouses"
@@ -384,7 +383,7 @@ const printLabels = async () => {
 
             <!-- 物流商選擇 -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.provider') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.provider') }}</label>
               <VSelect
                 v-model="formData.return_provider"
                 :items="options.providers"
@@ -397,13 +396,13 @@ const printLabels = async () => {
 
             <!-- 日期 -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.date') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.date') }}</label>
               <AppDatePicker v-model="formData.return_date" density="compact" />
             </div>
 
             <!-- 開始箱號 -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.startSerial') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.startSerial') }}</label>
               <VNumberInput
                 v-model="formData.serial_number"
                 :min="1"
@@ -416,7 +415,7 @@ const printLabels = async () => {
 
             <!-- 備註 -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.remarks') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.remarks') }}</label>
               <VTextField
                 v-model="formData.return_remarks"
                 autocomplete="off"
@@ -459,7 +458,7 @@ const printLabels = async () => {
 
             <!-- 箱標印表機 -->
             <div class="mt-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.printer') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.printer') }}</label>
               <VSelect
                 v-model="selectedPrinter"
                 :items="printers"
@@ -480,13 +479,13 @@ const printLabels = async () => {
             <VIcon size="22" icon="tabler-scan" class="me-2" />
             <span>{{ t('page.warehouseScanner.panelScan') }}</span>
             <VSpacer />
-            <span class="text-body-2 me-2">{{ t('page.warehouseScanner.segmentBarcode') }}</span>
+            <span class="text-body-medium me-2">{{ t('page.warehouseScanner.segmentBarcode') }}</span>
             <VSwitch v-model="enableSegment" hide-details density="compact" class="flex-grow-0" style="transform: scale(0.75); transform-origin: right center;" />
           </VCardTitle>
           <VCardText>
             <!-- 操作人員 -->
             <div class="my-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.scannerUser') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.scannerUser') }}</label>
               <VTextField
                 v-model="formData.scanner_user"
                 autocomplete="off"
@@ -497,7 +496,7 @@ const printLabels = async () => {
 
             <!-- 包裹條碼 -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.shipmentNo') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.shipmentNo') }}</label>
               <VTextField
                 ref="shipmentNoInput"
                 v-model="formData.shipment_no"
@@ -510,7 +509,7 @@ const printLabels = async () => {
 
             <!-- 二段條碼(啟用開關在本卡標題右上) -->
             <div class="mb-4">
-              <label class="text-body-2 d-block mb-1">{{ t('page.warehouseScanner.segmentBarcode') }}</label>
+              <label class="text-body-medium d-block mb-1">{{ t('page.warehouseScanner.segmentBarcode') }}</label>
               <VTextField
                 ref="segmentBarcodeInput"
                 v-model="formData.segment_barcode"

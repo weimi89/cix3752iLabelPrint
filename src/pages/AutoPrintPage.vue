@@ -231,7 +231,7 @@ const performPrintOrder = async (orderSn, { packageSn = '' } = {}) => {
       case 'ABNORMAL-PACKAGE':
         playSound('effect_2')
         toast(t('page.auto.toast.abnormalPackage', { sn: data.package_sn || orderSn }), { type: 'warning' })
-        // 袋號異常:清空包裹條碼並重新聚焦,讓操作員重刷袋號(對應 cix3752iWeb 舊版 $('[name="shipment_no"]').val('').focus())
+        // 袋號異常:清空包裹條碼並重新聚焦,讓操作員重刷袋號
         form.shipment_no = ''
         nextTick(() => shipmentNoRef.value?.focus())
         break
@@ -471,14 +471,14 @@ onMounted(() => {
                 hide-details
                 inset
               />
-              <span class="text-body-1 ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
+              <span class="text-body-large ms-1 cursor-pointer" @click="printTypeMultiple = !printTypeMultiple">
                 {{ $t('page.scan.printScopeMultiple') }}
               </span>
             </VCardTitle>
             <VCardText>
               <div class="d-flex ga-3 my-3">
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                     {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -490,7 +490,7 @@ onMounted(() => {
                   />
                 </div>
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                     {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -503,7 +503,7 @@ onMounted(() => {
                 </div>
               </div>
               <div class="mb-3">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+                <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                   {{ examineByOrderSn ? $t('page.auto.orderSn') : $t('page.auto.packageBarcode') }}
                 </VLabel>
                 <VTextField
@@ -518,7 +518,7 @@ onMounted(() => {
                   上面那個輸入框 enter 後直接走 examinePackage,後續還是回到上面繼續刷,
                   第二個欄位 label 重複「系統訂單編號」會讓使用者不知道刷哪個,直接隱藏 -->
               <div v-if="!examineByOrderSn" class="mb-3">
-                <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
+                <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
                 <VTextField
                   ref="orderSnRef"
                   v-model="form.order_sn"
@@ -528,7 +528,7 @@ onMounted(() => {
               </div>
               <div>
                 <VLabel
-                  class="mb-1 text-body-2"
+                  class="mb-1 text-body-medium"
                   style="line-height: 15px;"
                   :class="{ 'text-error font-weight-bold': printTypeMultiple }"
                 >
@@ -548,7 +548,7 @@ onMounted(() => {
                     @update:model-value="checked => togglePrintType(opt.value, checked)"
                   />
                 </div>
-                <div v-else class="text-medium-emphasis text-body-2 px-1 py-2">
+                <div v-else class="text-medium-emphasis text-body-medium px-1 py-2">
                   {{ $t('common.noPrintersConfigured') }}
                 </div>
               </div>
@@ -567,7 +567,7 @@ onMounted(() => {
                 inset
               />
               <span
-                class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
+                class="text-body-medium text-medium-emphasis cursor-pointer ms-2"
                 @click="autoPrintOnScan = !autoPrintOnScan"
               >
                 {{ $t('page.auto.autoPrintOnScan') }}
@@ -582,7 +582,7 @@ onMounted(() => {
                 inset
               />
               <span
-                class="text-body-2 text-medium-emphasis cursor-pointer ms-2"
+                class="text-body-medium text-medium-emphasis cursor-pointer ms-2"
                 @click="examineByOrderSn = !examineByOrderSn"
               >
                 {{ $t('page.auto.examineByOrderSn') }}
@@ -608,10 +608,10 @@ onMounted(() => {
                 size="22"
               />
             </span>
-            <span v-if="packageOrders.length > 0" class="text-body-2 d-flex align-baseline gap-4">
+            <span v-if="packageOrders.length > 0" class="text-body-medium d-flex align-baseline gap-4">
               <span v-if="unprintedCount > 0" class="d-inline-flex align-baseline gap-1 text-warning">
                 <span>{{ $t('page.auto.unprintedCount') }}</span>
-                <span class="font-weight-bold text-h5 text-warning">{{ unprintedCount }}</span>
+                <span class="font-weight-bold text-headline-small text-warning">{{ unprintedCount }}</span>
               </span>
               <span class="text-medium-emphasis">
                 {{ $t('page.auto.totalCount') }}
@@ -648,7 +648,7 @@ onMounted(() => {
                           <VDivider class="my-1" />
                           <span>{{ item.shipping_no }}</span>
                         </template>
-                        <div class="d-block d-sm-none text-body-2 text-medium-emphasis">
+                        <div class="d-block d-sm-none text-body-medium text-medium-emphasis">
                           {{ item.provider_name }} · {{ item.last_print_time || '-' }}
                         </div>
                       </div>

@@ -1,4 +1,4 @@
-// 對齐 cix3752iWeb 自動印單頁的音效對應(掃描成功/失敗/警告/未確認 …)
+// 對齊 cix3752iWeb 自動印單頁的音效對應(掃描成功/失敗/警告/未確認 …)
 // 不引入 @vueuse/sound,直接用 HTML5 Audio,Tauri WebView 內運作良好
 //
 // 提示音可自訂:對照表以 localStorage(PRINT_ALERT_SOUND_STORAGE_KEY)覆寫預設值,

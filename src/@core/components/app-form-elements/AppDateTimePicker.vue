@@ -130,7 +130,7 @@ const elementId = computed(() => {
     <!-- v-input -->
     <VLabel
       v-if="fieldProps.label"
-      class="mb-1 text-body-2 text-wrap"
+      class="mb-1 text-body-medium text-wrap"
       style="line-height: 15px;"
       :for="elementId"
       :text="fieldProps.label"

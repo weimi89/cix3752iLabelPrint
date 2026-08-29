@@ -100,12 +100,12 @@ const handleSubmit = async () => {
             <span>{{ $t('page.clearanceDispatch.settingsTitle') }}</span>
           </VCardTitle>
           <VCardText class="pa-5">
-            <div class="text-body-2 text-medium-emphasis mb-1">{{ $t('page.clearanceDispatch.shippingDate') }}</div>
+            <div class="text-body-medium text-medium-emphasis mb-1">{{ $t('page.clearanceDispatch.shippingDate') }}</div>
             <div class="mb-4">
               <AppDatePicker v-model="form.shipping_date" />
             </div>
 
-            <div class="text-body-2 text-medium-emphasis mb-1">{{ $t('page.clearanceDispatch.driverName') }}</div>
+            <div class="text-body-medium text-medium-emphasis mb-1">{{ $t('page.clearanceDispatch.driverName') }}</div>
             <VCombobox
               v-model="driverName"
               :items="options.drivers"
@@ -117,7 +117,7 @@ const handleSubmit = async () => {
               class="mb-4"
             />
 
-            <div class="text-body-2 font-weight-medium mb-2">{{ $t('page.clearanceDispatch.storageCode') }}</div>
+            <div class="text-body-medium font-weight-medium mb-2">{{ $t('page.clearanceDispatch.storageCode') }}</div>
             <VRadioGroup v-model="storageCode" inline hide-details>
               <VRadio
                 v-for="s in options.storages"

@@ -25,7 +25,7 @@ const props = defineProps({
     <VCardText class="d-flex align-center justify-space-between">
       <div>
         <div class="d-flex align-center flex-wrap">
-          <h5 class="text-h5">
+          <h5 class="text-headline-small">
             {{ props.stats }}
           </h5>
         </div>

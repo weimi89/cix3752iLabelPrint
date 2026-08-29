@@ -155,7 +155,7 @@ const handleClear = async () => {
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
-    <VRow dense class="mb-2">
+    <VRow density="compact" class="mb-2">
       <VCol cols="12" md="3">
         <VCard class="card-shadow stat-card">
           <VCardItem>
@@ -205,7 +205,7 @@ const handleClear = async () => {
     <VCard>
       <VCardText>
         <div class="mb-4">
-          <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.cacheDir') }}</VLabel>
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.cacheDir') }}</VLabel>
           <div class="d-flex gap-2">
             <VTextField
               v-model="config.cache.dir"
@@ -219,13 +219,13 @@ const handleClear = async () => {
           </div>
         </div>
 
-        <VRow dense>
+        <VRow density="compact">
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.keepDays') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.keepDays') }}</VLabel>
             <VNumberInput v-model="config.cache.keep_days" :min="0" />
           </VCol>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.maxSizeMb') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.maxSizeMb') }}</VLabel>
             <VNumberInput v-model="config.cache.max_size_mb" :min="0" />
           </VCol>
         </VRow>
@@ -235,7 +235,7 @@ const handleClear = async () => {
     <!-- 讀碼站快照相機:收到工控機 GET /api/parcel 當下抓 USB 相機一幀存證,佐證「沒貨卻出紙」 -->
     <VCard v-if="config.camera" class="mt-4">
       <VCardItem>
-        <VCardTitle class="text-body-1">
+        <VCardTitle class="text-body-large">
           <VIcon icon="tabler-camera" size="20" class="me-1" />{{ $t('page.cache.camera.title') }}
         </VCardTitle>
         <VCardSubtitle>{{ $t('page.cache.camera.subtitle') }}</VCardSubtitle>
@@ -249,7 +249,7 @@ const handleClear = async () => {
           hide-details
           class="mb-1"
         />
-        <div class="text-caption text-disabled mb-4">{{ $t('page.cache.camera.enableHint') }}</div>
+        <div class="text-body-small text-disabled mb-4">{{ $t('page.cache.camera.enableHint') }}</div>
 
         <!-- 相機預覽 / 對位:開對話框看即時串流並即時調變焦(拖滑桿立即生效、不必存檔) -->
         <div v-if="config.camera.enabled" class="mb-4">
@@ -258,22 +258,22 @@ const handleClear = async () => {
           </VBtn>
         </div>
 
-        <VRow dense>
+        <VRow density="compact">
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.camera.deviceIndex') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.camera.deviceIndex') }}</VLabel>
             <VNumberInput v-model="config.camera.device_index" :min="0" :disabled="!config.camera.enabled" />
-            <div class="text-caption text-disabled mt-1">{{ $t('page.cache.camera.deviceIndexHint') }}</div>
+            <div class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.deviceIndexHint') }}</div>
           </VCol>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.camera.jpegQuality') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.camera.jpegQuality') }}</VLabel>
             <VNumberInput v-model="config.camera.jpeg_quality" :min="1" :max="100" :disabled="!config.camera.enabled" />
-            <div class="text-caption text-disabled mt-1">{{ $t('page.cache.camera.jpegQualityHint') }}</div>
+            <div class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.jpegQualityHint') }}</div>
           </VCol>
         </VRow>
 
-        <VRow dense class="mt-2">
+        <VRow density="compact" class="mt-2">
           <VCol cols="12">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.camera.capturesDir') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.camera.capturesDir') }}</VLabel>
             <div class="d-flex gap-2">
               <VTextField
                 v-model="config.camera.captures_dir"
@@ -285,12 +285,12 @@ const handleClear = async () => {
                 <VIcon icon="tabler-folder-open" size="18" class="me-1" />{{ $t('common.pick') }}
               </VBtn>
             </div>
-            <div class="text-caption text-disabled mt-1">{{ $t('page.cache.camera.capturesDirHint') }}</div>
+            <div class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.capturesDirHint') }}</div>
           </VCol>
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-2" style="line-height: 15px;">{{ $t('page.cache.camera.keepDays') }}</VLabel>
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cache.camera.keepDays') }}</VLabel>
             <VNumberInput v-model="config.camera.keep_days" :min="0" />
-            <div class="text-caption text-disabled mt-1">{{ $t('page.cache.camera.keepDaysHint') }}</div>
+            <div class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.keepDaysHint') }}</div>
           </VCol>
         </VRow>
       </VCardText>
@@ -310,16 +310,16 @@ const handleClear = async () => {
         </VBtn>
         <VCard>
           <VCardItem>
-            <VCardTitle class="text-body-1">{{ $t('page.cache.camera.previewTitle') }}</VCardTitle>
+            <VCardTitle class="text-body-large">{{ $t('page.cache.camera.previewTitle') }}</VCardTitle>
           </VCardItem>
           <VDivider />
           <VCardText>
             <div class="camera-preview mx-auto">
               <img v-if="previewUrl" :src="previewUrl" class="camera-preview__img" alt="" />
-              <div v-else class="camera-preview__waiting text-disabled text-caption">{{ $t('page.cache.camera.previewWaiting') }}</div>
+              <div v-else class="camera-preview__waiting text-disabled text-body-small">{{ $t('page.cache.camera.previewWaiting') }}</div>
             </div>
             <div class="mt-4">
-              <VLabel class="mb-1 text-body-2" style="line-height: 15px;">
+              <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
                 {{ $t('page.cache.camera.zoom') }}:&nbsp;{{ Number(config.camera.zoom || 1).toFixed(1) }}x
               </VLabel>
               <VSlider
@@ -331,10 +331,10 @@ const handleClear = async () => {
                 hide-details
                 @update:model-value="onZoomInput"
               />
-              <div class="text-caption text-disabled">{{ $t('page.cache.camera.zoomLiveHint') }}</div>
+              <div class="text-body-small text-disabled">{{ $t('page.cache.camera.zoomLiveHint') }}</div>
             </div>
             <div class="d-flex align-center mt-4 ga-3">
-              <span v-if="captureMsg" class="text-caption text-success" style="word-break: break-all;">{{ captureMsg }}</span>
+              <span v-if="captureMsg" class="text-body-small text-success" style="word-break: break-all;">{{ captureMsg }}</span>
               <VSpacer />
               <VBtn color="primary" :loading="capturing" :disabled="!previewUrl" @click="onCapture">
                 <VIcon icon="tabler-camera" size="18" class="me-1" />{{ $t('page.cache.camera.capture') }}

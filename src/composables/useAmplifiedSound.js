@@ -1,4 +1,4 @@
-// 放大音效 composable — 忠實移植 cix3752iWeb 入倉頁 useSoundEffects。
+// 放大音效 composable — 行為與雲端 cix3752iWeb 入倉頁的 useSoundEffects 一致(兩端需同步)。
 // 倉庫現場吵雜,普通 HTMLAudioElement 音量上限 1.0 不夠;這裡用 Web Audio API + GainNode
 // 把音量放大到 volume 倍(預設 8.0),再串一顆 limiter 防爆音。
 //

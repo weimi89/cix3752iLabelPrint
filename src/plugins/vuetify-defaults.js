@@ -10,7 +10,8 @@ export default {
   VAlert: {
     density: 'comfortable',
     VBtn: {
-      color: undefined,
+      // v4 合併 defaults 會略過 undefined;要「清掉全域 VBtn 顏色」得用 null
+      color: null,
     },
   },
   VAvatar: {

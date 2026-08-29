@@ -8,7 +8,7 @@ export const useStatusStore = defineStore('status', {
     queue: { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 },
     cache: { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 },
     today: { date: '', request_count: 0, success_count: 0, noread_count: 0, cache_hit: 0, cache_miss: 0 },
-    // Navbar chip 顯示:本場累計 + 過去 24 小時(對齊 PrintStatsPage 的新 KPI)
+    // Navbar chip 顯示:本場累計 + 過去 24 小時(與 PrintStatsPage 的 KPI 同定義)
     printStats: { since_reset: 0, past_24h: 0, since_reset_at: '' },
     refreshingAt: null,
   }),

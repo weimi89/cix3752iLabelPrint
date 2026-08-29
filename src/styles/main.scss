@@ -547,3 +547,39 @@ body {
   border-start-start-radius: 0 !important;
   border-start-end-radius: 0 !important;
 }
+
+// =============================================================================
+// Vuetify 4 字級相容:codemod 把 MD2 class 換成 MD3 名稱後,Vuetify 內建的字級數值也跟著變
+// (標題 h6→title-large 變大變細、h3/h4/h1 變小、caption / subtitle 行高變小)。
+// 這裡把「實際使用中、且肉眼看得出差異」的幾個 class 鎖回 Vuetify 3 的數值,畫面維持升級前的樣子。
+// 未列出的(headline-small、body-medium)在 v4 數值本來就相同,不必覆寫。
+// =============================================================================
+// 官方對照把 h1、h2 都併成 display-large;專案只用過 h2(儀表板本場累計),鎖回 h2 的數值
+// 官方對照把 subtitle-1 與 body-1 都併成 body-large,但兩者行高/字距不同;
+// 原本用 subtitle-1 的 6 處保留舊名,由本專案自己提供(Vuetify 4 不再內建)
+// 放進 Vuetify 自己的 vuetify-utilities.typography 層(不能用不分層的規則):不分層永遠壓過分層,
+// 會把後面 helpers 層的 font-weight-bold / font-weight-medium 一起蓋掉;同層且排在後面,只贏過 v4 的字級預設。
+@layer vuetify-utilities.typography {
+  .text-title-large { font-size: 1.25rem !important; font-weight: 500; line-height: 2rem; letter-spacing: 0.0125em !important; }
+  .text-headline-large { font-size: 2.125rem !important; line-height: 2.5rem; letter-spacing: 0.0073529412em !important; }
+  .text-display-medium { font-size: 3rem !important; line-height: 3.125rem; letter-spacing: normal !important; }
+  .text-display-large { font-size: 3.75rem !important; font-weight: 300; line-height: 3.75rem; letter-spacing: -0.0083333333em !important; }
+  .text-body-large { line-height: 1.5rem; }
+  .text-subtitle-1 { font-size: 1rem !important; font-weight: 400; line-height: 1.75rem; letter-spacing: 0.009375em !important; font-family: var(--v-font-body, inherit); }
+  .text-body-small { line-height: 1.25rem; }
+}
+
+// Vuetify 4 的 VNumberInput 疊式(stacked)上下箭頭各是一顆 VBtn,預設最小高度 36px × 2,
+// 會把整個欄位撐到 72px、比旁邊 compact 欄位高一倍;讓箭頭鈕跟著欄位高度縮放。
+.v-number-input--stacked .v-number-input__control .v-btn {
+  min-block-size: 0;
+  block-size: auto;
+}
+
+// 可點擊圖示(VIcon 掛 @click,Vuetify 會給 tabindex 讓它可聚焦):滑鼠點完焦點留在圖示上,
+// WebKit 會畫內建焦點框(Vuetify 3/4 都沒為它定義樣式,只是 v4 配色基底不同讓框變色)。
+// 本 App 全為滑鼠/觸控操作,點完不留框;側欄收合鈕、各頁的圖示按鈕一併適用。
+.v-icon--clickable:focus,
+.v-icon--clickable:focus-visible {
+  outline: none;
+}

@@ -90,9 +90,9 @@ const formatBytes = bytes => {
           <VIcon icon="tabler-restore" size="32" />
         </VAvatar>
         <div class="flex-grow-1 d-flex flex-column" style="min-width: 0;">
-          <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
-          <div class="text-h2 font-weight-bold text-primary" style="line-height: 1.1;">{{ status.printStats.since_reset }}</div>
-          <div class="text-caption text-medium-emphasis mt-1">
+          <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
+          <div class="text-display-large font-weight-bold text-primary" style="line-height: 1.1;">{{ status.printStats.since_reset }}</div>
+          <div class="text-body-small text-medium-emphasis mt-1">
             <VIcon icon="tabler-clock-play" size="14" class="me-1" />{{ $t('page.printStats.sinceLabel') }} {{ summarySinceLabel }}
           </div>
         </div>
@@ -109,7 +109,7 @@ const formatBytes = bytes => {
     </VCard>
 
     <!-- 上半:即時狀態(中介服務 / 雲端 / 印單統計)— 單行等高 -->
-    <VRow dense>
+    <VRow density="compact">
       <VCol cols="12" md="4">
         <VCard class="card-shadow h-100">
           <VCardItem>
@@ -151,8 +151,8 @@ const formatBytes = bytes => {
             <template #append>
               <div class="d-flex align-center gap-3 pe-1">
                 <div class="text-end">
-                  <div class="text-h6">{{ status.printStats.past_24h }}</div>
-                  <div class="text-caption text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
+                  <div class="text-title-large">{{ status.printStats.past_24h }}</div>
+                  <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.past24h') }}</div>
                 </div>
                 <VIcon icon="tabler-chevron-right" class="text-medium-emphasis" />
               </div>
@@ -163,7 +163,7 @@ const formatBytes = bytes => {
     </VRow>
 
     <!-- 本日統計(請求/成功率/cache 命中率/快取容量) -->
-    <VRow dense class="mt-1">
+    <VRow density="compact" class="mt-1">
       <VCol cols="12" md="6" lg="3">
         <VCard class="card-shadow">
           <VCardItem>
@@ -225,7 +225,7 @@ const formatBytes = bytes => {
     </VRow>
 
     <!-- 工控機連線位址(LAN IP,部署時工控機要連的位址) -->
-    <VRow dense class="mt-1">
+    <VRow density="compact" class="mt-1">
       <VCol cols="12">
         <VCard class="card-shadow">
           <VCardItem>
@@ -279,7 +279,7 @@ const formatBytes = bytes => {
             {{ $t('network.checkNow') }}
           </VBtn>
         </VCardTitle>
-        <VCardSubtitle v-if="lastCheckedText" class="text-caption">
+        <VCardSubtitle v-if="lastCheckedText" class="text-body-small">
           {{ $t('network.lastCheckedAt') }} {{ lastCheckedText }}
         </VCardSubtitle>
       </VCardItem>
@@ -294,8 +294,8 @@ const formatBytes = bytes => {
               class="me-2"
             />
           </template>
-          <VListItemTitle class="text-body-2">{{ $t('network.layer.os') }}</VListItemTitle>
-          <VListItemSubtitle class="text-caption">
+          <VListItemTitle class="text-body-medium">{{ $t('network.layer.os') }}</VListItemTitle>
+          <VListItemSubtitle class="text-body-small">
             {{ osOnline ? $t('network.statusKind.ok') : $t('network.osOffline') }}
           </VListItemSubtitle>
         </VListItem>
@@ -323,8 +323,8 @@ const formatBytes = bytes => {
               class="me-2"
             />
           </template>
-          <VListItemTitle class="text-body-2">{{ $t('network.layer.anchor') }}</VListItemTitle>
-          <VListItemSubtitle class="text-caption">
+          <VListItemTitle class="text-body-medium">{{ $t('network.layer.anchor') }}</VListItemTitle>
+          <VListItemSubtitle class="text-body-small">
             <template v-if="anchor?.kind === 'ok'">{{ $t('network.latencyMs', { n: anchor.latency_ms }) }}</template>
             <template v-else-if="anchor && anchorEffectiveOk">
               {{ $t('network.retryingStreak', { n: anchorFailStreak, total: failThreshold }) }} · {{ anchor.error }}
@@ -364,8 +364,8 @@ const formatBytes = bytes => {
               class="me-2"
             />
           </template>
-          <VListItemTitle class="text-body-2">{{ $t('network.layer.cloudApi') }}</VListItemTitle>
-          <VListItemSubtitle class="text-caption">
+          <VListItemTitle class="text-body-medium">{{ $t('network.layer.cloudApi') }}</VListItemTitle>
+          <VListItemSubtitle class="text-body-small">
             <template v-if="cloudApi?.kind === 'reachable'">
               HTTP {{ cloudApi.status }} · {{ $t('network.latencyMs', { n: cloudApi.latency_ms }) }}
             </template>
@@ -379,7 +379,7 @@ const formatBytes = bytes => {
         </VListItem>
       </VList>
       <VDivider />
-      <div class="px-4 py-2 text-caption text-disabled">
+      <div class="px-4 py-2 text-body-small text-disabled">
         {{ $t('network.nextCheckIn', { n: effectiveIntervalSecs }) }}
       </div>
     </VCard>

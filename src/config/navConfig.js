@@ -10,6 +10,7 @@ export const navItems = [
   { title: 'nav.preGenerate', icon: { icon: 'tabler-photo-down' }, to: { name: 'pre-generate' } },
   { title: 'nav.bagCheck', icon: { icon: 'tabler-packages' }, to: { name: 'bag-check' } },
   { title: 'nav.sortChannels', icon: { icon: 'tabler-route' }, to: { name: 'sort-channels' } },
+  { title: 'nav.fieldOperationMonitor', icon: { icon: 'tabler-user-check' }, to: { name: 'field-operation-monitor' } },
 
   { heading: 'nav.section.print' },
   { title: 'nav.scanPrint', icon: { icon: 'tabler-scan' }, to: { name: 'scan-print' } },
@@ -19,7 +20,6 @@ export const navItems = [
   { title: 'nav.clearanceAdd', icon: { icon: 'tabler-scan' }, to: { name: 'clearance-add' } },
   { title: 'nav.clearanceDispatch', icon: { icon: 'tabler-truck-delivery' }, to: { name: 'clearance-dispatch' } },
   { title: 'nav.warehouseScanner', icon: { icon: 'tabler-package-import' }, to: { name: 'warehouse-scanner' } },
-  { title: 'nav.fieldOperationMonitor', icon: { icon: 'tabler-user-check' }, to: { name: 'field-operation-monitor' } },
 
   { heading: 'nav.section.logs' },
   { title: 'nav.printStats', icon: { icon: 'tabler-chart-bar' }, to: { name: 'print-stats' } },

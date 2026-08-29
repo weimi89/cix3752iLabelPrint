@@ -1,10 +1,5 @@
 @use "sass:map";
 
-/* 👉 Shadow opacities */
-$shadow-key-umbra-opacity-custom: var(--v-shadow-key-umbra-opacity);
-$shadow-key-penumbra-opacity-custom: var(--v-shadow-key-penumbra-opacity);
-$shadow-key-ambient-opacity-custom: var(--v-shadow-key-ambient-opacity);
-
 /* 👉 Card transition properties */
 $card-transition-property-custom: box-shadow, opacity;
 
@@ -20,9 +15,6 @@ $card-transition-property-custom: box-shadow, opacity;
   ) !default,
 
   // 👉 Shadow opacity
-  $shadow-key-umbra-opacity: $shadow-key-umbra-opacity-custom !default,
-  $shadow-key-penumbra-opacity: $shadow-key-penumbra-opacity-custom !default,
-  $shadow-key-ambient-opacity: $shadow-key-ambient-opacity-custom !default,
 
     // 👉 Card
   $card-color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)) !default,

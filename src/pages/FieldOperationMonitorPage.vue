@@ -103,11 +103,11 @@ const applyDates = () => {
         <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
           <div class="d-flex align-center flex-wrap ga-2">
             <VIcon icon="tabler-clipboard-check" size="22" color="primary" />
-            <span class="text-h6">{{ $t('page.fieldOperationMonitor.board') }}</span>
+            <span class="text-title-large">{{ $t('page.fieldOperationMonitor.board') }}</span>
             <VChip size="small" variant="tonal" color="secondary">
               <VIcon icon="tabler-calendar" size="14" start />{{ rangeLabel }}
             </VChip>
-            <span class="text-caption text-medium-emphasis d-flex align-center ga-1">
+            <span class="text-body-small text-medium-emphasis d-flex align-center ga-1">
               <VIcon :icon="errorMsg ? 'tabler-alert-triangle' : 'tabler-refresh'" size="14" :class="{ 'text-error': errorMsg }" />
               {{ $t('page.fieldOperationMonitor.dataTime', { time: currentScope.updated_at || '-' }) }}
             </span>
@@ -128,9 +128,9 @@ const applyDates = () => {
                 <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceBags') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
-                <span class="text-h3 font-weight-bold text-info">{{ fmt(progress.bag_remaining) }}</span>
-                <span class="text-h5 text-disabled">/</span>
-                <span class="text-h5 text-medium-emphasis">{{ fmt(progress.bag_total) }}</span>
+                <span class="text-display-medium font-weight-bold text-info">{{ fmt(progress.bag_remaining) }}</span>
+                <span class="text-headline-small text-disabled">/</span>
+                <span class="text-headline-small text-medium-emphasis">{{ fmt(progress.bag_total) }}</span>
               </div>
             </div>
           </VCol>
@@ -141,9 +141,9 @@ const applyDates = () => {
                 <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.clearanceParcels') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
-                <span class="text-h3 font-weight-bold text-warning">{{ fmt(progress.parcel_remaining) }}</span>
-                <span class="text-h5 text-disabled">/</span>
-                <span class="text-h5 text-medium-emphasis">{{ fmt(progress.parcel_total) }}</span>
+                <span class="text-display-medium font-weight-bold text-warning">{{ fmt(progress.parcel_remaining) }}</span>
+                <span class="text-headline-small text-disabled">/</span>
+                <span class="text-headline-small text-medium-emphasis">{{ fmt(progress.parcel_total) }}</span>
               </div>
               <VProgressLinear :model-value="pct(progress.printed, progress.parcel_total)" color="success" height="6" rounded class="mt-2" />
             </div>
@@ -155,15 +155,15 @@ const applyDates = () => {
                 <span class="text-subtitle-1 font-weight-medium">{{ $t('page.fieldOperationMonitor.storageParcels') }}</span>
               </div>
               <div class="d-flex align-baseline ga-1">
-                <span class="text-h3 font-weight-bold text-primary">{{ fmt(progress.storage_remaining) }}</span>
-                <span class="text-h5 text-disabled">/</span>
-                <span class="text-h5 text-medium-emphasis">{{ fmt(progress.storage_total) }}</span>
+                <span class="text-display-medium font-weight-bold text-primary">{{ fmt(progress.storage_remaining) }}</span>
+                <span class="text-headline-small text-disabled">/</span>
+                <span class="text-headline-small text-medium-emphasis">{{ fmt(progress.storage_total) }}</span>
               </div>
               <VProgressLinear :model-value="pct(progress.storage_printed, progress.storage_total)" color="success" height="6" rounded class="mt-2" />
             </div>
           </VCol>
         </VRow>
-        <div class="text-caption text-disabled mt-2">
+        <div class="text-body-small text-disabled mt-2">
           <VIcon icon="tabler-info-circle" size="14" class="me-1" />{{ $t('page.fieldOperationMonitor.boardHint') }}
         </div>
 
@@ -208,7 +208,7 @@ const applyDates = () => {
                   </tr>
                 </tbody>
               </VTable>
-              <div class="text-caption text-disabled mt-2">
+              <div class="text-body-small text-disabled mt-2">
                 <VIcon icon="tabler-info-circle" size="14" class="me-1" />{{ $t('page.fieldOperationMonitor.providerHint') }}
               </div>
             </div>
@@ -220,19 +220,19 @@ const applyDates = () => {
     <!-- 每日貼單(作業人員維度)-->
     <div class="d-flex align-center ga-2 mb-2">
       <VIcon icon="tabler-users" size="22" color="primary" />
-      <span class="text-h6">{{ $t('page.fieldOperationMonitor.daily') }}</span>
+      <span class="text-title-large">{{ $t('page.fieldOperationMonitor.daily') }}</span>
       <VChip size="small" variant="tonal" color="secondary">
         <VIcon icon="tabler-calendar" size="14" start />{{ $t('page.fieldOperationMonitor.businessDay', { date: formatBusinessDate(currentScope.business_date) }) }}
       </VChip>
     </div>
 
-    <VRow class="mb-1">
+    <VRow class="mb-4">
       <VCol cols="12" sm="4">
         <VCard variant="tonal" color="primary" class="pa-4 d-flex align-center ga-3">
           <VIcon icon="tabler-printer" size="36" />
           <div>
-            <div class="text-h5 font-weight-bold">{{ fmt(operatorCount) }}</div>
-            <div class="text-body-2">{{ $t('page.fieldOperationMonitor.operators') }}</div>
+            <div class="text-headline-small font-weight-bold">{{ fmt(operatorCount) }}</div>
+            <div class="text-body-medium">{{ $t('page.fieldOperationMonitor.operators') }}</div>
           </div>
         </VCard>
       </VCol>
@@ -240,8 +240,8 @@ const applyDates = () => {
         <VCard variant="tonal" color="info" class="pa-4 d-flex align-center ga-3">
           <VIcon icon="tabler-packages" size="36" />
           <div>
-            <div class="text-h5 font-weight-bold">{{ fmt(currentScope.total.package_num) }}</div>
-            <div class="text-body-2">{{ $t('page.fieldOperationMonitor.stickerBags') }}</div>
+            <div class="text-headline-small font-weight-bold">{{ fmt(currentScope.total.package_num) }}</div>
+            <div class="text-body-medium">{{ $t('page.fieldOperationMonitor.stickerBags') }}</div>
           </div>
         </VCard>
       </VCol>
@@ -249,8 +249,8 @@ const applyDates = () => {
         <VCard variant="tonal" color="success" class="pa-4 d-flex align-center ga-3">
           <VIcon icon="tabler-file-invoice" size="36" />
           <div>
-            <div class="text-h5 font-weight-bold">{{ fmt(currentScope.total.order_num) }}</div>
-            <div class="text-body-2">{{ $t('page.fieldOperationMonitor.stickerOrders') }}</div>
+            <div class="text-headline-small font-weight-bold">{{ fmt(currentScope.total.order_num) }}</div>
+            <div class="text-body-medium">{{ $t('page.fieldOperationMonitor.stickerOrders') }}</div>
           </div>
         </VCard>
       </VCol>
@@ -299,9 +299,9 @@ const applyDates = () => {
     <!-- 日期區間設定 -->
     <VDialog v-model="dlg" max-width="420">
       <VCard>
-        <VCardTitle class="text-body-1">{{ $t('page.fieldOperationMonitor.setRange') }}</VCardTitle>
+        <VCardTitle class="text-body-large">{{ $t('page.fieldOperationMonitor.setRange') }}</VCardTitle>
         <VCardText>
-          <div class="text-caption text-medium-emphasis mb-3">{{ $t('page.fieldOperationMonitor.rangeHint') }}</div>
+          <div class="text-body-small text-medium-emphasis mb-3">{{ $t('page.fieldOperationMonitor.rangeHint') }}</div>
           <div class="d-flex align-center ga-2">
             <AppDatePicker v-model="dFrom" density="compact" />
             <span class="text-disabled">~</span>

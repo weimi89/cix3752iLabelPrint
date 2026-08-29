@@ -243,9 +243,9 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <td class="text-center">{{ row.sort_channel || '—' }}</td>
             <td class="text-center">{{ row.print_profile || '—' }}</td>
             <td class="text-center text-disabled">{{ row.response_id }}</td>
-            <td class="text-center text-caption">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
-            <td class="text-center text-caption">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
-            <td class="text-center text-caption" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
+            <td class="text-center text-body-small">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
+            <td class="text-center text-body-small">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
+            <td class="text-center text-body-small" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
             <td class="text-center">
               <VBtn v-if="row.label_key" icon variant="text" color="primary" density="comfortable" size="small" @click="openLabel(row)">
                 <VIcon icon="tabler-photo" size="20" />
@@ -310,7 +310,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             <VIcon icon="tabler-photo-off" size="40" class="mb-2" />
             <div>{{ $t('page.parcelQueryLog.imageLoadFailed') }}</div>
           </div>
-          <div class="text-caption text-disabled mt-2"><code>{{ viewer.key }}</code></div>
+          <div class="text-body-small text-disabled mt-2"><code>{{ viewer.key }}</code></div>
         </VCardText>
         </VCard>
       </div>

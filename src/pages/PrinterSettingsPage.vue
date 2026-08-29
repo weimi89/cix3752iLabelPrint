@@ -101,7 +101,7 @@ const reset = () => {
       {{ $t('page.printer.noPrinters') }}
     </VAlert>
 
-    <VRow dense>
+    <VRow density="compact">
       <VCol v-for="p in PROVIDERS" :key="p.code" cols="12" md="6" class="py-1">
         <VCard>
           <VCardText>
