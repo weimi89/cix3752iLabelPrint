@@ -1,5 +1,8 @@
 # 下一個工作清單(v0.2.0 published 後)
 
+> **接手開發請先看 [`docs/handover.md`](handover.md)**(當前進度、卡住的事、未驗證項)。
+> 本檔是 v0.2.0 時期的 roadmap 與跨版本經驗摘錄,不代表目前狀態。
+
 > 2026-05-19 v0.2.0 published 後盤點。發佈策略從「四平台齊發」收斂為「三平台 + Intel 走 Rosetta 2」;印單統計從輪詢升級為 Tauri IPC event 即時推播。
 
 ## v0.2.0 已完成 ✅

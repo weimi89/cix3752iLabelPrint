@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-08-13（註解全面清理）**　目前版本：**v0.17.1（已正式公開）**
+最後更新：**2026-08-31（手機遙控頁可設定貼標人員與指派物流）**　目前版本：**v0.18.0（已正式公開）**
 
 ---
 
@@ -18,6 +18,164 @@
 - 契約已寫進 `docs/local-http-api.md` 第 2、3 節（含完整時序表），可直接給廠商。
 - **`.docx` 已在 2026-08-10 下午用 pandoc 重產**（舊檔備份於 `backups/20260810135454/`）。先前它停在 v0.12.0、**不含直印回報契約** —— 若照舊檔寄出，廠商會照錯的規格實作。要寄檔案版就寄現在這份。
 - 廠商未修好之前，桌面 App「佇列歷史」頁的**回報來源欄會整批顯示黃色「僅中介機自印」** —— 這是預期現象，不是故障。修好後會轉綠色「工控機已回報」。
+
+---
+
+## 2026-08-31：提示訊息的圖示不再是佔空間的實心色塊
+
+### 問題
+
+提示（VAlert）左邊那顆圖示是**實心紅圓 + 白 X**，看起來像多了一顆有底色的按鈕，把短訊息擠成兩行、整條提示被撐高。toast 也一樣（綠圓 + 白勾）。
+
+### 追根
+
+- 圖示不是 CSS 加的底色，**是圖示本身的造型**：`src/plugins/vuetify.js` 用的是 `vuetify/iconsets/mdi` 的 aliases，其中 `error: i-mdi:close-circle`（實心）。
+- 過程中發現兩個**樣板殘留檔案根本沒被使用**，改了不會有任何效果：
+  - `src/plugins/vuetify-materio/icons.js`（整組 tabler 線條 alias）—— `vuetify.js` 沒 import 它，直接用 mdi 那組。
+  - `src/styles/@core/template/_components.scss`（Materio 的 VAlert 等元件樣式）—— `@core/template/index.scss` 沒有 `@use "components"`。
+  這解釋了為什麼「Materio 的樣式覆寫看起來存在、實際沒作用」。**動這兩個檔前先確認它有沒有被引用。**
+
+### 修法
+
+- `src/plugins/vuetify.js`：在 mdi aliases 之上覆寫四個語氣圖示為 tabler 線條版（`circle-check` / `info-circle` / `alert-triangle` / `alert-circle`），其餘 alias（展開、排序、分頁…）維持 mdi 不動。
+- `src/styles/main.scss`：VAlert 的 `__prepend` 兩件事 ——
+  - **尺寸**：從「28px 圖示 + 16px 間距 + 垂直置中」改成「與內文同高 1.125rem + 6px 間距」。
+  - **排版**：Vuetify 預設把圖示放在獨立一欄（grid `prepend content append close`），文字只能用右半邊，**窄版面時每行都被截短、右邊空一塊、短句被拆成好幾行**。改成 `display: block` + 圖示 `float`，讓圖示併進文字流，第二行起流到圖示下方，整條提示的寬度用得完。
+  - 脫離 grid 後關閉鈕會掉到文字後面，改釘在右上角（`.v-alert` 本身已是 `position: relative`）；只有真的有關閉鈕的提示（`:has(.v-alert__close)`）才把內容右邊空出來。
+  - **只做上面兩步會沒有效果**：`.v-alert__content` 帶著 `overflow: hidden`，那會建立 BFC —— 整塊內容被推到浮動圖示右側，每一行照樣縮排，float 等於白做。必須一併把它改回 `overflow: visible`（外框 `.v-alert` 自己仍有 `overflow: hidden`，圓角裁得住）。這個現象從畫面上看就是「改了跟沒改一樣」，很容易誤判成樣式沒生效去追 CSS layer。
+- `src/plugins/toastify.js`：toast 內建圖示同樣是實心色塊，改成傳入同一組 tabler 線條圖示；顏色靠 `main.scss` 依語氣給（用 toastify 自己的 `--toastify-icon-color-*` 變數）。
+
+### 驗證
+
+| 項目 | 方式 | 結果 |
+|---|---|---|
+| 提示圖示 | dev App 實機截圖（浮動框雲端 502 的錯誤提示） | 線條圖示、與文字同高、無底色，文字空間變大 |
+| toast 圖示 | 實機觸發「複製位址」的成功 toast | 綠色線條圈勾，無實心色塊 |
+| 窄版面文字是否用滿寬度 | `yarn preview` + headless Chrome 以 360px / 520px 寬截圖 | 文字用滿整寬、第二行起沒有縮排（該環境載不到 iconify 圖示，圖示本身以 dev App 實機那張為準） |
+| 第二行是否流到圖示下方 | dev App 實機放大截圖（浮動框寬約 230px，本來就是窄版面） | 修掉 BFC 後第二行貼齊最左邊；修之前每行都縮排 |
+| 圖示是否對齊第一行字中 | 對實機截圖做像素量測（找出圖示與第一行文字各自的上下緣算中線） | 圖示與文字可見高度同為 14px，中線差 1px（圖示偏上）|
+
+圖示的垂直對齊做法是「容器高度 = 一行行高（1.5em）＋ 圖示在其中置中」，幾何上即為正中。殘餘的 1px 來自 tabler 圖示 SVG 自身的內部留白（圓圈沒畫滿方框），**刻意不加固定位移修正** —— 各語氣圖示的造型重心不同（`alert-circle` 偏上、`alert-triangle` 偏下），統一位移會讓其他語氣跑掉。
+| 建置 | `yarn build` | 綠 |
+
+**未驗證**：唯一那個「可關閉」的提示（掃描列印頁的列印結果摘要）—— 要跑完一次列印流程才會出現，雲端目前不通、查不到件所以觸發不了。關閉鈕改成絕對定位＋內容右側留白，規則已在編譯產物中確認存在，但視覺未實看。
+
+### 檢查過、判定不用動的
+
+- **VSnackbar / VBanner**：專案完全沒用。
+- **儀表板網路狀態、各卡片圖示**：本來就是 tabler 線條版（小尺寸看起來像實心而已）。
+- **3 處刻意用 filled 的狀態圖示**：自動印單頁的完成勾（`tabler-circle-check-filled`）、分揀通道卡片的播放／暫停（`tabler-player-*-filled`）。那是狀態指示不是提示訊息，未動 —— 要不要一併改成線條版待決定。
+
+---
+
+## 2026-08-31：錯誤訊息不再把技術原文丟給操作員
+
+### 起因
+
+清關進度浮動框在雲端不通時，整片紅字顯示 `HTTP 錯誤: HTTP status server error (502 Bad Gateway) for url (https://…/clearance/progress?from=…&print_type=)` —— 操作員看不懂，也不知道要做什麼。
+
+追下去發現**不只浮動框**：後端 `AppError` 序列化給前端時只丟 `to_string()`，前端 16 個檔案共 31 處一律 `String(e?.message || e)` 直接顯示，全站都是這個樣子。
+
+### 修法（根因）
+
+**後端 `src-tauri/src/error.rs`**
+
+- 新增 `AppError::kind()`，把錯誤分成 5 類：`network`（連不上雲端）、`unauthorized`（雲端登入失效）、`cloud`（雲端業務錯誤，訊息本來就是中文）、`input`（本機擋下的輸入／設定問題，訊息是我們自己寫的）、`internal`（IO／DB 等內部故障）。
+- `Serialize` 從單一字串改成 `{ kind, message, detail }`。`detail` 保留完整技術訊息供診斷；`message` 欄位仍在，**舊的 `e?.message` 取法照樣拿得到值**，不會因為改成物件而讓沒改到的地方變 undefined。
+
+**前端**
+
+- 沿用既有的 `errorMessageFromException()`（原本靠字串比對猜 UNAUTHORIZED／timeout，脆弱），改成**優先看 `kind`**：`cloud`／`input` 原樣顯示訊息，其餘翻成 i18n 文案；技術原文一律進 `console.warn`，不進畫面。沒有 `kind` 的例外（前端自己丟的、Tauri runtime 的）仍走舊的字串判斷。
+- 16 個檔案 31 處 `String(e?.message || e)` 全部換成 `errorMessageFromException(e)`。
+- 新增雙語文案 `error.network` / `error.unauthorized` / `error.internal`。
+
+### 驗證結果
+
+| 項目 | 方式 | 結果 |
+|---|---|---|
+| 浮動框在雲端 502 時的顯示 | dev App 實機截圖（測試站正好整站 502） | 顯示「目前連不上雲端，稍後會自動重試」，原本的英文與網址不再出現 |
+| 分類正確性 | `cargo test`（新增 `error::tests` 2 支） | `input` / `unauthorized` / `cloud` / `internal` 皆符合；訊息內容保留 |
+| 全部測試 | `cargo test`、`node tests/control-page.test.mjs` | 全綠（Rust 無 failed；手機頁 35 項） |
+| 前端建置 | `yarn build` | 綠 |
+
+**未實機觸發的分支**：`cloud` / `input` 類（需要造雲端業務錯誤或存一筆非法通道代碼）。這兩類的前端邏輯是「原樣顯示 `message`」，且 `message` 內容由 Rust 測試涵蓋。
+
+### 同一個問題還有一處沒動
+
+儀表板「網路連線狀態」卡片仍顯示 **`重試中 1/2 · HTTP 502`**。那一區本來就是給人看連線診斷的，狀態碼有其用途，但 `HTTP 502` 對操作員一樣是術語 —— 待決定要不要也換成人話。
+
+---
+
+## 2026-08-31：手機遙控頁可設定貼標人員與指派物流
+
+### 已完成（未 commit，只動中介端）
+
+現場換人／換線時要改「這個通道由誰貼標、接哪幾家物流」，原本只能走到桌面 App 的「分揀通道」頁。
+現在同區網手機開 `/control` → 點通道 → **設定貼標與物流**，即可直接改，桌面畫面同步跟著變。
+
+**後端 `src-tauri/src/server/mod.rs`（新增三支手機遙控用 endpoint）**
+
+| Endpoint | 用途 |
+|---|---|
+| `GET /api/dispatch-providers` | 物流商清單（手機的選項來源） |
+| `GET /api/sticker-history` | 人員歷史名單（與桌面共用 `sticker_history` 同一份） |
+| `POST /api/channels/:position/assign` | 寫入該通道的 `job_sticker` + `dispatch_codes` |
+
+`assign` 的把關（與桌面 `sort_channel_save` 同語意，只是改由後端擋）：
+
+- **刻意不含通道代碼與印表機** —— 那兩項改錯會整條線分錯格口或靜默漏印，留桌面統一管理。
+- 物流代碼去重去空白；**代碼必須存在於 `dispatch_provider`**（手機清單可能是刪除物流商前抓的，放行會讓通道指到不存在的物流、看起來有指派卻永遠分不到件）。
+- **direct_print 模式**下該通道有代碼、要指派物流、卻沒設印表機 → 400 擋下（否則每件都靜默漏印）。
+- 通道列與多對多指派同一個交易寫入；驗證失敗時完全不動 DB。
+- 錯誤同時回機器碼與中文訊息（手機頁是中越雙語，用 code 翻成自己的語言，對不到才顯示中文原文）。
+
+**手機頁 `src-tauri/src/server/control_page.html`**
+
+- 詳情頁資訊卡下方多一顆「設定貼標與物流」→ 進設定頁（走 history，手機返回手勢可用）。
+- 設定頁：姓名輸入框 + 最近使用名單快選（再點一次同一人＝清空）、物流多選 chips、儲存。
+- 貼標人員未指派時詳情頁也顯示一列「未指派」（原本空白就整列不見，看不出可以設定）。
+- **設定頁停止輪詢重繪** —— 每 3 秒重繪會把正在輸入的姓名與未存的勾選沖掉，等於打不完字。
+- 中越雙語完整；標題只放「設定 / Cài đặt」（帶通道名再加長文案會被截斷）。
+
+**桌面 `src/pages/SortChannelsPage.vue`**
+
+- `sort-channel-updated` 事件的 payload 多帶 `job_sticker` / `dispatch_codes`，桌面即時套用；
+  **該通道正在編輯（dirty）時不覆蓋** —— 蓋掉的是操作員螢幕上看得到的內容，他不會知道值被換過。
+
+### 驗證結果（實測）
+
+| 項目 | 方式 | 結果 |
+|---|---|---|
+| 三支 endpoint 正常流程 | 對本機 dev server curl | 200，DB 與回應一致 |
+| 無效通道位置 / 不存在的物流代碼 | curl | 400，且 DB 完全沒動 |
+| direct_print 缺印表機 → 擋下 | 暫時清掉 R4 印表機後 curl | 400 `PRINTER_REQUIRED`；只改人員不指派物流仍放行；補回印表機即放行（已還原） |
+| 姓名只有空白 → 存 NULL、重複物流代碼去重 | curl | 皆正確 |
+| 手機改 → 桌面即時同步 | 桌面開分揀通道頁 + curl 改 L1 → 截圖 | 物流與人員即時變更，未被標成未存檔 |
+| 桌面正在編輯時不被覆蓋 | 桌面 L1 打字後 curl 改同一通道 → 截圖 | 欄位保留使用者輸入、標「未儲存」 |
+| 手機頁版面（中／越）| headless Chrome 以 390px 寬截圖 | 版面正常、chips 換行正常、標題不截斷 |
+| 手機頁邏輯 35 項 | `node tests/control-page.test.mjs`（新增，jsdom 已入 devDependencies） | 全過；含 XSS 跳脫、輪詢不覆蓋草稿、錯誤碼翻譯、存檔後返回 |
+| Rust / 前端 | `cargo check`、`node --check` | 綠 |
+
+**過程中抓到並修掉的真 bug**：輸入框原本寫 `oninput="draft.sticker = this.value"` —— 內嵌事件處理器看不到模組內的 `let`，會 ReferenceError 且畫面毫無徵兆（打字完全不進草稿）。已改成呼叫函式寫入。
+
+### 覆檢（`/code-review medium`）找到並已修掉的 4 項
+
+| # | 問題 | 現場會怎樣 | 修法 |
+|---|---|---|---|
+| 1 | `refresh()` 的 `catch` 仍會重繪設定頁，抵銷了「輪詢不重繪」保護 | 工控房 Wi-Fi 斷續時每 3 秒把輸入框砍掉重建，名字永遠打不完 | catch 內同樣在 `view === 'assign'` 時直接 return |
+| 2 | 點物流 chip / 歷史名單會整段重繪，中越輸入法**組字中**尚未上字的內容被還原掉 | 打了名字還沒上字就先點物流 → 名字整段消失 | 抽 `flushStickerInput()`，重繪與存檔前都先把輸入框現值收回草稿 |
+| 3 | 存檔後的 `fetchChannels()` 失敗會被當成「儲存失敗」 | 後端其實已寫入，操作員以為沒存到而重存，訊息與事實矛盾 | POST 成功即視為成功，後續重抓失敗只吞掉 |
+| 4 | `PRINTER_REQUIRED` 連「只改貼標人員」都擋 | 手機草稿會原樣送回既有物流清單；站點切成 direct_print 但印表機還沒設時，換班的人連改個名字都被擋、還被叫去設印表機 | 收斂成「這次真的**新增**了物流」才擋；只改人員、移除物流一律放行（少接件不會生出漏印） |
+
+四項修完皆已重測：前端 35 項全過（新增第 12–14 組專測這些情境）；後端以 curl 實測「只改人員放行 / 新增物流擋下 / 移除物流放行 / 空通道再新增擋下」四種組合，測試用的 R4 印表機與指派已還原。
+
+### 尚未做
+
+- **未 commit**，working tree 保留。
+- 手機頁未用真手機開過（版面以 390px headless 截圖驗證，互動以 jsdom 驗證）。
+- 這三支 endpoint 屬手機遙控內部用途，**未寫入 `docs/local-http-api.md`**（該文件只放工控機對外契約，既有的 `/api/channels`、`/api/alerts` 同樣沒寫）。
+- 浮動框貼單那列的文案已從「貼單單數(去重)」改為 **「貼單單數」**（中越雙語）—— 「去重」是工程術語。作業監控頁的「貼單袋數(去重)」「貼單單數(去重)」「去重總計」**未動**（該頁整頁對照雲端網頁版，改了會兩邊不一致），待決定。
+- 覆檢另外指出 **`src/components/ClearanceProgressWidget.vue:67`**（切廠別時 `setStickerScope` 沒 await 就接 `loadRange`：多一次雲端往返，且 sticker 請求較晚失敗時，清關進度明明載入成功畫面卻掛著錯誤訊息）。**該檔是先前留在 working tree 的未提交變更、不屬本次任務，未動**，待決定要不要一併修。
 
 ---
 
