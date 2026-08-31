@@ -220,8 +220,8 @@ impl BagCheckState {
             } else if let Some(mut entry) = entry {
                 // 載入成功才推入清單。
                 // 此袋號若先前在 recently_completed(完成後被淘汰),現在以新 entry 回到清單 →
-                // 移出 recently_completed,讓後續切換能正常追蹤(修:同一袋號被重用為新的未完成袋時,
-                // 不再被永久當成「回補已完成袋」而漏偵測)。
+                // 必須移出 recently_completed,否則同一袋號被重用為新的未完成袋時會被永久
+                // 當成「回補已完成袋」,連續性偵測漏掉它。
                 entry.recount();
                 g.recently_completed.retain(|s| s != &key);
                 g.bags.push_front(entry);
@@ -403,7 +403,7 @@ impl BagCheckState {
 /// 保留策略:有未印件(missing > 0)的袋全部保留;已完成(missing == 0)的袋只保留最新一個。
 /// deque front = 最新、back = 最舊;retain 由 front→back 走訪,
 /// 第一個遇到的已完成袋(最新)保留,其餘已完成袋淘汰。
-/// **淘汰的完成袋記入 `recently_completed`**(有界):日後回補這些袋時才認得出它是「已完成袋回補」
+/// **淘汰的完成袋記入 `recently_completed`**(有界):之後回補這些袋時才認得出它是「已完成袋回補」
 /// 而非開新袋,避免誤打斷進行中的袋。
 fn prune(inner: &mut BagCheckInner) {
     let mut kept_complete = false;
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn reprint_completed_bag_does_not_interrupt_in_progress() {
-        // finding[4]:B 進行中(缺件),回頭補印「已完成的 A」→ 不可誤標 B 中途被打斷
+        // B 進行中(缺件),回頭補印「已完成的 A」→ 不可誤標 B 中途被打斷
         let mut inner = inner_with(vec![bag("A", 0), bag("B", 3)], Some("B"));
         let changed = apply_active_switch(&mut inner, "A");
         assert!(!changed);
@@ -762,7 +762,7 @@ mod tests {
 
     #[test]
     fn deferred_interrupt_marks_bag_built_after_switch() {
-        // finding[1]:切走 A 時 A 的 entry 尚未建立(背景 examine 未回)→ 記入 abandoned;
+        // 切走 A 時 A 的 entry 尚未建立(背景 examine 未回)→ 記入 abandoned;
         // 當 A 的 entry 稍後建立時,apply_deferred_interrupt 補標。
         let mut inner = inner_with(vec![bag("B", 5)], Some("A")); // A 尚未進 bags
         let changed = apply_active_switch(&mut inner, "B");
@@ -778,8 +778,8 @@ mod tests {
 
     #[test]
     fn abandoned_only_holds_bags_not_yet_built() {
-        // finding[479a/479b]:前一袋 entry 已在 bags 時,當下即判定、**不**放入 abandoned
-        //(避免完成袋殘留集合日後誤標,也避免無界增長)。
+        // 前一袋 entry 已在 bags 時,當下即判定、**不**放入 abandoned
+        //(避免完成袋殘留集合後續誤標,也避免無界增長)。
         let mut inner = inner_with(vec![bag("A", 0), bag("B", 3)], Some("A"));
         apply_active_switch(&mut inner, "B"); // A 已完成且在 bags → 不標、不進 abandoned
         assert!(inner.abandoned.is_empty(), "已建 entry 的袋不該進 abandoned");
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn reprint_pruned_completed_bag_does_not_interrupt() {
-        // finding[B]:已完成的 A 被 prune 淘汰(不在 bags,但在 recently_completed);
+        // 已完成的 A 被 prune 淘汰(不在 bags,但在 recently_completed);
         // 進行中的 B 時回補 A → 不可誤標 B。
         let mut inner = inner_with(vec![bag("B", 3)], Some("B"));
         inner.recently_completed.push_back("A".to_string()); // A 完成後已被淘汰
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn reused_bag_number_no_longer_treated_as_reprint_after_removal() {
-        // finding[1]:X 在 recently_completed 時,切到 X 視為回補、no-op(不打斷進行中的 A)
+        // X 在 recently_completed 時,切到 X 視為回補、no-op(不打斷進行中的 A)
         let mut inner = inner_with(vec![bag("A", 2)], Some("A"));
         inner.recently_completed.push_back("X".to_string());
         assert!(!apply_active_switch(&mut inner, "X"), "X 在 recently_completed → 當回補 no-op");
@@ -823,7 +823,7 @@ mod tests {
 
     #[test]
     fn prune_records_evicted_completed_into_recently_completed() {
-        // prune 淘汰的完成袋要進 recently_completed(供日後回補辨識)
+        // prune 淘汰的完成袋要進 recently_completed(供之後回補辨識)
         let mut inner = inner_with(vec![bag("newC", 0), bag("oldC", 0), bag("inc", 2)], None);
         prune(&mut inner);
         // newC(最新完成)保留、oldC 被淘汰記入、inc 未印保留

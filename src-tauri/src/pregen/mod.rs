@@ -86,8 +86,8 @@ pub fn start_scheduler(state: SharedState) {
         );
 
         // 當日狀態:done_date 為當前日期字串;切日時清空 fired(排程時間點以「日曆日」計)。
-        // 「今日已預產的 order_sn」去重改用共用儲存 state.pregen_done(快取日範圍、與手動頁共用、
-        // persist 到 DB),此處不再各記一份。
+        // 「今日已預產的 order_sn」去重一律讀寫共用儲存 state.pregen_done(快取日範圍、與手動頁
+        // 共用、persist 到 DB),此處不得另記一份。
         let mut done_date = now.format("%Y-%m-%d").to_string();
         let mut fired: HashSet<String> = HashSet::new(); // 今日已觸發的時間點
 
@@ -129,8 +129,8 @@ pub fn start_scheduler(state: SharedState) {
         }
 
         // 視窗掃描的下界:上輪檢查時刻的 "HH:MM"。每輪處理 [last_hhmm, now] 視窗內全部排程點
-        //(fired 防重複觸發)—— run_pregen 為 inline await,批次跑數十分鐘會停 tick;
-        // 舊做法用「當下分鐘 == 排程點」精確比對,批次跑過頭該時段永不相等 → 當日靜默漏跑。
+        //(fired 防重複觸發)—— run_pregen 為 inline await,批次跑數十分鐘會停 tick。
+        // **不可改用「當下分鐘 == 排程點」精確比對**:批次跑過頭後該時段永不相等 → 當日靜默漏跑。
         // 視窗掃描讓恢復 tick 後把錯過的時段一次補上。"HH:MM" 固定寬度全數字,字典序即時序。
         let mut last_hhmm = now.format("%H:%M").to_string();
 
@@ -144,7 +144,7 @@ pub fn start_scheduler(state: SharedState) {
             if today != done_date {
                 // 跨日:昨日 last_hhmm 之後、尚未觸發的排程點已無法補跑
                 //(run_pregen 以「當日」為目標,過了午夜再跑目標日就錯了)——
-                // 至少記 warn 讓漏跑**可觀測**,不與修正前一樣靜默消失。
+                // 至少記 warn 讓漏跑**可觀測**,不靜默消失。
                 let missed: Vec<String> = cfg
                     .times
                     .iter()
@@ -163,7 +163,7 @@ pub fn start_scheduler(state: SharedState) {
             let now_hhmm = now.format("%H:%M").to_string();
 
             if !cfg.enabled || cfg.times.is_empty() || cfg.sources.is_empty() {
-                // 停用期間流逝的時段不補跑(對齊舊行為):下界跟著推進
+                // 停用期間流逝的時段不補跑:下界跟著推進
                 last_hhmm = now_hhmm;
                 continue;
             }

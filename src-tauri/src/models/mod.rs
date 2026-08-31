@@ -21,7 +21,7 @@ pub struct ParcelInfo {
     /// 列印記錄 ID(debug 模式不回,所以是 Option)
     #[serde(default)]
     pub response_id: Option<i64>,
-    /// 集包單號(袋號);雲端 v2 回傳新增,舊版雲端未回時為 None → 視為散單不納入袋件核對
+    /// 集包單號(袋號);僅雲端 v2 會回,未回時為 None → 視為散單不納入袋件核對
     #[serde(default)]
     pub package_sn: Option<String>,
 }

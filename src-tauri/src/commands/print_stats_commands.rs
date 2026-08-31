@@ -81,7 +81,7 @@ pub struct SummaryResp {
     pub range_total: i64,
     pub packages_range_total: i64,
     /// 區間內 NoRead(工控機相機讀不到單號)件數,來自 daily_stats.noread_count 加總。
-    /// NoRead 不打雲端、不進 print_event,故印單統計原本看不到,獨立於此呈現。
+    /// NoRead 不打雲端、不進 print_event,印單統計看不到它,故獨立於此呈現。
     pub noread_range_total: i64,
     pub by_source: Vec<SourceCount>,
 }
@@ -503,7 +503,7 @@ pub async fn print_stats_by_sticker(
 }
 
 // =====================================================================
-// 階段 2:scanner_user(操作人員)分組
+// scanner_user(操作人員)分組
 // =====================================================================
 
 #[derive(Debug, Serialize)]
@@ -594,7 +594,7 @@ pub async fn print_stats_by_channel(
 }
 
 // =====================================================================
-// 階段 3:熱力圖 / 重印分布 / 物流×來源 cross-tab
+// 熱力圖 / 重印分布 / 物流×來源 cross-tab
 // =====================================================================
 
 #[derive(Debug, Serialize)]
@@ -715,7 +715,7 @@ pub async fn print_stats_provider_source(
 }
 
 // =====================================================================
-// 階段 4:失敗 / 異常率
+// 失敗 / 異常率
 // =====================================================================
 
 #[derive(Debug, Serialize)]
@@ -797,7 +797,7 @@ pub async fn print_stats_failure(
 }
 
 // =====================================================================
-// 階段 5:歷史比對(本週 vs 上週 / 本月 vs 上月)
+// 歷史比對(本週 vs 上週 / 本月 vs 上月)
 // =====================================================================
 
 #[derive(Debug, Serialize)]

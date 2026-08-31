@@ -124,7 +124,7 @@ mod tests {
     use super::derive_repeat_key;
 
     /// 回歸:同物流商、不同日期、**同檔名**的兩張面單,repeat_key 必須不同。
-    /// 舊實作只取 `rsplit('/').next()`(檔名)→ 兩者都是 `@repeat/WH-abc.png` 碰撞,
+    /// 只取檔名(`rsplit('/').next()`)會讓兩者都是 `@repeat/WH-abc.png` 而碰撞,
     /// 浮水印圖互相覆蓋,工控機/UI 拿到他單的 `(N)` 面單(找錯面單圖)。
     #[test]
     fn repeat_key_distinct_across_dates_same_filename() {
@@ -143,7 +143,7 @@ mod tests {
         assert_ne!(h, e);
     }
 
-    /// 維持 `@repeat/` 單層目錄(清理/過期邏輯依此),子路徑攤平不再產生巢狀資料夾。
+    /// 維持 `@repeat/` 單層目錄(清理/過期邏輯依此):子路徑須攤平,不可產生巢狀資料夾。
     #[test]
     fn repeat_key_stays_single_level_under_at_repeat() {
         let k = derive_repeat_key("HCT/20260513/abc.png", "H");

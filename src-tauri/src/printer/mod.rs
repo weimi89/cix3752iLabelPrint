@@ -157,14 +157,13 @@ mod windows_gdi {
 
     /// 列印 image bytes
     ///
-    /// 策略:**pre-scale + 1-bit B&W bottom-up DIB**(2026-05-20 XP-460B / EPSON L6190 實機驗證)。
-    /// - 24-bit BGR DIB 對 Print to PDF 等虛擬印表機 OK,但對所有實體 driver 卡 spooler
-    ///   (driver 在 raster expansion + colorspace 轉換階段 hang,可能源自 top-down DIB 與 driver
-    ///   內 raster scaling 的特定 incompatibility)
-    /// - 改 1-bit:raster size 從 24-bit 24× 縮減(800×1200 從 2.88MB → 120KB),driver 不用
-    ///   做色彩空間轉換 + 只剩極小資料量送 USB
-    /// - 改 bottom-up(`biHeight = +ih`):避開老 driver 對 top-down 的雷
-    /// - pre-scale 到印表機物理 DPI:`StretchDIBits` dest=src 不縮放,driver 不必再 scale
+    /// 策略:**pre-scale + 1-bit B&W bottom-up DIB**(XP-460B / EPSON L6190 實機驗證過的組合)。
+    /// 三個條件缺一都會卡 Windows spooler,不可為了「單純一點」改回去:
+    /// - **1-bit(非 24-bit BGR)**:24-bit 對 Print to PDF 等虛擬印表機正常,對實體 driver 會在
+    ///   raster expansion + 色彩空間轉換階段 hang。1-bit 讓 raster 縮到 1/24(800×1200:
+    ///   2.88MB → 120KB),driver 不必轉色彩空間、送 USB 的資料量也極小
+    /// - **bottom-up(`biHeight = +ih`)**:老 driver 對 top-down DIB 會卡
+    /// - **pre-scale 到印表機物理 DPI**:`StretchDIBits` dest=src 不縮放,driver 不必再 scale
     pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<()> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| AppError::Printer(format!("圖片解碼失敗: {e}")))?;

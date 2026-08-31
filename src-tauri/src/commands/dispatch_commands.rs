@@ -56,7 +56,7 @@ pub async fn dispatch_provider_upsert(
     }
     let print_profile = req.print_profile.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
-    // 舊 printer_name 欄位保留於 schema 但不再讀寫(本機印表機設定已移到 sort_channels)
+    // printer_name 欄位仍在 schema 但不讀不寫(本機印表機設定在 sort_channels)
     sqlx::query(
         "INSERT INTO dispatch_provider (code, name, sort_order, print_profile, updated_at)
          VALUES (?, ?, ?, ?, datetime('now','localtime'))

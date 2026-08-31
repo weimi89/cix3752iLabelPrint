@@ -18,7 +18,7 @@ pub async fn update_config(
 ) -> AppResult<AppConfig> {
     // server.listen_ip / port 不是熱套用欄位(要重綁 socket)。先比對是否變更,
     // 變更則用新設定重啟 server —— start 會驗證新 addr 可綁,失敗就整個 update 中止、
-    // 不持久化也不動其他設定,避免「設定存了卻沒生效」的斷鏈(舊版這裡完全沒處理 server)。
+    // 不持久化也不動其他設定,避免「設定存了卻沒生效」的斷鏈。
     // 需重綁 server 的欄位:listen_ip / port(換 socket)、存證目錄(/captures ServeDir)、
     // **快取目錄**(/images ServeDir 於 server 啟動時依 config 定版;不重啟會供舊目錄 →
     // http 模式工控機拿到的 label_path 全 404)。keep_days 變更不需重啟(清理器讀 config)。

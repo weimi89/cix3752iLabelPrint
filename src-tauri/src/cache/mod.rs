@@ -127,7 +127,7 @@ struct Inner {
 /// 依 cloud 設定建面單下載 client(TLS 跟隨 CloudClient 熱套用)。
 /// timeout 取 `max(cloud.timeout_secs, 30)`:圖檔下載(數 MB、跨境慢網)需要的餘裕
 /// 遠大於 API 呼叫,站點為了讓健康檢查快速失敗而調低 timeout_secs 時,
-/// 不可連帶把下載逾時砍短(歷史行為即固定 30s)。
+/// 不可連帶把下載逾時砍短(下限固定 30s)。
 fn build_http(config: &AppConfig) -> AppResult<Client> {
     Client::builder()
         .timeout(Duration::from_secs(config.cloud.timeout_secs.max(30)))
@@ -443,7 +443,7 @@ async fn download_one(inner: &Inner, label_key: &str, source_url: &str) -> AppRe
 
     // 原子寫入(temp+rename,含寫失敗清檔 + rename 重試):讀取端(/images 服務、浮水印、
     // DirectPrint / 工控機)永遠讀到完整檔,避免截斷讀("unexpected end of file")。
-    // 尤其跨日快取清理後重印 / 預產背景重抓 與 前景列印併發時不再互相截斷。詳見 crate::fs_atomic。
+    // 跨日快取清理後重印 / 預產背景重抓 與 前景列印併發時尤其關鍵。詳見 crate::fs_atomic。
     let size = bytes.len() as i64;
     crate::fs_atomic::write_async(&target, &bytes).await?;
 
@@ -491,7 +491,7 @@ async fn clean_cache(base: &Path, keep_days: u32, max_size_mb: u64, db: &DbPool)
         // target 以 cache_meta 的 size_bytes 加總為準(= 本流程可淘汰的「受管快取」總量)。
         // 不掃磁碟總量:磁碟另含 @repeat 浮水印 / @error 錯誤面單等非 cache_meta 孤兒檔
         //(由上方 keep_days expiry 依齡清理)。若以磁碟總量為目標,會因孤兒檔扣不到而把
-        // 合法快取整批刪光、容量卻仍超標(原 bug)。
+        // 合法快取整批刪光、容量卻仍超標。
         let mut total: i64 = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(SUM(size_bytes), 0) FROM cache_meta",
         )

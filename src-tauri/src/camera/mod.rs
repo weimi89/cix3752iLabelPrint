@@ -195,7 +195,7 @@ pub fn save_snapshot(captures_dir: &Path, query_no: &str, jpeg: &[u8]) -> Option
     save_snapshot_named(captures_dir, &format!("{query_no}_{ts}"), jpeg)
 }
 
-/// 用「呼叫端已組好的完整檔名主幹」寫存證快照(**不再自動附時間戳**),回傳相對 key `{stem}.jpg`。
+/// 用「呼叫端已組好的完整檔名主幹」寫存證快照(**不附時間戳**),回傳相對 key `{stem}.jpg`。
 /// 供呼叫端需要自控唯一檔名時使用:例如 NoRead 沒有真實單號、僅靠秒級時間戳會在同秒多筆讀碼失敗時
 /// 互相覆蓋,故由呼叫端在 stem 內加序號保證唯一。檔名安全字元規則同 [`save_snapshot`]。
 pub fn save_snapshot_named(captures_dir: &Path, file_stem: &str, jpeg: &[u8]) -> Option<String> {

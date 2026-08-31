@@ -2,7 +2,7 @@
 //!
 //! 訂閱 `bag.{package_sn}` public 頻道,收到雲端廣播的 `parcel.printed` 事件後,呼叫
 //! [`BagCheckState::apply_remote_print`] 就地更新本機核對清單,讓「同一袋包裹拿到別台處理」
-//! 也能即時同步(原本舊袋不再回雲端會失真)。
+//! 也能即時同步(舊袋不會再打雲端,少了這條同步本機清單會失真)。
 //!
 //! 設計:
 //!   - **動態訂閱**:每 [`RECONCILE_SECS`] 比對 bag_check 目前持有的袋,訂新的、退掉沒了的。
@@ -47,7 +47,7 @@ const IDLE_TIMEOUT_SECS: u64 = 90;
 /// 等待 pusher:connection_established 握手的上限
 const HANDSHAKE_TIMEOUT_SECS: u64 = 15;
 /// TCP+TLS 建線(connect_async)上限 —— 防火牆吞 SYN / 路由黑洞時 OS 預設可掛 1-2 分鐘,
-/// 不設上限會讓重連迴圈停擺遠超設計的退避窗(half-open 修正的同結構缺口)
+/// 不設上限會讓重連迴圈停擺遠超設計的退避窗(與 half-open 沉默同一類的缺口)
 const CONNECT_TIMEOUT_SECS: u64 = 15;
 /// 連線存活達此秒數才視為「穩定」、把重連退避歸 1。
 /// 若握手成功就歸 1,雲端 crash-loop(能握手但數秒內斷)時所有中介機會以 1s 間隔

@@ -122,8 +122,8 @@ pub async fn sort_channel_save(
     // 通道代碼是分揀機格口機器碼(工控機讀它路由格口,如 L1/R4/A01),必為 ASCII 機器碼。
     // 限英數與 - _、長度 ≤ 16,擋下把貼標人員名等中文/長字串誤填進通道代碼 ——
     // 誤填會被工控機當格口碼、且污染「依分揀通道」統計(歷史以當時 channel_code 歸戶,事後難清)。
-    // 只在「代碼有變更」時驗證:既有(驗證上線前)存入的不合規舊值放行,讓操作員仍能改該通道
-    // 其他欄位(物流指派/貼標),不被舊資料把整列存檔卡死。
+    // 只在「代碼有變更」時驗證:DB 內既有的不合規值放行,讓操作員仍能改該通道
+    // 其他欄位(物流指派/貼標),不被這類資料把整列存檔卡死。
     if let Some(code) = channel_code.as_deref() {
         let current: Option<String> = sqlx::query(
             "SELECT channel_code FROM sort_channels WHERE position = ?",
