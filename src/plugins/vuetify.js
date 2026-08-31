@@ -115,7 +115,16 @@ export default createVuetify({
   },
   icons: {
     defaultSet: 'iconify',
-    aliases,
+    // mdi 那組 alias 的語氣圖示是實心色塊(error 是填滿的圓 + 白色 X),在提示訊息裡
+    // 看起來像左邊多了一顆有底色的按鈕,把整條短訊息撐開。全站其他圖示都是 tabler 線條版,
+    // 這四個跟著改成線條版才一致 —— 其餘 alias(展開、排序、分頁…)維持 mdi 不動。
+    aliases: {
+      ...aliases,
+      success: 'tabler-circle-check',
+      info: 'tabler-info-circle',
+      warning: 'tabler-alert-triangle',
+      error: 'tabler-alert-circle',
+    },
     sets: { iconify },
   },
   defaults,

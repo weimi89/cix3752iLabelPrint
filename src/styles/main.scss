@@ -583,3 +583,55 @@ body {
 .v-icon--clickable:focus-visible {
   outline: none;
 }
+
+// 提示訊息(VAlert)的語氣圖示:
+// 1. 尺寸 —— 預設 28px 圖示 + 16px 間距,在短訊息旁邊像多了一顆按鈕,把提示撐高。
+//    縮到與內文同高、間距收窄。
+// 2. 排版 —— 預設把圖示放在獨立一欄(grid:prepend content append close),文字只能用右半邊,
+//    窄版面時每行都被截短、右邊空一塊、短句被拆成好幾行。改成讓圖示浮動進文字流,
+//    第二行起就能流到圖示下方,整條提示的寬度用得完。
+.v-alert:not(.v-alert--prominent) {
+  display: block; // grid item 無法浮動,得先脫離 Vuetify 的四欄 grid
+
+  .v-alert__prepend {
+    // 高度取一行文字的行高、圖示在其中置中(Vuetify 本來就給它 display: flex),
+    // 圖示中線因此對齊第一行的字中,而不是貼著行頂
+    align-items: center;
+    block-size: 1.5em;
+    float: inline-start;
+    margin-inline-end: 0.375rem;
+    min-block-size: 0;
+    padding-block-start: 0;
+
+    > .v-icon {
+      block-size: 1.125rem;
+      font-size: 1.125rem;
+      inline-size: 1.125rem;
+    }
+  }
+
+  // 脫離 grid 後關閉鈕會掉到文字後面,改釘在右上角(.v-alert 本身已是 position: relative);
+  // 只有真的有關閉鈕的提示才把內容右邊空出來,免得每一則提示都白白少一截寬度。
+  .v-alert__close {
+    position: absolute;
+    inset-block-start: 0.375rem;
+    inset-inline-end: 0.5rem;
+  }
+
+  // Vuetify 給內容區 overflow: hidden,那會建立 BFC —— 整塊內容被整個推到浮動圖示右側,
+  // 每一行都縮排,等於 float 白做。外框(.v-alert)自己仍有 overflow: hidden,圓角照樣裁得住。
+  .v-alert__content {
+    overflow: visible;
+  }
+
+  &:has(.v-alert__close) .v-alert__content {
+    padding-inline-end: 1.25rem;
+  }
+}
+
+// toast 的線條圖示用 currentColor 上色,容器本身沒有顏色 → 依語氣給色,
+// 對齊 toast 內建的四種語氣色(成功綠、錯誤紅、警告橘、資訊藍)。
+.Toastify__toast--success .Toastify__toast-icon { color: var(--toastify-icon-color-success); }
+.Toastify__toast--error .Toastify__toast-icon { color: var(--toastify-icon-color-error); }
+.Toastify__toast--warning .Toastify__toast-icon { color: var(--toastify-icon-color-warning); }
+.Toastify__toast--info .Toastify__toast-icon { color: var(--toastify-icon-color-info); }
