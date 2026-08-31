@@ -29,11 +29,77 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 統一建立 release 的前置 job —— 修 v0.17.1 實際炸出的重複 draft release 問題。
+  # 根因:release-desktop(tauri-action)與 release-linux(原本用 softprops/action-gh-release)
+  # 各自都是「查無該 tag 的 release 就自己建一個」,兩者幾乎同時起跑、互相看不到對方剛建的
+  # release(TOCTOU),於是各建一份同 tag 的 draft(v0.17.1 實測 id 367648071 與 367648069;
+  # v0.17.0 只出現一個是純屬時序運氣,不代表沒這個問題)。
+  # 改成只有這個 job 會建立 release,desktop / linux 都改用它輸出的 release id 上傳 asset,
+  # 從源頭消滅「兩邊都建」的可能性,而不是靠鎖或重試去降低發生機率。
+  create-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build release notes
+        id: notes
+        shell: bash
+        run: |
+          bash scripts/build-release-notes.sh "${{ github.event.inputs.tag || github.ref_name }}" > /tmp/release-notes.md
+
+      # 找同 tag 的既有 release(含 draft),找到就沿用同一個 id 讓重跑 workflow 具備幂等性
+      # (人工重跑失敗的 job 不會又多建一個);找不到才新建一份 draft。
+      #
+      # 不能用 GET /repos/{owner}/{repo}/releases/tags/{tag} 定位 —— 這支 API 查不到 draft
+      # release(draft 沒有真正指到 tag 的 ref,GitHub 底層就是靠 tag ref 反查 release),draft
+      # 只能整批 list 出來自己找 tag_name。--paginate 撈完所有頁,避免 release 數一多漏找到。
+      - name: Find existing release or create one
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          # 一定要 pipefail:光 set -e 不會讓 pipeline 中間的指令失敗擋下整段 ——
+          # 上游 gh api 若剛好 5xx / rate-limit,`gh api | jq` 這條 pipeline 的退出碼只看
+          # 最後一節(jq),jq 讀到空輸入照樣成功、RELEASE_ID 取到空字串,就會被誤判成
+          # 「沒有既有 release」而重新建立一個 —— 等於這次修的重複 draft 問題換個觸發路徑再犯一次。
+          set -euo pipefail
+          gh api --paginate "repos/${{ github.repository }}/releases" | jq -s 'add' > /tmp/releases.json
+          # 原本 `jq ... | head -1` 在 pipefail 下有 SIGPIPE 風險(head 讀到第一筆就關閉管線,
+          # 前面的 jq 可能因為寫入端斷開而被判定失敗),改成單一 jq filter 直接取第一筆,不再接 head。
+          RELEASE_ID=$(jq -r --arg tag "$TAG_NAME" 'first(.[] | select(.tag_name == $tag) | .id) // empty' /tmp/releases.json)
+
+          # 找到既有 release 就只沿用 id,刻意不順便把上面重新產生的 notes 蓋回去 body ——
+          # CLAUDE.md 發版流程第 5 步允許「已發佈版本才發現 notes 漏寫」時直接
+          # `gh release edit --notes-file` 手動補救;若這裡順手覆寫 body,等於每次重跑
+          # workflow(例如某個 job 失敗後重跑)都會把人工修正的 notes 蓋回腳本產出的版本,
+          # 悄悄吃掉那次人工修正。要更新說明就直接 `gh release edit`,不要靠重跑這個 workflow。
+          if [ -n "$RELEASE_ID" ]; then
+            echo "找到既有 release id=$RELEASE_ID(tag=$TAG_NAME),沿用同一個,不重複建立"
+          else
+            echo "找不到 tag $TAG_NAME 的 release,建立新的 draft"
+            RELEASE_ID=$(gh api "repos/${{ github.repository }}/releases" \
+              -X POST \
+              -f tag_name="$TAG_NAME" \
+              -f name="智配通 面單列印 $TAG_NAME" \
+              -F draft=true \
+              -F prerelease=false \
+              -F body=@/tmp/release-notes.md \
+              --jq '.id')
+            echo "已建立 release id=$RELEASE_ID"
+          fi
+
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
   # macOS arm64 / macOS x64 / Windows — tauri-action 標準流程
   release-desktop:
     # workflow_dispatch 指定 only=linux 時跳過(避免重 build 撞 assets already_exists)
     # push tag 觸發時 inputs.only 為空字串,!= 'linux' 為 true,正常跑
     if: github.event.inputs.only != 'linux'
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -72,9 +138,10 @@ jobs:
       - name: Install npm deps
         run: yarn install --frozen-lockfile
 
-      # 產生 release 說明(CHANGELOG 本次更新 + 安裝包樣板),desktop / linux 兩個 job 共用同一支腳本,
-      # 確保不論哪個 job 先建立 release,body 都是同一份非空內容(避免 softprops 搶先建立導致 body 空白)。
-      # shell: bash 讓 Windows runner 也能跑(git-bash)
+      # release 本身已由前置的 create-release job 統一建立,這裡不再需要靠這份 notes 去建立
+      # release —— 但仍要重新產生一份:tauri-action 走 releaseId 模式時,依然會把 releaseBody
+      # 塞進 latest.json 的 notes 欄位(見下方 tauri-action 那步的說明),沒有它「發現新版本」
+      # 對話框的更新說明會整個消失。shell: bash 讓 Windows runner 也能跑(git-bash)
       - name: Build release notes
         id: notes
         shell: bash
@@ -102,10 +169,19 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
+          # release 由前置的 create-release job 統一建立(見該 job 開頭註解),這裡改用
+          # releaseId 指定上傳目標,不再走 tauri-action 自己「查無 tag 就建立」那條路
+          # (那正是造成重複 draft 的根因)。
+          #
+          # tagName / releaseBody 仍要保留 —— 讀過 tauri-action v0 原始碼
+          # (src/index.ts + src/upload-version-json.ts,非憑印象猜測)確認:即使走
+          # releaseId 這條路徑,tauri-action 產生 updater 用的 latest.json 時仍會用
+          # tagName 組資產下載網址、用 releaseBody 當 notes 欄位;拿掉會讓 App 內
+          # 「發現新版本」對話框的更新說明整個消失。releaseName / releaseDraft 才是真的
+          # 只有「查無 tag 自建 release」那條路徑會用到,現在該路徑不會被觸發,拿掉沒影響。
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: '智配通 面單列印 ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
           includeUpdaterJson: true
@@ -118,6 +194,7 @@ jobs:
   # 22.04 / 24.04:系統有 libwebkit2gtk-4.1-0,直接 link 系統 .so,install.sh 跑 apt
   release-linux:
     if: github.event.inputs.only != 'desktop'
+    needs: create-release
     runs-on: ubuntu-22.04
     continue-on-error: true  # source build / 新 distro 試錯中,fail 不阻其他 matrix
     timeout-minutes: 300
@@ -590,21 +667,62 @@ jobs:
 
           echo "TARBALL=/tmp/${STAGE_NAME}.tar.gz" >> $GITHUB_ENV
 
-      # 與 desktop job 共用同一支腳本產生相同 body;softprops 帶 body 才不會在搶先建立 release 時留下空白
-      - name: Build release notes
-        id: notes
-        shell: bash
-        run: |
-          {
-            echo "body<<RELEASE_NOTES_EOF"
-            bash scripts/build-release-notes.sh "${{ github.event.inputs.tag || github.ref_name }}"
-            echo "RELEASE_NOTES_EOF"
-          } >> "$GITHUB_OUTPUT"
-
+      # release 已由前置的 create-release job 統一建立(含 body),這個 job 只負責把 tarball
+      # 上傳成 asset,不再需要自己產生/帶 release notes,原本的「Build release notes」步驟移除。
+      #
+      # 改用 release id 直接打 uploads.github.com,不再用 softprops/action-gh-release ——
+      # 原本 softprops 遇到「找不到該 tag 的 release」也會自己建一個,跟 release-desktop
+      # (tauri-action)同時搶著建,就是 v0.17.1 炸出兩個同 tag draft 的根因(見 create-release
+      # job 開頭註解)。現在 release 一律由 create-release 先建好,這裡只認 release id 上傳資產。
+      #
+      # 不能用 gh release upload <tag> 或 tag 定位 API —— draft release 沒有真正指到 tag 的
+      # ref,實測用 tag 定位會 404;改用 release id 打 REST API 才穩定命中,這也是 tauri-action
+      # 內部上傳 asset 用的同一種定位方式。
+      #
+      # 這裡刻意只用 curl + node,不用 gh CLI —— 這個 job 的 steps 是跑在 ubuntu:20.04/22.04/24.04
+      # 官方 container image 裡(job 層級 `container:`),不是 GitHub-hosted runner 本體,container
+      # 內沒有預裝 gh。node 則保證已裝(上面「Setup Node 22」對三個 distro 都是無條件跑),
+      # 用它的內建 JSON.parse 就夠解析 API 回應,不必為了這步另外去動 apt bootstrap 多裝套件。
       - name: Upload tarball to Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          body: ${{ steps.notes.outputs.body }}
-          files: ${{ env.TARBALL }}
-          draft: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          # 這步本身沒有 pipe,現在加 pipefail 不影響行為;跟 create-release job 那步統一用
+          # set -euo pipefail,避免日後有人在這裡加 pipe 卻忘了 pipefail,重蹈同一種坑。
+          set -euo pipefail
+          ASSET_NAME=$(basename "$TARBALL")
+          API_BASE="https://api.github.com/repos/${{ github.repository }}"
+          echo "上傳 $ASSET_NAME 到 release id=$RELEASE_ID"
+
+          # 同名 asset 已存在(重跑 workflow 補傳同一個 distro)要先刪除再傳,
+          # GitHub upload API 對同名 asset 會直接回 422,不會自動覆蓋
+          curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "${API_BASE}/releases/${RELEASE_ID}/assets?per_page=100" -o /tmp/existing-assets.json
+
+          EXISTING_ASSET_ID=$(node -e "
+            const fs = require('fs');
+            const assets = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            const found = assets.find((a) => a.name === process.argv[2]);
+            if (found) process.stdout.write(String(found.id));
+          " /tmp/existing-assets.json "$ASSET_NAME")
+
+          if [ -n "$EXISTING_ASSET_ID" ]; then
+            echo "同名 asset 已存在(id=$EXISTING_ASSET_ID),先刪除再重傳"
+            curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer ${GH_TOKEN}" \
+              "${API_BASE}/releases/assets/${EXISTING_ASSET_ID}"
+          fi
+
+          HTTP_STATUS=$(curl -sS -o /tmp/upload-response.json -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@${TARBALL}" \
+            "https://uploads.github.com/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=${ASSET_NAME}")
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::上傳失敗,HTTP $HTTP_STATUS"
+            cat /tmp/upload-response.json
+            exit 1
+          fi
+          echo "上傳成功(HTTP $HTTP_STATUS)"
