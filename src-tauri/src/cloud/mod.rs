@@ -890,3 +890,26 @@ fn clear_token_from_keyring() -> AppResult<()> {
         Err(e) => Err(AppError::Keyring(e)),
     }
 }
+
+#[cfg(test)]
+mod keyring_tests {
+    /// keyring 少了平台原生 store 時會靜默退回記憶體實作 —— 編得過、同一進程內也讀得回來,
+    /// 只有「重啟後 Token 不見了」才會發現。這裡寫入後直接用 macOS 的 security 指令
+    /// 去 keychain 查有沒有這筆,確認真的落到系統鑰匙圈而不是記憶體。
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn token_真的寫進系統鑰匙圈() {
+        const SERVICE: &str = "cix3752i-keyring-probe";
+        const USER: &str = "probe";
+        let entry = keyring::Entry::new(SERVICE, USER).expect("建立 keyring entry");
+        entry.set_password("probe-value").expect("寫入 keyring");
+
+        let out = std::process::Command::new("security")
+            .args(["find-generic-password", "-s", SERVICE, "-a", USER])
+            .output()
+            .expect("執行 security 指令");
+        let _ = entry.delete_credential();
+
+        assert!(out.status.success(), "security 在 keychain 找不到這筆 —— keyring 可能退回了記憶體實作");
+    }
+}

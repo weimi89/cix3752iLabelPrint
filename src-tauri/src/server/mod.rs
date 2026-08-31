@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::event_log;
 
 use axum::{
-    extract::{Host, Path, State},
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -258,17 +258,17 @@ pub async fn start(
 
     let app = Router::new()
         .route("/healthz", get(healthz))
-        .route("/api/parcel/:query_no", get(get_parcel))
+        .route("/api/parcel/{query_no}", get(get_parcel))
         .route("/api/report", post(post_report))
         .route("/api/device-alert", post(post_device_alert))
         // 手機遙控分揀通道暫停(換紙等臨時暫停某通道,不影響其他通道)
         .route("/control", get(control_page))
         .route("/api/alerts", get(list_alerts))
         .route("/api/channels", get(list_channels))
-        .route("/api/channels/:position", post(set_channel_enabled))
-        .route("/api/channels/:position/skip", post(skip_channel))
-        .route("/api/channels/:position/recent", get(channel_recent))
-        .route("/api/channels/:position/assign", post(assign_channel))
+        .route("/api/channels/{position}", post(set_channel_enabled))
+        .route("/api/channels/{position}/skip", post(skip_channel))
+        .route("/api/channels/{position}/recent", get(channel_recent))
+        .route("/api/channels/{position}/assign", post(assign_channel))
         .route("/api/dispatch-providers", get(list_dispatch_providers))
         .route("/api/sticker-history", get(list_sticker_history))
         .route("/camera/preview", get(camera_preview))
@@ -1613,9 +1613,16 @@ async fn handle_noread(
 /// GET /api/parcel/:query_no — 工控機呼叫
 async fn get_parcel(
     State(state): State<ServerState>,
-    Host(host): Host,
+    headers: axum::http::HeaderMap,
     Path(query_no): Path<String>,
 ) -> Result<Json<DataEnvelope<ParcelData>>, (StatusCode, Json<ApiErrorBody>)> {
+    // axum 0.8 起沒有 Host extractor(舊版會採信 X-Forwarded-Host,對外服務有假冒風險);
+    // 本服務只在區網內給工控機呼叫,直接取 Host header,不看任何 forwarded 標頭。
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
     let t_start = std::time::Instant::now();
     // 收到請求的「當下」就釘住讀碼站相機最新一幀(離工控機實際讀碼僅約 20ms),
     // 不在這裡存檔(避免擋住回應),純記憶體複製;後續查得到訂單才丟背景寫檔 + 回寫 photo_path。

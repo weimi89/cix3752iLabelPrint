@@ -5,7 +5,8 @@ description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"
 default-run = "cix3752i-label-print"
-rust-version = "1.77"
+# sqlx 0.9 要求 1.94(其相依 sqlx-core / sqlx-macros 同樣)
+rust-version = "1.94"
 
 [lib]
 name = "cix3752i_label_print_lib"
@@ -29,26 +30,28 @@ tauri-plugin-single-instance = "2"
 
 # Async / web server
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.7", features = ["multipart", "macros"] }
+axum = { version = "0.8", features = ["multipart", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs", "trace", "limit"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "trace", "limit"] }
 hyper = "1"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+# 0.13 起 rustls-tls 改名為 rustls;query(?a=b 參數)也從內建拆成獨立 feature
+reqwest = { version = "0.13", features = ["json", "stream", "rustls", "query"], default-features = false }
 
 # WebSocket client(件數核對跨機同步:訂閱 Reverb/Pusher 廣播)
 # 用 ring provider 對齊既有 reqwest/sqlx 的 rustls(避免 aws-lc-rs 雙 provider 衝突)
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "macros", "migrate"] }
+# 0.9 把 runtime-tokio-rustls 拆成「執行 runtime」與「TLS 實作」兩個 feature
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono", "macros", "migrate"] }
 
 # Utils
 chrono = { version = "0.4", features = ["serde"] }
@@ -69,19 +72,24 @@ futures = "0.3"
 async-trait = "0.1"
 url = "2"
 mime_guess = "2"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# v4 的 default(= v1 feature)本來就含三個平台的原生 store
+# (macOS keychain / Windows / Linux secret-service),不必再逐一指定 ——
+# 但也不能改成 default-features = false,那會退回沒有任何 store 可用。
+keyring = { version = "4" }
 
 # 本機印表機（跨平台）
 printers = "2"
 image = "0.25"
-imageproc = { version = "0.25", default-features = false }
+# 0.27 起文字繪製(text_size / draw_text_mut)拆成 text feature,而 default-features 是關掉的 ——
+# 不補這個 feature 會編不過。維持關閉 default 的原意:不拉進 rayon / fft / sdl2 等用不到的重相依。
+imageproc = { version = "0.27", default-features = false, features = ["text"] }
 ab_glyph = "0.2"
 
 # USB / 視訊裝置擷取(跨平台:macOS AVFoundation / Windows MSMF / Linux V4L2)
 # 用於「收到工控機請求即抓讀碼站當下畫面」做為沒貨卻出紙的存證
 nokhwa = { version = "0.10", features = ["input-native"] }
-base64 = "0.22"
-barcoders = "1"
+base64 = "0.23"
+barcoders = "2"
 
 # macOS Dock 名稱:dev binary 沒 .app bundle,embed_plist 把最小 Info.plist
 # 編譯期內嵌進 __TEXT,__info_plist section;production .app 仍用 bundle 內 plist 不受影響

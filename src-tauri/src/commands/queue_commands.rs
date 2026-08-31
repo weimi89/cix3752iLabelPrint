@@ -5,6 +5,7 @@ use tauri::State;
 use super::search_terms::{in_clause, split_nos};
 use crate::queue::QueueStats;
 use crate::{AppResult, SharedState};
+use sqlx::AssertSqlSafe;
 
 #[tauri::command]
 pub async fn queue_stats(state: State<'_, SharedState>) -> AppResult<QueueStats> {
@@ -102,7 +103,10 @@ pub async fn queue_list(
     );
 
     let like = keyword.map(|kw| format!("%{kw}%"));
-    let mut query = sqlx::query(&sql);
+    // sqlx 0.9 起,非字面常數的 SQL 一律要人工審核後標記 —— 這裡動態的只有
+    // 「組進哪幾個條件」與「IN (?) 有幾個佔位符」,兩者都由程式碼決定;欄位名是寫死的,
+    // 使用者輸入的值全部走 bind,沒有任何值被拼進字串,故標記為已審核。
+    let mut query = sqlx::query(AssertSqlSafe(&*sql));
     if let Some(status) = req.status.as_deref() {
         query = query.bind(status);
     }

@@ -5,6 +5,7 @@ use tauri::State;
 use super::search_terms::{in_clause, split_nos};
 use crate::db::DbPool;
 use crate::{AppResult, SharedState};
+use sqlx::AssertSqlSafe;
 
 #[derive(Debug, Deserialize)]
 pub struct ParcelAlertListReq {
@@ -123,13 +124,16 @@ pub async fn list_parcel_alerts(
         binds.push(k);
     }
 
-    let mut query = sqlx::query(&sql);
+    // sqlx 0.9 起,非字面常數的 SQL 一律要人工審核後標記 —— 這裡動態的只有
+    // 「組進哪幾個條件」與「IN (?) 有幾個佔位符」,兩者都由程式碼決定;欄位名是寫死的,
+    // 使用者輸入的值全部走 bind,沒有任何值被拼進字串,故標記為已審核。
+    let mut query = sqlx::query(AssertSqlSafe(&*sql));
     for b in &binds {
         query = query.bind(*b);
     }
     let rows = query.bind(limit).bind(offset).fetch_all(db).await?;
 
-    let mut count_query = sqlx::query(&count_sql);
+    let mut count_query = sqlx::query(AssertSqlSafe(&*count_sql));
     for b in &binds {
         count_query = count_query.bind(*b);
     }

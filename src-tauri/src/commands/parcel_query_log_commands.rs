@@ -4,6 +4,7 @@ use tauri::State;
 
 use super::search_terms::{in_clause, split_nos};
 use crate::{AppResult, SharedState};
+use sqlx::AssertSqlSafe;
 
 #[derive(Debug, Deserialize)]
 pub struct ParcelQueryLogListReq {
@@ -104,7 +105,10 @@ pub async fn parcel_query_log_list(
     );
     let count_sql = format!("SELECT COUNT(*) AS n FROM parcel_query_log {where_sql}");
 
-    let mut query = sqlx::query(&sql);
+    // sqlx 0.9 起,非字面常數的 SQL 一律要人工審核後標記 —— 這裡動態的只有
+    // 「組進哪幾個條件」與「IN (?) 有幾個佔位符」,兩者都由程式碼決定;欄位名是寫死的,
+    // 使用者輸入的值全部走 bind,沒有任何值被拼進字串,故標記為已審核。
+    let mut query = sqlx::query(AssertSqlSafe(&*sql));
     for v in &query_nos { query = query.bind(v.as_str()); }
     for v in &tracking_nos { query = query.bind(v.as_str()); }
     if let Some(ms) = min_ms {
@@ -115,7 +119,7 @@ pub async fn parcel_query_log_list(
     }
     let rows = query.bind(limit).bind(offset).fetch_all(&state.db).await?;
 
-    let mut count_query = sqlx::query(&count_sql);
+    let mut count_query = sqlx::query(AssertSqlSafe(&*count_sql));
     for v in &query_nos { count_query = count_query.bind(v.as_str()); }
     for v in &tracking_nos { count_query = count_query.bind(v.as_str()); }
     if let Some(ms) = min_ms {
