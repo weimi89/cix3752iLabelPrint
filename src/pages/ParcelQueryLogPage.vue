@@ -5,6 +5,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -65,7 +66,7 @@ const load = async () => {
     items.value = resp.items || []
     total.value = resp.total || 0
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }

@@ -5,6 +5,7 @@ import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import { useI18n } from 'vue-i18n'
 import { listen } from '@tauri-apps/api/event'
 import Masonry from 'masonry-layout'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -20,7 +21,7 @@ const load = async () => {
   try {
     bags.value = (await bagCheckSnapshot()) || []
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }
@@ -32,7 +33,7 @@ const clearList = async () => {
     await bagCheckClear()
     bags.value = []
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 

@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import AppHeader from '@/components/AppHeader.vue'
 import AppDatePicker from '@/components/AppDatePicker.vue'
 import { fieldOperationMonitor } from '@/api/tauri'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const POLL_INTERVAL = 30000
@@ -55,7 +56,7 @@ const load = async () => {
     if (r?.progressRange?.from) from.value = r.progressRange.from
     if (r?.progressRange?.to) to.value = r.progressRange.to
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }

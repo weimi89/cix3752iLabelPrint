@@ -4,6 +4,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -145,7 +146,7 @@ const load = async () => {
       offset: (page.value - 1) * pageSize.value,
     })
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }
@@ -158,7 +159,7 @@ const handleRetry = async () => {
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 
@@ -169,7 +170,7 @@ const handlePurge = async () => {
     setTimeout(() => (flashMsg.value = ''), 3500)
     await load()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 

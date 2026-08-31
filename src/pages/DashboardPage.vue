@@ -5,6 +5,7 @@ import { useStatusStore } from '@/stores/status'
 import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
 import { workSessionReset, localLanIps } from '@/api/tauri'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -20,7 +21,7 @@ const confirmReset = async () => {
     resetError.value = ''
     await status.refreshPrintStats()
   } catch (e) {
-    resetError.value = String(e?.message || e)
+    resetError.value = errorMessageFromException(e)
   }
 }
 

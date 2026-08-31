@@ -3,6 +3,7 @@ import { getConfig, updateConfig, serverRestart, serverStatus, setAutoStart, get
 import AppHeader from '@/components/AppHeader.vue'
 import { useLocale } from '@/composables/useLocale'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const { currentLocale, availableLocales, setLocale } = useLocale()
@@ -56,7 +57,7 @@ const save = async () => {
         await setAutoStart(config.value.server.auto_start)
         osAutoStart.value = config.value.server.auto_start
       } catch (e) {
-        errorMsg.value = t('page.server.autoStartFailed', { reason: String(e?.message || e) })
+        errorMsg.value = t('page.server.autoStartFailed', { reason: errorMessageFromException(e) })
       }
     }
     flashMsg.value = t('page.server.savedFlash')

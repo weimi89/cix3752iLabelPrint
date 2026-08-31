@@ -4,6 +4,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 const route = useRoute()
@@ -101,7 +102,7 @@ const load = async () => {
       offset: (page.value - 1) * pageSize.value,
     })
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }

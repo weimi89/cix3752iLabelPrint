@@ -27,6 +27,7 @@ import {
 import { listen } from '@tauri-apps/api/event'
 import AppHeader from '@/components/AppHeader.vue'
 import DisplayLauncher from '@/components/DisplayLauncher.vue'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 // echarts 按需引入 — 用到 line + heatmap + grid + tooltip + visualMap
 use([CanvasRenderer, LineChart, HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent])
@@ -348,7 +349,7 @@ const reload = async () => {
     failure.value = fl
     compare.value = cmp
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }
@@ -360,7 +361,7 @@ const confirmReset = async () => {
     resetDialog.value = false
     await reload()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 

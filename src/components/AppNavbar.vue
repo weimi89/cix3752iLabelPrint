@@ -8,6 +8,7 @@ import { localLanIps } from '@/api/tauri'
 import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 defineProps({
   toggleVerticalOverlayNavActive: {
@@ -51,7 +52,7 @@ const openRemoteDialog = async () => {
       qrDataUrl.value = await QRCode.toDataURL(primary.url, { width: 240, margin: 1 })
     }
   } catch (e) {
-    toast(String(e?.message || e), { type: 'error' })
+    toast(errorMessageFromException(e), { type: 'error' })
   } finally {
     remoteLoading.value = false
   }
@@ -61,7 +62,7 @@ const copyAddr = async addr => {
     await navigator.clipboard.writeText(addr)
     toast(t('common.copied'), { type: 'success' })
   } catch (e) {
-    toast(String(e?.message || e), { type: 'error' })
+    toast(errorMessageFromException(e), { type: 'error' })
   }
 }
 </script>

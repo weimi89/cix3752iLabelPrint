@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useDisplayWindow } from '@/composables/useDisplayWindow'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const props = defineProps({
   route: { type: String, required: true },       // 如 '/print-stats'
@@ -37,7 +38,7 @@ const loadMonitors = async opened => {
   try {
     monitors.value = await getMonitors()
   } catch (e) {
-    toast(`${t('page.display.failed')}: ${String(e?.message || e)}`, { type: 'error' })
+    toast(`${t('page.display.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
     monitors.value = []
   } finally {
     loading.value = false
@@ -62,7 +63,7 @@ const launch = async (mon, { fullscreen, borderless }) => {
     )
     menu.value = false
   } catch (e) {
-    toast(`${t('page.display.failed')}: ${String(e?.message || e)}`, { type: 'error' })
+    toast(`${t('page.display.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
   } finally {
     launchingIdx.value = -1
   }

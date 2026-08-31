@@ -4,6 +4,7 @@ import { getConfig, updateConfig, cacheStats, cacheClear, cameraSetZoom, cameraC
 import { clearProcessed } from '@/composables/usePreGenProcessed'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 
@@ -41,7 +42,7 @@ const onCapture = async () => {
       ? t('page.cache.camera.captureSaved', { name: key })
       : t('page.cache.camera.captureNoFrame')
   } catch (e) {
-    captureMsg.value = String(e?.message || e)
+    captureMsg.value = errorMessageFromException(e)
   } finally {
     capturing.value = false
   }
@@ -68,7 +69,7 @@ const load = async () => {
       stats.value = await cacheStats()
     } catch (e) {
       // 後端 command 尚未生效時不阻塞 UI
-      errorMsg.value = t('page.cache.statsLoadFailed', { reason: String(e?.message || e) })
+      errorMsg.value = t('page.cache.statsLoadFailed', { reason: errorMessageFromException(e) })
     }
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -30,7 +31,7 @@ const load = async () => {
   try {
     items.value = await dispatchProviderList()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }
@@ -92,7 +93,7 @@ const save = async () => {
     flash(t(editingOriginalCode.value === null ? 'page.dispatch.flashCreated' : 'page.dispatch.flashUpdated'))
     await load()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 
@@ -111,7 +112,7 @@ const confirmDelete = async () => {
     deleteTarget.value = null
     await load()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 </script>

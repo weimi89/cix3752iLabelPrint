@@ -2,6 +2,7 @@
 import { listPrinters } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 
@@ -43,7 +44,7 @@ const refresh = async () => {
     printers.value = await listPrinters()
     errorMsg.value = ''
   } catch (e) {
-    errorMsg.value = t('page.printer.loadFailed', { reason: String(e?.message || e) })
+    errorMsg.value = t('page.printer.loadFailed', { reason: errorMessageFromException(e) })
     printers.value = []
   } finally {
     loading.value = false
