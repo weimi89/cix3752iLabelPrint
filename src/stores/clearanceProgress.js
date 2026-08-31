@@ -3,13 +3,26 @@
 //   - 已印  (clearance-date 頻道)→ applyPrinted:剩餘 -1(某袋印完則袋剩 -1)
 //   - 新增  (報關日補上/改成本日期)→ applyAdded:件總/件剩 +,新袋則袋總/袋剩 +
 //   - 移除  (報關日由本日期改走)→ applyRemoved:扣回對應總數/剩餘
-// 另附「今日貼單單數(去重)」:雲端依業務日(06:00 起算)算 distinct 單數,與現場作業監控頁同口徑、
-// 與報關日區間無關;區間內某件首次列印時本機 +1,區間外的件要等下次重抓(重整 / 重開 / 重連)才會反映。
+// 另附「今日貼單單數(去重)」:雲端依業務日(06:00 起算)算 distinct 單數,與報關日區間無關,
+// 並可指定廠別(全廠 / 桃園廠直發 / 台中廠轉寄)。
+// ⚠️ 這個數字不可由前端自行累加:列印廣播送的是「報關日區間內的件」,雲端算的是「業務日內的
+// 去重單數」——母體不同(區間外的列印收不到、區間內卻不屬今天業務日的會多算)、去重維度也不同
+// (一單多件時一次列印會被加成 2)。累加起來只會愈跑愈偏,而且畫面上看不出來。所以改成收到列印
+// 廣播後去抖回打輕量端點校正,拿雲端的數字為準。
 // 內部以兩個 Map 維護(非響應式):_bagAll(每袋全部單號,算總數)、_bagUnprinted(每袋未印單號,算剩餘)。
 import { defineStore } from 'pinia'
-import { clearanceProgress, progressSetDates } from '@/api/tauri'
+import { clearanceProgress, clearanceStickerTotals, progressSetDates } from '@/api/tauri'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const POS_KEY = 'cix3752iLabelPrint.clearanceProgress.pos'
+const SCOPE_KEY = 'cix3752iLabelPrint.clearanceProgress.stickerScope'
+
+// 貼單數的廠別:'' = 全廠、'0' = 桃園廠直發、'1' = 台中廠轉寄(對齊雲端 print_type)
+const SCOPES = ['', '0', '1']
+const loadScope = () => {
+  try { const v = localStorage.getItem(SCOPE_KEY); if (SCOPES.includes(v)) return v } catch { /* ignore */ }
+  return ''
+}
 const loadPos = () => {
   try { const p = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return p } catch { /* ignore */ }
   return { x: 260, y: 90 }
@@ -44,6 +57,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     parcelRemaining: 0,
     stickerOrderNum: 0,   // 今日貼單單數(去重)
     stickerDate: '',      // 貼單數所屬業務日(Y-m-d)
+    stickerScope: loadScope(), // 貼單數的廠別('' 全廠 / '0' 桃園廠直發 / '1' 台中廠轉寄)
     loading: false,
     error: '',
     loaded: false,
@@ -55,6 +69,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     //(剩餘凍結不遞減、_recount 把總數蓋成極小值)→ 一律改走「去抖重拉」。
     _detail: false,
     _refreshTimer: null,
+    _stickerTimer: null,
   }),
   getters: {
     rangeLabel: s => (s.from === s.to ? s.from : `${s.from} ~ ${s.to}`),
@@ -78,17 +93,51 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
       this.parcelRemaining = pRemain
     },
 
+    // 套用雲端回的貼單去重數
+    _applySticker(sticker) {
+      this.stickerOrderNum = Number(sticker?.order_num) || 0
+      this.stickerDate = sticker?.business_date || ''
+    },
+
+    // 列印廣播後校正貼單數:10 秒去抖合併,只打輕量端點(不重拉整包清關明細)。
+    // 現場列印是連續的,不去抖等於每印一張就打一次雲端。
+    _scheduleStickerRefresh() {
+      if (this._stickerTimer) return
+      this._stickerTimer = setTimeout(async () => {
+        this._stickerTimer = null
+        if (!this.open || !this.loaded) return
+        try {
+          const r = await clearanceStickerTotals(this.stickerScope)
+          this._applySticker(r?.sticker)
+        } catch { /* 校正失敗維持舊值,下次列印會再排一次 */ }
+      }, 10000)
+    },
+
+    // 切換貼單數的廠別:立即重拉(不等去抖),否則畫面會停在上一個廠別的數字
+    async setStickerScope(scope) {
+      const next = SCOPES.includes(scope) ? scope : ''
+      if (next === this.stickerScope) return
+      this.stickerScope = next
+      try { localStorage.setItem(SCOPE_KEY, next) } catch { /* ignore */ }
+      if (!this.loaded) return
+      try {
+        const r = await clearanceStickerTotals(next)
+        this._applySticker(r?.sticker)
+      } catch (e) {
+        this.error = errorMessageFromException(e)
+      }
+    },
+
     async loadRange(from, to) {
       this.from = from
       this.to = to || from
       this.loading = true
       this.error = ''
       try {
-        const r = await clearanceProgress(this.from, this.to)
+        const r = await clearanceProgress(this.from, this.to, this.stickerScope)
         if (r.from) this.from = r.from
         if (r.to) this.to = r.to
-        this.stickerOrderNum = Number(r.sticker?.order_num) || 0
-        this.stickerDate = r.sticker?.business_date || ''
+        this._applySticker(r.sticker)
         const parcels = r.parcels || []
         const all = new Map()
         const unp = new Map()
@@ -115,7 +164,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
         this.loaded = true
         await progressSetDates(datesInRange(this.from, this.to))
       } catch (e) {
-        this.error = String(e?.message || e)
+        this.error = errorMessageFromException(e)
       } finally {
         this.loading = false
       }
@@ -144,9 +193,12 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
       this.loadRange(this.from, this.to)
     },
 
-    // 已印:件剩 -1(某袋最後一件印完 → 袋剩 -1);去重
+    // 已印:件剩 -1(某袋最後一件印完 → 袋剩 -1);去重。貼單數另走雲端校正,不在這裡累加。
     applyPrinted(shippingNo, packageSn) {
       if (!shippingNo || !this.loaded) return
+      // 不論明細/總計模式、也不論這件在不在追蹤區間內,都要校正貼單數:
+      // 貼單數算的是業務日全部列印,跟這個報關日區間沒有關係
+      this._scheduleStickerRefresh()
       if (!this._detail) { this._scheduleAggregateRefresh(); return }
       let pkg = packageSn
       if (!pkg || !this._bagUnprinted.has(pkg)) {
@@ -160,8 +212,6 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
       if (!set || !set.has(shippingNo)) return
       set.delete(shippingNo)
       if (this.parcelRemaining > 0) this.parcelRemaining--
-      // 首次列印(仍在未印集合)才算新貼一單;補印同一件不重複計
-      this.stickerOrderNum++
       if (set.size === 0) {
         this._bagUnprinted.delete(pkg)
         if (this.bagRemaining > 0) this.bagRemaining--
@@ -214,6 +264,7 @@ export const useClearanceProgress = defineStore('clearanceProgress', {
     async close() {
       this.open = false
       if (this._refreshTimer) { clearTimeout(this._refreshTimer); this._refreshTimer = null }
+      if (this._stickerTimer) { clearTimeout(this._stickerTimer); this._stickerTimer = null }
       try { await progressSetDates([]) } catch { /* 退訂失敗略過 */ }
     },
 

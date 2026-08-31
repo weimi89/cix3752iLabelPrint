@@ -2,7 +2,7 @@
 // 清關進度浮動框:全域常駐(掛 DefaultLayout,跨頁不消失),只有按關閉才收起。
 // 預設顯示「當日」報關進度 — 袋(剩/總)、件(剩/總);列印由 clearance-date 頻道即時遞減。
 // 日期區間預設當日,有需要時點齒輪開對話框另設(上限 3 天)。
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listen } from '@tauri-apps/api/event'
 import { useClearanceProgress } from '@/stores/clearanceProgress'
@@ -40,19 +40,31 @@ onUnmounted(() => {
   if (unlistenReconnected) { unlistenReconnected(); unlistenReconnected = null }
 })
 
-// === 日期區間設定對話框(預設當日,有需要才開)===
+// === 顯示設定對話框(日期區間 + 貼單數廠別;預設當日、全廠,有需要才開)===
 const dlg = ref(false)
 const dFrom = ref(store.from)
 const dTo = ref(store.to)
+const dScope = ref(store.stickerScope)
+
+// 貼單數的統計範圍。作業監控頁是分廠顯示的,兩邊要對帳時把這裡切成同一個廠別。
+const scopeItems = computed(() => [
+  { value: '', title: t('page.clearanceProgress.scopeAll') },
+  { value: '0', title: t('page.fieldOperationMonitor.tabTaoyuan') },
+  { value: '1', title: t('page.fieldOperationMonitor.tabTaichung') },
+])
+const scopeLabel = computed(() => scopeItems.value.find(i => i.value === store.stickerScope)?.title || '')
+
 const openDlg = () => {
   dFrom.value = store.from
   dTo.value = store.to
+  dScope.value = store.stickerScope
   dlg.value = true
 }
 const applyDates = () => {
   // 防呆:結束日早於起始日(YYYY-MM-DD 字典序=時序)→ 收斂為單日,避免空訂閱/反向顯示
   if (dTo.value && dFrom.value && dTo.value < dFrom.value) dTo.value = dFrom.value
   dlg.value = false
+  store.setStickerScope(dScope.value)
   store.loadRange(dFrom.value, dTo.value || dFrom.value)
 }
 
@@ -151,7 +163,8 @@ const onDragStart = e => {
             <span class="cw-row__remain text-success">{{ fmt(store.stickerOrderNum) }}</span>
           </div>
         </div>
-        <div class="text-body-small text-disabled">{{ t('page.clearanceProgress.stickerHint', { date: store.stickerDate || '—' }) }}</div>
+        <!-- 標明統計範圍:全廠與單一廠別的數字本來就不同,沒寫出來會被當成兜不攏 -->
+        <div class="text-body-small text-disabled">{{ scopeLabel }}・{{ t('page.clearanceProgress.stickerHint', { date: store.stickerDate || '—' }) }}</div>
       </div>
     </div>
 
@@ -176,6 +189,19 @@ const onDragStart = e => {
             <span class="text-disabled">~</span>
             <AppDatePicker v-model="dTo" density="compact" />
           </div>
+
+          <VDivider class="my-4" />
+
+          <div class="text-body-small text-medium-emphasis mb-2">{{ t('page.clearanceProgress.scopeHint') }}</div>
+          <VSelect
+            v-model="dScope"
+            :items="scopeItems"
+            item-title="title"
+            item-value="value"
+            density="compact"
+            hide-details
+            :label="t('page.clearanceProgress.stickerOrders')"
+          />
         </VCardText>
         <VCardActions class="px-4 pb-3">
           <VSpacer />

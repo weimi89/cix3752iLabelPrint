@@ -298,7 +298,10 @@
     "browserCannotOpenDialog": "瀏覽器模式無法開啟資料夾對話框",
     "cloudNotAuthed": "雲端未登入或 token 失效",
     "cloudApi": "雲端 API 錯誤",
-    "timeout": "請求逾時"
+    "timeout": "請求逾時",
+    "network": "目前連不上雲端,稍後會自動重試",
+    "unauthorized": "雲端登入已失效,請到「雲端 API」頁重新登入",
+    "internal": "本機處理失敗,詳情可查「事件記錄」"
   },
   "updater": {
     "title": "發現新版本",
@@ -738,8 +741,10 @@
       "parcels": "件",
       "printed": "已印",
       "remaining": "剩餘",
-      "stickerOrders": "貼單單數(去重)",
-      "stickerHint": "{date} 06:00 起"
+      "stickerOrders": "貼單單數",
+      "stickerHint": "{date} 06:00 起",
+      "scopeAll": "全廠合計",
+      "scopeHint": "貼單單數的統計範圍。作業監控頁是分廠看的,要跟它對帳請切成同一個廠。"
     },
     "warehouseScanner": {
       "title": "入倉驗單",

@@ -239,7 +239,8 @@ export const cloudClearanceOptions = async () => {
 }
 
 // 清關進度浮動框 — 指定報關日區間 → 袋數/件數/已印/剩餘 + 各件列印狀態(供去重遞減)
-export const clearanceProgress = async (from, to = '') => {
+// printType 只影響一併回來的貼單去重數('0'=桃園廠直發 / '1'=台中廠轉寄 / ''=全廠)
+export const clearanceProgress = async (from, to = '', printType = '') => {
   if (!isTauri) {
     const parcels = Array.from({ length: 14 }, (_, i) => ({
       shipping_no: `74Z0100${1000 + i}`,
@@ -248,9 +249,19 @@ export const clearanceProgress = async (from, to = '') => {
     }))
     const printed = parcels.filter(p => p.printed).length
     const bagRemaining = new Set(parcels.filter(p => !p.printed).map(p => p.package_sn)).size
-    return { respond_code: 'OK', from, to: to || from, bag_total: 2, bag_remaining: bagRemaining, parcel_total: parcels.length, printed, remaining: parcels.length - printed, parcels, sticker: { business_date: from, package_num: 2, order_num: 1234 } }
+    const orderNum = printType === '0' ? 980 : printType === '1' ? 254 : 1234
+    return { respond_code: 'OK', from, to: to || from, bag_total: 2, bag_remaining: bagRemaining, parcel_total: parcels.length, printed, remaining: parcels.length - printed, parcels, sticker: { business_date: from, print_type: printType === '' ? null : Number(printType), package_num: 2, order_num: orderNum } }
   }
-  return await invoke('cloud_clearance_progress', { req: { from, to: to || from } })
+  return await invoke('cloud_clearance_progress', { req: { from, to: to || from, print_type: printType } })
+}
+
+// 清關進度浮動框 — 只取業務日的貼單去重數(輕量,列印廣播後校正用,不重拉清關明細)
+export const clearanceStickerTotals = async (printType = '') => {
+  if (!isTauri) {
+    const orderNum = printType === '0' ? 980 : printType === '1' ? 254 : 1234
+    return { respond_code: 'OK', sticker: { business_date: new Date().toISOString().slice(0, 10), print_type: printType === '' ? null : Number(printType), package_num: 2, order_num: orderNum } }
+  }
+  return await invoke('cloud_clearance_sticker', { req: { print_type: printType } })
 }
 
 // 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與雲端網頁版同一份資料)

@@ -298,7 +298,10 @@
     "browserCannotOpenDialog": "Chế độ trình duyệt không thể mở hộp thoại thư mục",
     "cloudNotAuthed": "Đám mây chưa đăng nhập hoặc token hết hạn",
     "cloudApi": "Lỗi API đám mây",
-    "timeout": "Yêu cầu quá thời gian"
+    "timeout": "Yêu cầu quá thời gian",
+    "network": "Hiện không kết nối được đám mây, hệ thống sẽ tự thử lại",
+    "unauthorized": "Phiên đăng nhập đám mây đã hết hạn, hãy đăng nhập lại ở trang \"Cloud API\"",
+    "internal": "Xử lý trên máy này thất bại, xem chi tiết ở \"Nhật ký sự kiện\""
   },
   "updater": {
     "title": "Có phiên bản mới",
@@ -738,8 +741,10 @@
       "parcels": "Kiện",
       "printed": "Đã in",
       "remaining": "Còn lại",
-      "stickerOrders": "Số đơn đã dán (không trùng)",
-      "stickerHint": "Từ 06:00 {date}"
+      "stickerOrders": "Số đơn đã dán",
+      "stickerHint": "Từ 06:00 {date}",
+      "scopeAll": "Tổng toàn nhà máy",
+      "scopeHint": "Phạm vi thống kê số đơn dán nhãn. Trang giám sát tác nghiệp xem theo từng nhà máy; muốn đối chiếu hãy chọn cùng một nhà máy."
     },
     "warehouseScanner": {
       "title": "Quét nhập kho",

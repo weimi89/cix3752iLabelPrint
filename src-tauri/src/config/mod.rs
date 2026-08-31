@@ -236,6 +236,9 @@ pub struct CloudConfig {
     /// 清關進度浮動框 — 指定報關日區間聚合(袋數/件數/已印/剩餘)path
     #[serde(default = "default_clearance_progress_path")]
     pub clearance_progress_path: String,
+    /// 清關進度浮動框 — 貼單去重數(輕量,只回業務日袋數/單數,不帶清關明細)path
+    #[serde(default = "default_clearance_sticker_path")]
+    pub clearance_sticker_path: String,
     /// 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與網頁版同一份資料)path
     #[serde(default = "default_field_operation_monitor_path")]
     pub field_operation_monitor_path: String,
@@ -267,6 +270,7 @@ impl Default for CloudConfig {
             examine_package_path: default_examine_package_path(),
             clearance_options_path: default_clearance_options_path(),
             clearance_progress_path: default_clearance_progress_path(),
+            clearance_sticker_path: default_clearance_sticker_path(),
             clearance_store_path: default_clearance_store_path(),
             clearance_dispatch_path: default_clearance_dispatch_path(),
             field_operation_monitor_path: default_field_operation_monitor_path(),
@@ -439,6 +443,7 @@ fn default_package_orders_path() -> String { "/api/v1/local-middleware/label/pac
 fn default_orders_by_date_path() -> String { "/api/v1/local-middleware/label/orders-by-date".to_string() }
 fn default_clearance_options_path() -> String { "/api/v1/local-middleware/clearance/options".to_string() }
 fn default_clearance_progress_path() -> String { "/api/v1/local-middleware/clearance/progress".to_string() }
+fn default_clearance_sticker_path() -> String { "/api/v1/local-middleware/clearance/sticker-totals".to_string() }
 fn default_clearance_store_path() -> String { "/api/v1/local-middleware/clearance/store".to_string() }
 fn default_clearance_dispatch_path() -> String { "/api/v1/local-middleware/clearance/dispatch".to_string() }
 fn default_field_operation_monitor_path() -> String { "/api/v1/local-middleware/field-operation-monitor".to_string() }

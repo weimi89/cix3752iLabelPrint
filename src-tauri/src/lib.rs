@@ -129,6 +129,7 @@ pub fn run() {
             commands::cloud_commands::cloud_orders_by_date,
             commands::cloud_commands::cloud_clearance_options,
             commands::cloud_commands::cloud_clearance_progress,
+            commands::cloud_commands::cloud_clearance_sticker,
             commands::cloud_commands::cloud_field_operation_monitor,
             commands::cloud_commands::progress_set_dates,
             commands::cloud_commands::cloud_clearance_store,

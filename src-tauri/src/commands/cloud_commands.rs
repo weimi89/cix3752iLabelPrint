@@ -375,6 +375,16 @@ pub struct ClearanceProgressRequest {
     pub from: String,
     #[serde(default)]
     pub to: Option<String>,
+    /// 貼單去重數要算哪個廠別(0=桃園廠直發 / 1=台中廠轉寄 / 空=全廠);不影響清關進度本身
+    #[serde(default)]
+    pub print_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClearanceStickerRequest {
+    /// 廠別(0=桃園廠直發 / 1=台中廠轉寄 / 空=全廠)
+    #[serde(default)]
+    pub print_type: Option<String>,
 }
 
 /// 清關進度浮動框:指定報關日區間 → 袋數/件數/已印/剩餘 + 各件列印狀態(透傳雲端 JSON)
@@ -384,7 +394,18 @@ pub async fn cloud_clearance_progress(
     req: ClearanceProgressRequest,
 ) -> AppResult<serde_json::Value> {
     let to = req.to.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&req.from);
-    state.cloud.fetch_clearance_progress(&req.from, to).await
+    let print_type = req.print_type.as_deref().unwrap_or("");
+    state.cloud.fetch_clearance_progress(&req.from, to, print_type).await
+}
+
+/// 清關進度浮動框:只取業務日的貼單去重數(輕量,供列印廣播後校正用)
+#[tauri::command]
+pub async fn cloud_clearance_sticker(
+    state: State<'_, SharedState>,
+    req: ClearanceStickerRequest,
+) -> AppResult<serde_json::Value> {
+    let print_type = req.print_type.as_deref().unwrap_or("");
+    state.cloud.fetch_clearance_sticker(print_type).await
 }
 
 /// 現場作業監控頁:指定報關日區間 → 進度看板 + 各廠別作業人員貼單統計(透傳雲端 JSON)

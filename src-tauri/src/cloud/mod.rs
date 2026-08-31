@@ -53,6 +53,7 @@ struct CloudState {
     orders_by_date_path: String,
     clearance_options_path: String,
     clearance_progress_path: String,
+    clearance_sticker_path: String,
     clearance_store_path: String,
     clearance_dispatch_path: String,
     field_operation_monitor_path: String,
@@ -88,6 +89,7 @@ impl CloudClient {
             orders_by_date_path: config.cloud.orders_by_date_path.clone(),
             clearance_options_path: config.cloud.clearance_options_path.clone(),
             clearance_progress_path: config.cloud.clearance_progress_path.clone(),
+            clearance_sticker_path: config.cloud.clearance_sticker_path.clone(),
             clearance_store_path: config.cloud.clearance_store_path.clone(),
             clearance_dispatch_path: config.cloud.clearance_dispatch_path.clone(),
             field_operation_monitor_path: config.cloud.field_operation_monitor_path.clone(),
@@ -127,6 +129,7 @@ impl CloudClient {
         s.orders_by_date_path = config.cloud.orders_by_date_path.clone();
         s.clearance_options_path = config.cloud.clearance_options_path.clone();
         s.clearance_progress_path = config.cloud.clearance_progress_path.clone();
+        s.clearance_sticker_path = config.cloud.clearance_sticker_path.clone();
         s.clearance_store_path = config.cloud.clearance_store_path.clone();
         s.clearance_dispatch_path = config.cloud.clearance_dispatch_path.clone();
         s.field_operation_monitor_path = config.cloud.field_operation_monitor_path.clone();
@@ -445,18 +448,35 @@ impl CloudClient {
         parse_cloud_json(&text, "clearance/options")
     }
 
-    /// 清關進度浮動框:GET clearance/progress?from&to,回傳雲端原始 JSON
-    /// (`{from,to,bag_total,parcel_total,printed,remaining,parcels:[...]}`),直接透傳給前端。
+    /// 清關進度浮動框:GET clearance/progress?from&to&print_type,回傳雲端原始 JSON
+    /// (`{from,to,bag_total,parcel_total,printed,remaining,parcels:[...],sticker:{...}}`),直接透傳給前端。
+    ///
+    /// `print_type` 只影響一併回來的貼單去重數(0=桃園廠直發 / 1=台中廠轉寄 / 空=全廠),
+    /// 不影響清關進度本身——清關看的是報關日區間,與貼單的業務日是兩套統計。
     pub async fn fetch_clearance_progress(
         &self,
         from: &str,
         to: &str,
+        print_type: &str,
     ) -> AppResult<serde_json::Value> {
         let path = self.inner.state.read().clearance_progress_path.clone();
         let text = self
-            .authed_get(&path, &[("from", from), ("to", to)])
+            .authed_get(&path, &[("from", from), ("to", to), ("print_type", print_type)])
             .await?;
         parse_cloud_json(&text, "clearance/progress")
+    }
+
+    /// 清關進度浮動框:GET clearance/sticker-totals?print_type,只回業務日的貼單去重數。
+    ///
+    /// 供列印廣播後的低頻校正用。不重用 clearance/progress 是因為那支會回整批 parcels
+    /// 明細(現場動輒上萬筆),為了一個數字重拉不划算。
+    pub async fn fetch_clearance_sticker(
+        &self,
+        print_type: &str,
+    ) -> AppResult<serde_json::Value> {
+        let path = self.inner.state.read().clearance_sticker_path.clone();
+        let text = self.authed_get(&path, &[("print_type", print_type)]).await?;
+        parse_cloud_json(&text, "clearance/sticker-totals")
     }
 
     /// 現場作業監控:清關/轉寄進度看板 + 每日貼單作業人員統計(透傳雲端 JSON,與網頁版同一份資料)
