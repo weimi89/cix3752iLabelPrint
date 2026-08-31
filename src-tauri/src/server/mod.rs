@@ -268,6 +268,9 @@ pub async fn start(
         .route("/api/channels/:position", post(set_channel_enabled))
         .route("/api/channels/:position/skip", post(skip_channel))
         .route("/api/channels/:position/recent", get(channel_recent))
+        .route("/api/channels/:position/assign", post(assign_channel))
+        .route("/api/dispatch-providers", get(list_dispatch_providers))
+        .route("/api/sticker-history", get(list_sticker_history))
         .route("/camera/preview", get(camera_preview))
         .route("/camera/preview/stream", get(camera_preview_stream))
         .nest_service("/images", images_service)
@@ -548,6 +551,249 @@ async fn skip_channel(
         .unwrap_or(0);
 
     Json(serde_json::json!({ "position": position, "skip_count": skip_count })).into_response()
+}
+
+// =====================================================================
+// 手機遙控:通道指派(貼標人員 / 指派物流)
+// =====================================================================
+
+/// GET /api/dispatch-providers — 物流商清單(手機端「指派物流」的選項來源)
+async fn list_dispatch_providers(State(state): State<ServerState>) -> impl IntoResponse {
+    let rows = sqlx::query("SELECT code, name FROM dispatch_provider ORDER BY sort_order, code")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "list_dispatch_providers 讀取失敗,回空清單");
+            Vec::new()
+        });
+    let list: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            let code: String = r.try_get("code").unwrap_or_default();
+            let name: String = r.try_get("name").unwrap_or_default();
+            serde_json::json!({ "code": code, "name": name })
+        })
+        .filter(|v| !v["code"].as_str().unwrap_or_default().is_empty())
+        .collect();
+    Json(list)
+}
+
+/// GET /api/sticker-history — 人員歷史名單(與桌面「分揀通道 / 掃描列印」共用同一份)
+async fn list_sticker_history(State(state): State<ServerState>) -> impl IntoResponse {
+    let rows = sqlx::query("SELECT name FROM sticker_history ORDER BY used_at DESC LIMIT 200")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "list_sticker_history 讀取失敗,回空清單");
+            Vec::new()
+        });
+    let list: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.try_get::<String, _>("name").ok())
+        .filter(|n| !n.trim().is_empty())
+        .collect();
+    Json(list)
+}
+
+/// 手機可改的通道指派內容。刻意不含通道代碼 / 印表機 —— 那兩項改錯會讓整條線分錯格口
+/// 或靜默漏印,留桌面端統一管理;手機只改現場每班會換的貼標人員與指派物流。
+#[derive(Deserialize)]
+struct AssignBody {
+    #[serde(default)]
+    job_sticker: Option<String>,
+    #[serde(default)]
+    dispatch_codes: Vec<String>,
+}
+
+/// 錯誤同時帶機器可讀 code 與中文訊息:手機控制頁是中越雙語,
+/// 越南語操作員看 code 對照到自己語言的說明,對不到才退回顯示中文原文。
+fn assign_err(status: StatusCode, code: &str, msg: String) -> axum::response::Response {
+    (status, Json(serde_json::json!({ "error": msg, "code": code }))).into_response()
+}
+
+/// POST /api/channels/:position/assign — 手機設定該通道的貼標人員與指派物流
+async fn assign_channel(
+    State(state): State<ServerState>,
+    Path(position): Path<String>,
+    Json(body): Json<AssignBody>,
+) -> impl IntoResponse {
+    use crate::commands::sort_channel_commands::{upsert_sticker_history, POSITIONS};
+    use tauri::Emitter;
+
+    if !POSITIONS.contains(&position.as_str()) {
+        return assign_err(
+            StatusCode::BAD_REQUEST,
+            "BAD_POSITION",
+            format!("無效的通道位置: {position}"),
+        );
+    }
+
+    let job_sticker = body
+        .job_sticker
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // 去重 + 去空白,保留送來的順序(與桌面 sort_channel_save 同語意)
+    let mut dispatch_codes: Vec<String> = Vec::new();
+    for code in body.dispatch_codes {
+        let code = code.trim().to_string();
+        if !code.is_empty() && !dispatch_codes.contains(&code) {
+            dispatch_codes.push(code);
+        }
+    }
+
+    let row = match sqlx::query(
+        "SELECT channel_code, printer_name FROM sort_channels WHERE position = ?",
+    )
+    .bind(&position)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return assign_err(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", e.to_string()),
+    };
+    let Some(row) = row else {
+        return assign_err(
+            StatusCode::NOT_FOUND,
+            "NO_CHANNEL",
+            format!("找不到通道 {position}"),
+        );
+    };
+    let norm = |v: Result<Option<String>, sqlx::Error>| {
+        v.ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let channel_code = norm(row.try_get::<Option<String>, _>("channel_code"));
+    let printer_name = norm(row.try_get::<Option<String>, _>("printer_name"));
+
+    // 送來的物流代碼必須真的存在 —— 手機的選項清單可能是「刪掉某物流商之前」抓的,
+    // 放行會讓該通道指到不存在的物流,現場看起來有指派、實際永遠分不到件。
+    if !dispatch_codes.is_empty() {
+        let known: std::collections::HashSet<String> =
+            match sqlx::query("SELECT code FROM dispatch_provider")
+                .fetch_all(&state.db)
+                .await
+            {
+                Ok(rows) => rows
+                    .iter()
+                    .filter_map(|r| r.try_get::<String, _>("code").ok())
+                    .collect(),
+                Err(e) => {
+                    return assign_err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "DB_ERROR",
+                        e.to_string(),
+                    )
+                }
+            };
+        if let Some(bad) = dispatch_codes.iter().find(|c| !known.contains(*c)) {
+            return assign_err(
+                StatusCode::BAD_REQUEST,
+                "UNKNOWN_PROVIDER",
+                format!("物流代碼 \"{bad}\" 不存在,請重新整理後再試"),
+            );
+        }
+    }
+
+    // direct_print 模式下「會實際接件卻沒設印表機」的通道,每一件都會靜默漏印
+    //(工控機收 200、統計與袋核對都記成已印,實體沒印),故擋在指派當下 ——
+    // 與桌面「分揀通道」頁存檔前的同一道防護,只是這裡由後端把關。
+    //
+    // 只擋「這次真的多接了物流」。手機的草稿是拿通道現有指派開的,只改貼標人員也會
+    // 原樣送回整份物流清單;若連這種請求都擋,站點改成 direct_print 後(印表機還沒設),
+    // 換班的人連改個名字都會被擋、還被叫去桌面設印表機,而他根本沒動物流。
+    // 移除物流同理放行:只會少接件,不會生出新的漏印。
+    let adds_dispatch = if dispatch_codes.is_empty() {
+        false
+    } else {
+        let existing: std::collections::HashSet<String> = sqlx::query(
+            "SELECT dispatch_code FROM sort_channel_dispatch WHERE position = ?",
+        )
+        .bind(&position)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            // 查不到現況時無從判斷「有沒有新增」,一律當成有新增(寧可擋下請人去設印表機,
+            // 也不要放行一個可能每件都靜默漏印的通道)
+            tracing::warn!(?e, %position, "指派:讀取現有物流指派失敗,本次以「有新增」處理");
+            Vec::new()
+        })
+        .iter()
+        .filter_map(|r| r.try_get::<String, _>("dispatch_code").ok())
+        .collect();
+        dispatch_codes.iter().any(|c| !existing.contains(c))
+    };
+
+    if state.label_resolver.current_mode() == LabelPathMode::DirectPrint
+        && channel_code.is_some()
+        && adds_dispatch
+        && printer_name.is_none()
+    {
+        return assign_err(
+            StatusCode::BAD_REQUEST,
+            "PRINTER_REQUIRED",
+            format!("通道 {position} 尚未設定本機印表機,請先在桌面「分揀通道」頁設定後再指派物流"),
+        );
+    }
+
+    // 通道本身與多對多指派一起寫,交易保證原子性(避免刪了舊指派卻沒寫入新指派)
+    let tx_res = async {
+        let mut tx = state.db.begin().await?;
+        sqlx::query(
+            "UPDATE sort_channels SET job_sticker = ?, updated_at = datetime('now','localtime')
+             WHERE position = ?",
+        )
+        .bind(&job_sticker)
+        .bind(&position)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM sort_channel_dispatch WHERE position = ?")
+            .bind(&position)
+            .execute(&mut *tx)
+            .await?;
+        for code in &dispatch_codes {
+            sqlx::query(
+                "INSERT OR IGNORE INTO sort_channel_dispatch (position, dispatch_code)
+                 VALUES (?, ?)",
+            )
+            .bind(&position)
+            .bind(code)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok::<(), sqlx::Error>(())
+    }
+    .await;
+    if let Err(e) = tx_res {
+        return assign_err(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", e.to_string());
+    }
+
+    // 人員歷史名單與桌面共用:手機新填的名字,桌面下拉也選得到
+    if let Some(name) = job_sticker.as_deref() {
+        if let Err(e) = upsert_sticker_history(&state.db, name).await {
+            tracing::warn!(?e, name, "手機指派:寫入人員歷史名單失敗(不影響本次指派)");
+        }
+    }
+
+    // 廣播給桌面分揀通道頁即時同步(payload 帶哪幾項,桌面就只套用哪幾項)
+    let _ = state.app.emit(
+        "sort-channel-updated",
+        serde_json::json!({
+            "position": position,
+            "job_sticker": job_sticker,
+            "dispatch_codes": dispatch_codes,
+        }),
+    );
+
+    Json(serde_json::json!({
+        "position": position,
+        "job_sticker": job_sticker,
+        "dispatch_codes": dispatch_codes,
+    }))
+    .into_response()
 }
 
 /// 雲端查件異常記錄(回看清單用)
@@ -871,7 +1117,7 @@ async fn fetch_channel_sticker(db: &DbPool, channel_code: Option<&str>) -> Optio
 /// 1. `channel_code` 對應分揀通道設定的 printer_name(錯誤面單跟著該包裹要去的格口出)
 /// 2. 系統預設印表機
 ///
-/// **刻意不再退回「任一已設印表機的通道」**:那是無 ORDER BY 的 `LIMIT 1`,實務上等於隨機挑一條
+/// **刻意不退回「任一已設印表機的通道」**:那是無 ORDER BY 的 `LIMIT 1`,實務上等於隨機挑一條
 /// 分揀線,錯誤面單會從別條線吐出來 —— 該線作業員不知情、異常件所在的線什麼也沒印,
 /// 異常包裹被當正常件放行。落到系統預設印表機至少是可預測、可事先設定的單一出口。
 /// 在 background task 中呼叫,失敗只 warn 不 panic。
@@ -919,10 +1165,6 @@ fn spawn_print_error_label_bytes(
         }
     });
 }
-
-// 註:原 spawn_error_label_print(GUI 掃描/自動印單的後端自印錯誤面單)已移除 ——
-// 雲端 4xx 業務錯誤改在 cloud_commands 合成失敗結果、回 error_label_path 讓前端以
-// printerMap 同台印表機印(單一出口);find_any_printer 與前端印表機來源不一致的問題不再存在。
 
 /// emit `error-label-print-failed` 給桌面前端（reason: "no_printer" / "print_failed" / "cache_write_failed"）。
 fn emit_error_label_failed(app: &tauri::AppHandle, query_no: &str, reason: &str) {
@@ -1229,7 +1471,7 @@ async fn run_direct_print_job(
 }
 
 /// 每日統計 upsert:一次請求 `request_count` +1;`success` 時 `success_count` +1;`noread` 時 `noread_count` +1。
-/// 四個請求結局(成功 / 未登入 / 其他錯誤 / NoRead)共用此一函式,日後新增計數欄位只需改這一處,
+/// 四個請求結局(成功 / 未登入 / 其他錯誤 / NoRead)共用此一函式,新增計數欄位只需改這一處,
 /// 避免多處手抄 SQL 漏改造成某分支少計。統計為次要,失敗只吞、不影響出單。
 /// 用匿名 `?`(SQLite 位置綁定)重複 bind,規避 `?N` 編號規則陷阱。
 async fn bump_daily_stats(db: &DbPool, success: bool, noread: bool) {
@@ -1785,8 +2027,7 @@ async fn get_parcel(
             // 錯誤面單(取向 A):產生提示圖,依面單路徑模式決定出口 —
             //   direct_print : 中介 PC 本機直接列印(label_path 回 null)
             //   local/share/http : 寫入 cache 後回 label_path,讓工控機如同一般面單自行列印
-            // 這樣 http 模式(工控機跨機、本機無印表機)也能在分揀線印出錯誤面單,
-            // 不再只有 direct_print 模式能用。
+            // 這樣 http 模式(工控機跨機、本機無印表機)也能在分揀線印出錯誤面單。
             // 錯誤面單:即使在純分揀模式也照常產出/列印 —— 現場需靠它辨識、揀出異常包裹,
             // 屬「必須處理」的例外,不受純分揀「不出面單」規則抑制。
             let t_label = std::time::Instant::now();
@@ -1822,7 +2063,7 @@ async fn get_parcel(
                         (Some(resolved), Some(key))
                     }
                     None => {
-                        // 寫檔失敗 → 退回舊行為:本機嘗試列印 + 回 502,不讓工控機誤以為有面單
+                        // 寫檔失敗 → 改在本機嘗試列印 + 回 502,不讓工控機誤以為有面單
                         emit_error_label_failed(&state.app, &query_no, "cache_write_failed");
                         spawn_print_error_label_bytes(
                             state.db.clone(),
@@ -1839,8 +2080,8 @@ async fn get_parcel(
 
             // 錯誤面單也寫入查詢記錄:response_id 用本地負數遞減(與雲端正數 ID 區隔),
             // 工控機照正常流程 POST /api/report 才反查得到(負數回報只記錄、不推雲端 webhook);
-            // 查詢記錄頁同時也看得到錯誤查詢,不再是診斷盲區。
-            // 寫入失敗時退回 response_id=null(工控機不回報,同 v0.5.5 行為),不影響出單
+            // 查詢記錄頁同時也看得到錯誤查詢,不留診斷盲區。
+            // 寫入失敗時退回 response_id=null(工控機不回報),不影響出單
             let total_ms = t_start.elapsed().as_millis() as i64;
             let response_id: Option<i64> = match sqlx::query_scalar::<_, i64>(
                 "INSERT INTO parcel_query_log

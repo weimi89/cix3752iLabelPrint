@@ -16,6 +16,7 @@ import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
 import { listen } from '@tauri-apps/api/event'
+import { errorMessageFromException } from '@/composables/useLabelStatus'
 
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
@@ -82,7 +83,7 @@ const load = async () => {
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
     dirty.value = new Set()
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
   }
@@ -109,7 +110,7 @@ const saveUnassigned = async () => {
     unassignedCode.value = unassignedDraft.value
     unassignedDialog.value = false
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     savingUnassigned.value = false
   }
@@ -127,7 +128,7 @@ const toggleSortOnly = async val => {
     toast.success(t(val ? 'page.sort.sortOnly.enabled' : 'page.sort.sortOnly.disabled'))
   } catch (e) {
     sortOnly.value = !val // 失敗回復開關狀態
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   } finally {
     savingSortOnly.value = false
   }
@@ -141,9 +142,16 @@ onMounted(async () => {
   try {
     // await load 期間可能已切頁;已卸載則立刻解除,避免 Tauri 監聽殘留
     const un = await listen('sort-channel-updated', evt => {
-      const { position, enabled } = evt.payload || {}
+      const { position, enabled, job_sticker, dispatch_codes } = evt.payload || {}
       const ch = position && findChannel(position)
-      if (ch && typeof enabled === 'boolean') ch.enabled = enabled
+      if (!ch) return
+      if (typeof enabled === 'boolean') ch.enabled = enabled
+      // 手機改了貼標人員 / 指派物流。這台正編輯同一通道尚未存檔時不覆蓋 ——
+      // 蓋掉的是操作員已經打好、螢幕上看得到的內容,他不會知道值被換過。
+      if ((job_sticker !== undefined || dispatch_codes !== undefined) && !dirty.value.has(position)) {
+        if (job_sticker !== undefined) ch.job_sticker = job_sticker || ''
+        if (Array.isArray(dispatch_codes)) ch.dispatch_codes = dispatch_codes.slice()
+      }
     })
     if (_disposed) un(); else unlistenChannel = un
   } catch (e) {
@@ -211,7 +219,7 @@ const saveAll = async () => {
       dirty.value.delete(pos)
       savedCount++
     } catch (e) {
-      errors.push(String(e?.message || e))
+      errors.push(errorMessageFromException(e))
     }
   }
   if (savedCount > 0) flash(t('page.sort.savedFlash', { n: savedCount }))
@@ -240,7 +248,7 @@ const togglePause = async (pos, val) => {
     )
   } catch (e) {
     ch.enabled = prev
-    toast(`${t('page.sort.pause.failed')}: ${String(e?.message || e)}`, { type: 'error' })
+    toast(`${t('page.sort.pause.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
   } finally {
     pausing.value.delete(pos)
   }
@@ -250,7 +258,7 @@ const removeStickerFromHistory = async name => {
   try {
     await removeSticker(name)
   } catch (e) {
-    errorMsg.value = String(e?.message || e)
+    errorMsg.value = errorMessageFromException(e)
   }
 }
 // 輸入貼標人員當下即記入共用歷史(不必等整列儲存)

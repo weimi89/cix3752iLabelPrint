@@ -52,6 +52,7 @@
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/devtools-api": "^8.1.5",
     "esbuild": "^0.28.1",
+    "jsdom": "^30.0.1",
     "sass-embedded": "^1.100.0",
     "unplugin-auto-import": "^21.0.0",
     "unplugin-vue-components": "^32.1.0",

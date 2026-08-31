@@ -183,6 +183,34 @@
   .btn-toggle:disabled { opacity: .6; }
   .btn-toggle svg.ico { width: 28px; height: 28px; }
 
+  /* ── 指派設定頁(貼標人員 / 指派物流)── */
+  .btn-edit { width: 100%; height: 46px; margin: 4px 0 14px; border-radius: 14px;
+    background: rgba(14,165,233,.07); border: 1px solid rgba(14,165,233,.5); color: var(--primary);
+    font-size: 15px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-edit:active { background: rgba(14,165,233,.15); }
+  .field { margin-bottom: 14px; }
+  .field > label { display: block; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .field input {
+    width: 100%; height: 50px; padding: 0 14px; border-radius: 14px; font-size: 17px; font-weight: 700;
+    color: var(--text); background: #F7FAFD; border: 1px solid var(--border); outline: none;
+    font-family: inherit;
+  }
+  .field input:focus { border-color: var(--primary); background: #fff; }
+  .sub-label { color: var(--muted); font-size: 12px; font-weight: 700; margin: 10px 0 6px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pick .chip { border: 1px solid rgba(14,165,233,.22); background: var(--chip); color: var(--text);
+    padding: 8px 14px; font-size: 14px; font-weight: 700; border-radius: 999px; }
+  .pick .chip:active { transform: scale(.97); }
+  .pick .chip.sel { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .pick .chip.sel::before { content: "✓ "; font-weight: 900; }
+  .pick-empty { color: var(--muted); font-size: 13px; }
+  .btn-save { width: 100%; height: 60px; border-radius: 16px; border: none; background: var(--primary);
+    color: #fff; font-size: 18px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-save:active { filter: brightness(.94); }
+  .btn-save:disabled { opacity: .6; }
+  .btn-save svg.ico { width: 22px; height: 22px; }
+
   /* ── 異常清單頁 ── */
   .alert-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px;
     padding: 14px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px; }
@@ -216,6 +244,7 @@
 <main>
   <section class="view active" id="view-list"></section>
   <section class="view" id="view-detail"></section>
+  <section class="view" id="view-assign"></section>
   <section class="view" id="view-alerts"></section>
 </main>
 
@@ -230,6 +259,14 @@ const I18N = {
     skipHint: '卡關時用:輪到此通道時跳過,改派下一個通道',
     alertsTitle: '雲端查件異常', alertsEmpty: '目前沒有異常記錄',
     toggleFail: '操作失敗',
+    assign: '設定貼標與物流', assignTitle: '設定',
+    stickerLabel: '貼標人員', stickerPlaceholder: '輸入姓名(可留空)', stickerRecent: '最近使用',
+    noSticker: '未指派', dispatchLabel: '指派物流',
+    dispatchEmpty: '尚未建立物流商,請先到桌面「指派物流」頁新增',
+    save: '儲存', saving: '儲存中…', saveFail: '儲存失敗',
+    errPrinterRequired: '此通道尚未設定本機印表機,請先到桌面「分揀通道」頁設定後再指派物流',
+    errUnknownProvider: '物流清單已變動,請重新整理後再試',
+    errNoChannel: '找不到此通道', errBadPosition: '無效的通道位置',
   },
   vi: {
     title: 'Điều khiển kênh phân loại', on: 'Đang phân loại', off: 'Đã tạm dừng',
@@ -240,6 +277,14 @@ const I18N = {
     skipHint: 'Khi kẹt: đến lượt kênh này sẽ bỏ qua, chuyển kênh kế tiếp',
     alertsTitle: 'Cảnh báo tra cứu đám mây', alertsEmpty: 'Hiện chưa có cảnh báo',
     toggleFail: 'Thao tác thất bại',
+    assign: 'Đặt người dán nhãn & vận chuyển', assignTitle: 'Cài đặt',
+    stickerLabel: 'Người dán nhãn', stickerPlaceholder: 'Nhập tên (có thể bỏ trống)',
+    stickerRecent: 'Dùng gần đây', noSticker: 'Chưa gán', dispatchLabel: 'Gán vận chuyển',
+    dispatchEmpty: 'Chưa có hãng vận chuyển, hãy thêm ở trang "Gán vận chuyển" trên máy tính',
+    save: 'Lưu', saving: 'Đang lưu…', saveFail: 'Lưu thất bại',
+    errPrinterRequired: 'Kênh này chưa đặt máy in, hãy đặt ở trang "Kênh phân loại" trên máy tính trước khi gán vận chuyển',
+    errUnknownProvider: 'Danh sách vận chuyển đã thay đổi, hãy tải lại rồi thử lại',
+    errNoChannel: 'Không tìm thấy kênh này', errBadPosition: 'Vị trí kênh không hợp lệ',
   },
 };
 const ALERT_KINDS = {
@@ -279,6 +324,8 @@ const ICONS = {
   tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
   check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
 };
 function icon(name, cls) {
   return '<svg class="ico ' + (cls || '') + '" viewBox="0 0 24 24">' + (ICONS[name] || '') + '</svg>';
@@ -297,7 +344,10 @@ function esc(s) {
 let channels = [];
 let alerts = [];
 let recent = [];
-let view = 'list';          // list | detail | alerts
+let providers = [];         // 物流商清單(指派設定頁的選項來源)
+let stickerNames = [];      // 人員歷史名單(貼標人員快選)
+let draft = null;           // 指派設定頁的編輯草稿 { sticker, codes[] }
+let view = 'list';          // list | detail | assign | alerts
 let currentPos = null;
 let online = false;
 let busy = {};              // position -> true 時暫停輪詢覆蓋(操作中)
@@ -340,6 +390,16 @@ async function fetchRecent(pos) {
   if (!res.ok) throw new Error('http ' + res.status);
   recent = await res.json();
 }
+async function fetchProviders() {
+  const res = await fetch('/api/dispatch-providers', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  providers = await res.json();
+}
+async function fetchStickerNames() {
+  const res = await fetch('/api/sticker-history', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  stickerNames = await res.json();
+}
 
 // 依目前頁面刷新對應資料
 async function refresh() {
@@ -353,11 +413,20 @@ async function refresh() {
     } else if (view === 'alerts') {
       await fetchAlerts();
       markAlertsSeen(); // 停在異常頁時,輪詢新到的警示也即時標為已讀(離開後徽章不誤亮)
+    } else if (view === 'assign') {
+      // 指派設定頁只更新連線狀態,不重繪 —— 重繪會把使用者正在輸入的姓名與
+      // 尚未儲存的物流勾選一起沖掉(輪詢每 3 秒一次,等於根本打不完字)
+      await fetchChannels();
+      setOnline(true);
+      return;
     }
     setOnline(true);
     render();
   } catch (e) {
     setOnline(false);
+    // 同上:設定頁一律不重繪。現場 Wi-Fi 斷續時輪詢每 3 秒失敗一次,
+    // 走到這裡重繪就等於每 3 秒把輸入框砍掉重建,名字永遠打不完。
+    if (view === 'assign') return;
     render();
   }
 }
@@ -429,6 +498,18 @@ window.addEventListener('popstate', (e) => {
 function applyView() {
   if (view === 'alerts') markAlertsSeen(); // 進異常清單即標記已讀(即時,徽章不閃)
   if (view === 'detail') recent = [];
+  if (view === 'assign') {
+    // 以進入當下的通道值開草稿(離開此頁即丟棄,不會被輪詢覆蓋)
+    const ch = channels.find(c => c.position === currentPos);
+    draft = { sticker: (ch && ch.job_sticker) || '', codes: ((ch && ch.dispatch_codes) || []).slice() };
+    // 選項清單背景載入,晚到就重繪一次;失敗不擋頁面(仍可只改貼標人員)
+    Promise.all([
+      fetchProviders().catch(e => console.warn('載入物流清單失敗', e)),
+      fetchStickerNames().catch(e => console.warn('載入人員名單失敗', e)),
+    ]).then(() => { if (view === 'assign') renderAssign(); });
+  } else {
+    draft = null;
+  }
   updateHeader();
   render();
   refresh();
@@ -442,6 +523,7 @@ function updateHeader() {
   bell.style.display = (view === 'list') ? 'flex' : 'none';
   if (view === 'list') title.textContent = tr('title');
   else if (view === 'detail') title.textContent = posLabel(currentPos);
+  else if (view === 'assign') title.textContent = posLabel(currentPos) + ' · ' + tr('assignTitle');
   else if (view === 'alerts') title.textContent = tr('alertsTitle');
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
@@ -482,6 +564,7 @@ function render() {
   document.getElementById('bellBadge').textContent = unreadCount() > 99 ? '99+' : String(unreadCount());
   if (view === 'list') renderList();
   else if (view === 'detail') renderDetail();
+  else if (view === 'assign') renderAssign();
   else if (view === 'alerts') renderAlerts();
 }
 
@@ -540,19 +623,22 @@ function renderDetail() {
   }
   html += '</div></div>';
 
-  // 資訊卡:貼標 + 物流
+  // 資訊卡:貼標 + 物流(兩項皆可在此進入設定頁修改)
   const names = ch.dispatch_names || [];
+  const sticker = (ch.job_sticker || '').trim();
   html += '<div class="panel" style="padding:0 16px">';
-  if (ch.job_sticker && ch.job_sticker.trim()) {
-    html += '<div class="info-row">' + icon('user') +
-      '<span style="color:var(--muted);font-size:15px">' + tr('sticker') + '</span>' +
-      '<span class="val">' + esc(ch.job_sticker) + '</span></div>';
-  }
+  html += '<div class="info-row">' + icon('user') +
+    '<span style="color:var(--muted);font-size:15px">' + tr('sticker') + '</span>' +
+    (sticker ? '<span class="val">' + esc(sticker) + '</span>'
+             : '<span class="val" style="color:var(--muted);font-weight:400">' + tr('noSticker') + '</span>') +
+    '</div>';
   html += '<div class="info-row">' + icon('truck') +
     (names.length ? '<span class="val chips">' + dispatchChips(names) + '</span>'
                   : '<span class="val" style="color:var(--muted);font-weight:400">' + tr('noDispatch') + '</span>') +
     '</div>';
   html += '</div>';
+  html += '<button class="btn-edit" onclick="go(\'assign\',\'' + esc(currentPos) + '\')">' +
+    icon('edit') + tr('assign') + '</button>';
 
   // 跳過本輪
   if (ch.skip_count > 0) {
@@ -571,6 +657,105 @@ function renderDetail() {
     (ch.enabled ? tr('doPause') : tr('doEnable')) + '</button>';
 
   el.innerHTML = html;
+}
+
+// 後端錯誤碼 → 使用者語言的說明(對不到才退回顯示後端中文原文)
+function assignErrText(code, fallback) {
+  const map = { PRINTER_REQUIRED: 'errPrinterRequired', UNKNOWN_PROVIDER: 'errUnknownProvider',
+    NO_CHANNEL: 'errNoChannel', BAD_POSITION: 'errBadPosition' };
+  return map[code] ? tr(map[code]) : fallback;
+}
+
+function renderAssign() {
+  const el = document.getElementById('view-assign');
+  if (!draft) { el.innerHTML = '<div class="loading">…</div>'; return; }
+  let html = '<div class="panel">';
+
+  // 貼標人員:自由輸入 + 歷史名單快選(名單與桌面共用同一份)
+  html += '<div class="field"><label>' + tr('stickerLabel') + '</label>' +
+    '<input id="stickerInput" type="text" maxlength="32" autocomplete="off" ' +
+    'placeholder="' + esc(tr('stickerPlaceholder')) + '" value="' + esc(draft.sticker) + '" ' +
+    'oninput="setDraftSticker(this.value)" /></div>';
+  if (stickerNames.length) {
+    html += '<div class="sub-label">' + tr('stickerRecent') + '</div><div class="pick">';
+    for (const n of stickerNames.slice(0, 12)) {
+      html += '<button class="chip' + (n === draft.sticker ? ' sel' : '') +
+        '" onclick="pickSticker(' + JSON.stringify(n).replace(/"/g, '&quot;') + ')">' + esc(n) + '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // 指派物流:多選(可全不選 = 此通道不接件)
+  html += '<div class="panel"><div class="field" style="margin:0"><label>' + tr('dispatchLabel') + '</label>';
+  if (!providers.length) html += '<div class="pick-empty">' + tr('dispatchEmpty') + '</div>';
+  else {
+    html += '<div class="pick">';
+    for (const p of providers) {
+      const on = draft.codes.indexOf(p.code) >= 0;
+      html += '<button class="chip' + (on ? ' sel' : '') +
+        '" onclick="toggleProvider(' + JSON.stringify(p.code).replace(/"/g, '&quot;') + ')">' +
+        esc(p.name || p.code) + '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div></div>';
+
+  html += '<button class="btn-save" id="saveBtn" onclick="saveAssign()">' + icon('save') + tr('save') + '</button>';
+  el.innerHTML = html;
+}
+
+// 內嵌 oninput 只看得到 window 上的東西 —— 草稿是模組內的 let,
+// 直接在屬性裡寫 draft.xxx 會 ReferenceError(且不會有任何畫面徵兆),故經由函式寫入。
+function setDraftSticker(v) { if (draft) draft.sticker = v; }
+
+// 重繪與存檔前都要先把輸入框現值收回草稿 —— 中文 / 越南文輸入法組字中
+// oninput 還沒觸發,少了這步,還沒上字的名字會在重繪時整段消失。
+function flushStickerInput() {
+  const el = document.getElementById('stickerInput');
+  if (el && draft) draft.sticker = el.value;
+}
+
+// 點歷史名單:同一個名字再點一次視為取消(現場常換人,清空比重打一次快)
+function pickSticker(name) {
+  flushStickerInput();
+  draft.sticker = (draft.sticker === name) ? '' : name;
+  renderAssign();
+}
+
+function toggleProvider(code) {
+  flushStickerInput();
+  const i = draft.codes.indexOf(code);
+  if (i >= 0) draft.codes.splice(i, 1); else draft.codes.push(code);
+  renderAssign();
+}
+
+async function saveAssign() {
+  const pos = currentPos;
+  if (!draft || !pos) return;
+  flushStickerInput();
+  const btn = document.getElementById('saveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = tr('saving'); }
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos) + '/assign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_sticker: draft.sticker.trim() || null, dispatch_codes: draft.codes }),
+    });
+    if (!res.ok) {
+      let code = '', msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j) { code = j.code || ''; msg = j.error || msg; } } catch (_) {}
+      throw new Error(assignErrText(code, msg));
+    }
+    // 後端已寫入並廣播,這裡起都只是把新值抓回來顯示 —— 抓失敗不能報成「儲存失敗」,
+    // 那會讓操作員以為沒存到而重存一次,訊息與實際結果矛盾。
+    await fetchChannels().catch(() => {});
+    fetchStickerNames().catch(() => {});
+    back();
+    return;
+  } catch (e) {
+    alert(tr('saveFail') + '\n' + e.message);
+    renderAssign();
+  }
 }
 
 function renderAlerts() {
