@@ -21,6 +21,47 @@
 
 ---
 
+## 2026-08-31：套件升級（Rust 10 個 major 全數升上、前端已無可升）
+
+### 結果
+
+| 套件 | 舊 → 新 | 需要處理什麼 |
+|---|---|---|
+| base64 | 0.22 → 0.23 | 無，直接編過 |
+| tower-http | 0.6 → 0.7 | 無 |
+| toml | 0.8 → 1.1 | 無 |
+| tokio-tungstenite | 0.24 → 0.30 | 無 |
+| barcoders | 1 → 2 | 無 |
+| imageproc | 0.25 → 0.27 | 文字繪製拆成 `text` feature，而專案是 `default-features = false` → 要明確補上 |
+| axum | 0.7 → 0.8 | 路由參數語法 `:name` → `{name}`；移除了 `extract::Host` |
+| reqwest | 0.12 → 0.13 | `rustls-tls` 改名 `rustls`；`query()` 拆成獨立 feature |
+| keyring | 3 → 4 | features 全部重整，`default` 已含三平台原生 store，改為不指定 |
+| sqlx | 0.8 → 0.9 | `runtime-tokio-rustls` 拆成兩個 feature；**動態 SQL 要人工審核後標記** |
+
+前端：約束內全部升到最新（tauri plugins、vue-echarts）；`yarn outdated` 現在無輸出。
+
+### 幾個要記住的點
+
+- **`axum` 0.8 拿掉 `extract::Host`** 是因為它會採信 `X-Forwarded-Host`（可被假冒）。本服務只在區網內給工控機呼叫，改成直接讀 `Host` header、不看任何 forwarded 標頭，不必為此引入 axum-extra。
+- **`sqlx` 0.9 會擋下所有非字面常數的 SQL**（6 處）。逐一審過：動態的只有「組進哪幾個條件」與「`IN (?)` 有幾個佔位符」，欄位名寫死、值全部走 bind，確認無注入風險後才用 `AssertSqlSafe()` 標記。**不可無腦包，那等於把這個機制關掉。**
+- **`keyring` 4 編得過不代表存得住** —— v3 少 feature 會靜默退回記憶體實作，只有「重啟後 Token 不見」才會發現。新增測試：寫入後用 macOS `security find-generic-password` 從外部確認真的落進 keychain。
+- **`reqwest` 0.13 一度解不開相依**（要 `aws-lc-rs ^1.18`，cargo 說 crates.io 只有 1.17）。實際是**本機索引快取過舊**，重整後就找得到 1.18.0 —— 遇到「上游版本明明存在卻找不到」先重整索引，不要急著判定是上游沒發。
+- **`nanoid` 的 `resolutions` 已可移除**：當初（v0.17.1）是為修安全通報而鎖 `^3.3.17`，現在 postcss 8.5.26 自己就要求 `^3.3.17`，覆寫沒有作用了。`nanoid` 顯示「落後 6.0.1」是假象 —— 真正的使用者是 postcss，它走 3.x legacy 線。
+
+### MSRV 拉高到 1.94（要注意）
+
+`sqlx` 0.9 要求 rustc 1.94，`Cargo.toml` 的 `rust-version` 已從 1.77 改為 1.94。本機工具鏈已 `rustup update` 到 1.98.0；CI 用 `dtolnay/rust-toolchain@stable`（自動最新），不受影響。**若有其他環境用舊 rustc 編譯，會編不過。**
+
+### 驗證
+
+| 項目 | 結果 |
+|---|---|
+| `cargo test` | 67 項全綠（含新增的 keyring 落地測試） |
+| `yarn build` / `yarn audit` | 綠 / 0 漏洞 |
+| `yarn outdated` | 無輸出 |
+
+---
+
 ## 2026-08-31：提示訊息的圖示不再是佔空間的實心色塊
 
 ### 問題
