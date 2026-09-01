@@ -684,12 +684,18 @@ jobs:
       # 內沒有預裝 gh。node 則保證已裝(上面「Setup Node 22」對三個 distro 都是無條件跑),
       # 用它的內建 JSON.parse 就夠解析 API 回應,不必為了這步另外去動 apt bootstrap 多裝套件。
       - name: Upload tarball to Release
+        # 這個 job 跑在 `container:` 裡,GitHub 對 container job 的預設 shell 是 `sh -e {0}`
+        # (dash),不是 runner 本體的 bash。dash 沒有 `set -o pipefail`,寫了會直接
+        # 「Illegal option -o pipefail」退出 2,整步失敗 —— 這步要用 bash 語法就必須明寫
+        # shell: bash(ubuntu 官方 image 一定有 /bin/bash)。
+        # 注意只指定這一步:GitHub 的 shell: bash 預設帶 -eo pipefail,而本 job 其他步驟有
+        # 多處 `... | head -N`,在 pipefail 下上游會因 SIGPIPE(141)讓整條 pipeline 判定失敗。
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         run: |
-          # 這步本身沒有 pipe,現在加 pipefail 不影響行為;跟 create-release job 那步統一用
-          # set -euo pipefail,避免日後有人在這裡加 pipe 卻忘了 pipefail,重蹈同一種坑。
+          # 這步本身沒有 pipe,pipefail 是預留給日後在這裡加 pipe 的人,避免中間指令失敗被吞掉。
           set -euo pipefail
           ASSET_NAME=$(basename "$TARBALL")
           API_BASE="https://api.github.com/repos/${{ github.repository }}"
@@ -726,3 +732,77 @@ jobs:
             exit 1
           fi
           echo "上傳成功(HTTP $HTTP_STATUS)"
+
+  # 驗收 release asset 是否到齊 —— release-linux 帶 continue-on-error: true(讓單一 distro
+  # 掛掉不阻其他 matrix),代價是「Linux 三個全掛、整個 run 仍是綠燈」:v0.19.0 就是三個
+  # tarball 全部沒上傳卻顯示 success,只能靠人工去看 annotations 才發現;沒發現就會直接
+  # `gh release edit --draft=false` 公開一個沒有 Linux 版的 release。
+  #
+  # 刻意不看 needs.*.result —— continue-on-error 的 job 失敗後,傳給 needs 的結果仍是
+  # success,看 result 驗不到任何東西。這裡直接查 release 上實際有哪些 asset,少一項就紅燈:
+  # 驗的是「產物在不在」,不是「job 綠不綠」。
+  verify-assets:
+    needs: [create-release, release-desktop, release-linux]
+    # always():只跑 linux 或只跑 desktop 時,另一邊是 skipped,不能讓它擋掉驗收。
+    # create-release 失敗時沒有 release id 可驗,那才真的跳過。
+    if: always() && needs.create-release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+          ONLY: ${{ github.event.inputs.only || 'all' }}
+        run: |
+          set -euo pipefail
+          # comm 要求兩份清單同一套排序規則,固定 C locale 避免 runner locale 影響比對
+          export LC_ALL=C
+          VERSION="${TAG_NAME#v}"
+          echo "驗收 tag=$TAG_NAME(版本 $VERSION)、release id=$RELEASE_ID、範圍 only=$ONLY"
+
+          : > /tmp/expected.txt
+
+          if [ "$ONLY" != "linux" ]; then
+            # 這組名稱由 tauri-action 依 assetNamePattern 展開(arch 來自 matrix.target),
+            # 不是本 workflow 自己組的字串,無法從 matrix 機械推導,只能寫明。
+            # 動 release-desktop 的 matrix 或 assetNamePattern 時要同步改這裡。
+            {
+              echo "cix3752iLabelPrint_${VERSION}_aarch64.dmg"
+              echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz"
+              echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz.sig"
+              echo "cix3752iLabelPrint_${VERSION}_x64_setup.exe"
+              echo "cix3752iLabelPrint_${VERSION}_x64_setup.exe.sig"
+              echo "latest.json"
+            } >> /tmp/expected.txt
+          fi
+
+          if [ "$ONLY" != "desktop" ]; then
+            # Linux tarball 名稱是本 workflow 自己組的(cix3752iLabelPrint-{版本}-{distro}.tar.gz);
+            # distro 由腳本從 release-linux 的 matrix 解析,不在這裡另抄一份清單 ——
+            # 日後增減 distro 驗收會自動跟上,不會兩邊漂移。解析失敗時腳本以非 0 退出,
+            # 在 pipefail 下當場擋下,不會退化成「沒有東西要檢查」而靜默通過。
+            python3 scripts/list-linux-distros.py \
+              | sed "s|^|cix3752iLabelPrint-${VERSION}-|; s|$|.tar.gz|" >> /tmp/expected.txt
+          fi
+
+          sort -u /tmp/expected.txt -o /tmp/expected.txt
+          gh api --paginate "repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" \
+            --jq '.[].name' | sort > /tmp/actual.txt
+
+          echo "--- release 上實際的 asset ---"
+          cat /tmp/actual.txt
+          echo "--- 本次應到齊的 asset ---"
+          cat /tmp/expected.txt
+
+          MISSING=$(comm -23 /tmp/expected.txt /tmp/actual.txt)
+          if [ -n "$MISSING" ]; then
+            echo "::error::release 缺少下列 asset,補齊前不要公開這個 release"
+            echo "$MISSING" | sed 's|^|  缺少:|'
+            echo "補救方式:到 Actions 頁面手動觸發 Release,tag 填 $TAG_NAME,only 選缺的那一邊(linux / desktop)"
+            exit 1
+          fi
+          echo "asset 到齊,共 $(wc -l < /tmp/expected.txt | tr -d ' ') 項"
