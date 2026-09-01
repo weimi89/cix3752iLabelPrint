@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-08-31（v0.19.0 發版中）**　目前版本：**v0.19.0（tag 已推送，Actions 建置中，尚未公開）**
+最後更新：**2026-09-01（v0.19.0 產物已到齊，待公開）**　目前版本：**v0.19.0（draft release 九項產物全到齊、`verify-assets` 綠燈，等人工公開）**
 
 ---
 
@@ -28,8 +28,65 @@
 | CHANGELOG 寫 v0.19.0 段落 | ✅ 完成（原未發佈的 v0.18.1 段落已併入本版） |
 | 三處版本號同步（package.json / tauri.conf.json / Cargo.toml） | ✅ 完成，`cargo check` 綠、Cargo.lock 同步 |
 | commit + tag + push | ✅ `f50a23a`，tag `v0.19.0` 已推送 |
-| GitHub Actions 建置 | ⏳ run `33400965877` 進行中（上一版 v0.18.0 跑了 2h6m，Ubuntu 20.04 要自編 webkit） |
-| **手動公開 draft release** | ❌ **尚未執行** —— 建置完成後要跑 `gh release edit v0.19.0 --draft=false`，否則 `latest.json` 不生效、使用者收不到更新通知 |
+| GitHub Actions 建置（第一次，run `33400965877`） | ⚠️ **macOS / Windows 成功，三個 Linux tarball 全部沒上傳** —— 見下方「Linux 上傳失敗」 |
+| CI 修正 | ✅ `8092ba0` 已推 main（container job 的 shell 修正 + 產物驗收 job） |
+| GitHub Actions 補跑 Linux（run `33460047068`） | ✅ 三個 tarball 全部上傳成功（20.04 86MB / 22.04 32MB / 24.04 32MB），`verify-assets` 綠燈 |
+| **手動公開 draft release** | ❌ **尚未執行** —— 產物已到齊，跑 `gh release edit v0.19.0 --draft=false` 即公開；不跑的話 `latest.json` 不生效、使用者收不到更新通知 |
+
+### 順帶查出：20.04 的 webkit 快取從來沒生效過（尚未處理）
+
+20.04 每次發版都要花 **1 小時 13 分**從原始碼編 webkit2gtk。workflow 有做 `focal-upstream-stack`
+快取要避免這件事，但它**一次都沒命中過** —— key 是固定字串 `focal-upstream-stack-glib2.78-libsoup3.4-webkit2.42-v1`，
+三次建立的 key 完全相同，卻各存一份：
+
+| 建立 | ref |
+|---|---|
+| 8/29 | `refs/tags/v0.18.0` |
+| 8/31 | `refs/tags/v0.19.0` |
+| 9/1（本次補跑） | **`refs/heads/main`** |
+
+**根因**：GitHub Actions 的快取**按 ref 隔離** —— 一個 run 只讀得到「自己這個 ref」與「預設分支」的快取。
+發版一律 push tag 觸發，每次都把成果存進那個 tag 專屬的格子，下一個 tag 換新格子就再也讀不到。
+
+**現況**：本次補跑是從 main 觸發（`workflow_dispatch --ref main`），快取已存進 `refs/heads/main`，
+而 main 是預設分支 → **之後 tag 觸發的 run 讀得到了**，v0.20.0 發版時 20.04 應可省下這 1 小時多。
+
+**仍未解的兩個失效條件**（要不要處理未決）：快取 **7 天未被存取會過期**；
+快取總量逼近 10GB 上限時會被 LRU 擠掉（目前約 6.8GB，光 Rust 快取每份就 800MB）。
+發版間隔若超過 7 天，20.04 仍會重編。要穩定省下這段時間，需另加一支排程 workflow 定期在 main 上預熱。
+
+### Linux 上傳失敗（已修，`8092ba0`）
+
+三個 Linux job 都**建置成功**（tarball 都打好了，33M），死在最後一步「上傳 asset」：
+
+```
+/__w/_temp/xxx.sh: 3: set: Illegal option -o pipefail
+##[error]Process completed with exit code 2.
+```
+
+**根因**：`release-linux` 跑在 `container:` 裡，GitHub 對 container job 的預設 shell 是 `sh -e {0}`（dash），
+不是 runner 本體的 bash；dash 沒有 `set -o pipefail`。同一份 workflow 的 `create-release` 寫法相同卻沒事，
+是因為它跑在 `runs-on: ubuntu-latest`（runner 本體預設 bash）—— **同樣一行在 container 內外命運不同**。
+
+**修法**：該步明寫 `shell: bash`。刻意**不**在 job 層級統一改：GitHub 的 `shell: bash` 預設帶 `-eo pipefail`，
+而這個 job 其他步驟有多處 `gcc --version | head -1`、`ls *.deb | head -1` 等寫法，在 pipefail 下
+`head` 提早關管線會讓上游收 SIGPIPE(141)、整條 pipeline 被判失敗 —— 整批改過去等於一次踩滿新坑。
+
+### 為什麼沒被擋下來（已補 `verify-assets` job）
+
+`release-linux` 帶 `continue-on-error: true`（讓單一 distro 掛掉不阻其他 matrix），
+代價是**三個 Linux 全掛、整個 run 仍是綠燈**，只能靠人工去看 annotations 才發現。
+
+新增的 `verify-assets` job 直接比對 release 上實際有哪些 asset，缺一項就紅燈。
+刻意**不看** `needs.*.result` —— `continue-on-error` 的 job 失敗後傳給 `needs` 的結果仍是 `success`，
+看 result 驗不到任何東西；驗的是「產物在不在」，不是「job 綠不綠」。
+
+Linux 期望檔名的 distro 清單由 `scripts/list-linux-distros.py` 從 `release-linux` 的 matrix 解析，
+不另抄一份清單，增減 distro 時驗收自動跟上；解析失敗一律非 0 退出，不會退化成空清單而靜默通過。
+
+**已驗證**（用真實 release 資料跑過腳本，四個情境）：v0.19.0 `only=all` 與 `only=linux` 都精準抓出缺的三個 tarball；
+`only=desktop` 綠燈（6 項）；產物齊全的 v0.18.0 `only=all` 綠燈（9 項，證明期望清單與歷史成功發版吻合）。
+腳本本身另測四種反例（job 改名 / `distro` 欄位改名 / matrix 清空 / workflow 檔不存在）全部非 0 退出。
 
 **本版包含**：手機遙控頁指派功能、清關浮動框分廠、錯誤提示人話化、提示版面收斂、Rust 10 個 major 升級。
 
