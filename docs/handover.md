@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-01（v0.19.0 產物已到齊，待公開）**　目前版本：**v0.19.0（draft release 九項產物全到齊、`verify-assets` 綠燈，等人工公開）**
+最後更新：**2026-09-02（v0.20.0 發版中）**　目前版本：**v0.20.0（已 tag、CI 建置中，尚未公開）**；前一穩定版 v0.19.0 已發佈
 
 ---
 
@@ -21,6 +21,63 @@
 
 ---
 
+## 2026-09-02：異常件提示面單改為可切換開關（v0.20.0）
+
+**需求**：工控機刷碼遇雲端業務錯誤（門市關轉 / 未確認 / 訂單異常 …）原本一律印錯誤面單並回分揀通道，
+現場希望改成不印、也不回通道。做成**開關**而非直接砍掉，避免日後要恢復時再改一次程式。
+
+### 做了什麼
+
+| 檔案 | 改動 |
+|---|---|
+| `src-tauri/src/config/mod.rs` | 新增 `ErrorLabelConfig`（`error_label.enabled`，**預設 false**） |
+| `src-tauri/src/server/mod.rs` | `LabelPathResolver` 加 `error_label` 旗標 + `is_error_label_enabled()`（與 `sort_only` 同一個熱套用出口）；`get_parcel` 的 `Err(e)` 分支依開關決定要不要解析通道、產面單、給 `response_id` |
+| `src/pages/SortChannelsPage.vue` | 「分揀通道」頁純分揀卡片下方新增「異常件提示面單」開關卡片 |
+| `src/plugins/i18n/locales/*.json` | 新增 `label.settings.errorLabel(Hint)` 與 `page.sort.errorLabel.*`；**順手修正**純分揀 hint 原本寫死的「異常件的錯誤面單仍會印」（開關關閉後已不成立） |
+| `src/api/tauri.js` | mock config 補 `error_label`（否則 web preview 會壞） |
+| `docs/local-http-api.md` + `.docx` | 廠商契約文件：新增兩種開關狀態的回應對照表與範例；**`.docx` 已用 pandoc 同步重產**（舊檔備份於 `backups/20260902102356/docs/`） |
+| `CLAUDE.md` / `README.md` | 補開關說明 |
+
+**只作用於工控機 `GET /api/parcel`**；桌面掃描列印 / 自動印單（`cloud_commands.rs`）刻意不動，那條路自有出口。
+
+### 行為對照（實測值）
+
+| 開關 | `channel_code` | `print_profile` | `label_path` | `response_id` | `is_error_label` | `should_print` |
+|---|---|---|---|---|---|---|
+| **關（預設）** | `null` | `null` | 不回傳 | `null` | `false` | `0` |
+| 開 | 照舊解析（`L1` / fallback `LS`） | 照舊 | 有 | 負數 | `true` | `1` |
+
+兩種狀態下 `parcel_alert`、`parcel_query_log`、`daily_stats`、件數核對都照常寫 —— 稽核資料不因開關缺漏。
+
+### 驗證結果
+
+- `cargo check` / `cargo test`（67 項）/ `yarn build` 全綠。
+- **實機打本地 server**（App 跑起來、雲端已登入）：
+  - 開關關 → `GET /api/parcel/TESTNOTEXIST0001` 回 200，`channel_code`/`print_profile`/`response_id` 皆 `null`、無 `label_path`、`error_code=NOT_FOUND`；DB 寫入 `should_print=0`、`sort_channel=null`、`label_key=null`；`cache/labels/@error/` 未產生任何檔案。
+  - 開關開 → 查無訂單回 fallback 通道 `LS`、訂單異常（`74Z01112337`）回 `L1` + `PAPER-01#100x150`，兩者都產出面單 PNG、`response_id` 為 `-10` / `-11`、`should_print=1`。
+  - 測試造出的查詢紀錄、異常紀錄、當日統計與面單檔**驗完已清除**，`config.toml` 已還原（`direct_print`、無 `[error_label]` 區塊）。
+- UI：以 `vite preview` + headless Chrome 截圖確認新卡片版面與文案正常（灰色關閉狀態）。
+
+### 已知限制
+
+- **UI 切換開關的熱套用未實機點過** —— Tauri WebView 不吃合成點擊事件，改用改 `config.toml` + 重啟驗後端行為。
+  熱套用走的是 `update_config` → `label_resolver.apply_config()`，與純分揀開關**同一行出口**（旗標就寫在該函式內），
+  但「點下去立即生效」這件事本身沒有實機證據。下次有人操作 App 時順手確認一次即可。
+- 開關開啟 + `direct_print` 模式的**本機送印**分支未實測（本機接著實體印表機，測會真的吐紙）。
+  該分支程式碼本次只是整段包進 `if`、內容未改動。
+
+### 發版狀態（v0.20.0）
+
+| 步驟 | 狀態 |
+|---|---|
+| `CHANGELOG.md` 寫 v0.20.0 段落 | ✅ |
+| 三處版本號同步（package.json / tauri.conf.json / Cargo.toml） | ✅ `cargo check` 綠、Cargo.lock 同步 |
+| commit + tag + push | ✅ |
+| GitHub Actions 建置 | ⏳ 見下方進度 |
+| 公開 draft release（`gh release edit v0.20.0 --draft=false`） | ⏳ 待建置與 `verify-assets` 綠燈後執行 |
+
+---
+
 ## 2026-08-31：v0.19.0 發版狀態
 
 | 步驟 | 狀態 |
@@ -31,7 +88,7 @@
 | GitHub Actions 建置（第一次，run `33400965877`） | ⚠️ **macOS / Windows 成功，三個 Linux tarball 全部沒上傳** —— 見下方「Linux 上傳失敗」 |
 | CI 修正 | ✅ `8092ba0` 已推 main（container job 的 shell 修正 + 產物驗收 job） |
 | GitHub Actions 補跑 Linux（run `33460047068`） | ✅ 三個 tarball 全部上傳成功（20.04 86MB / 22.04 32MB / 24.04 32MB），`verify-assets` 綠燈 |
-| **手動公開 draft release** | ❌ **尚未執行** —— 產物已到齊，跑 `gh release edit v0.19.0 --draft=false` 即公開；不跑的話 `latest.json` 不生效、使用者收不到更新通知 |
+| **公開 draft release** | ✅ 已於 2026-09-01 04:00 UTC 公開。`latest.json` 驗過：version `0.19.0`、四個平台簽章齊全、notes 正確帶入 CHANGELOG（1531 字元），App 內「發現新版本」會正常顯示 |
 
 ### 順帶查出：20.04 的 webkit 快取從來沒生效過（尚未處理）
 
@@ -51,9 +108,25 @@
 **現況**：本次補跑是從 main 觸發（`workflow_dispatch --ref main`），快取已存進 `refs/heads/main`，
 而 main 是預設分支 → **之後 tag 觸發的 run 讀得到了**，v0.20.0 發版時 20.04 應可省下這 1 小時多。
 
-**仍未解的兩個失效條件**（要不要處理未決）：快取 **7 天未被存取會過期**；
-快取總量逼近 10GB 上限時會被 LRU 擠掉（目前約 6.8GB，光 Rust 快取每份就 800MB）。
-發版間隔若超過 7 天，20.04 仍會重編。要穩定省下這段時間，需另加一支排程 workflow 定期在 main 上預熱。
+**已處理**（commit `ab5f036`）：新增 `.github/workflows/warm-focal-cache.yml`，
+每週日 / 週三 18:00 UTC（台北週一 / 週四 02:00）在 main 上碰一次快取 ——
+命中就只刷新存取時間（實測 2 分 21 秒跑完），沒命中就重編存回。間隔 3-4 天，
+穩穩踩在 7 天過期線內側。10GB LRU 那條也一併緩解：每週被存取兩次，是最不容易被擠掉的一份。
+
+200 行的 stack 建置步驟抽成 composite action `.github/actions/build-focal-stack`，
+`release.yml` 與預熱 workflow 共用，不留第二份會漂移的複本。三個要點：
+
+- composite action 的 run step 一律 **`shell: sh`**，維持與 container job 預設 `sh -e` 相同行為。
+  改 bash 會帶 `-eo pipefail`，踩爆裡面多處 `gcc --version | head -1`、`cmake --version | head -1 | grep -q`
+  （`head` 提早關管線 → 上游收 SIGPIPE → 整條 pipeline 判失敗），跟這次修的是同一類坑。
+- `release.yml` 的 `checkout` 提前到 steps 最前面 —— local composite action 要先 checkout 才存在。
+- action 有 `force_rebuild` input：平常快取一直命中、**建置那條路根本不會執行**，
+  必須能定期強制跑一次，否則上游 tarball 搬家之類的問題會等到快取失效那天、在發版當下才爆。
+
+**已驗證**：搬移等價性（7 個 step 的 run / uses / with / id / if 條件逐字比對相同）；
+actionlint 改動前後同樣 8 個 shellcheck 提示、無新增；實跑一次快取命中路徑（run `33468624579`）
+—— checkout 在 bare container 最前面可行、action 正確載入、`Cache hit` + 還原後
+`pkg-config` 回報 glib 2.78.6 / libsoup 3.4.4 / webkit2gtk 2.42.5 版本全對。
 
 ### Linux 上傳失敗（已修，`8092ba0`）
 

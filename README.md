@@ -238,7 +238,7 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 │   │   ├── bag_check/          # 分揀袋件核對(常駐清單 + 連續性偵測)
 │   │   ├── sync/               # 跨機同步(Reverb/WebSocket 訂閱)
 │   │   ├── watermark.rs        # 列印次數浮水印(字型內嵌)
-│   │   ├── error_label.rs      # 錯誤面單提示圖產生
+│   │   ├── error_label.rs      # 錯誤面單提示圖產生(工控機路徑可於設定頁開關)
 │   │   ├── printer/            # 系統印表機列舉與列印
 │   │   ├── health/             # 三層網路健康偵測
 │   │   ├── db/                 # sqlx + migrations

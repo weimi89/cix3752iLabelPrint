@@ -387,8 +387,10 @@
       "reportDelay": "Chờ máy công nghiệp báo (giây)",
       "reportDelayHint": "Khi in trực tiếp tại máy này, máy công nghiệp không in gì nên thường không gửi báo cáo. Sau khi in xong sẽ chờ khoảng thời gian này để máy công nghiệp có cơ hội báo: nếu kịp thì lấy báo cáo đó gửi lên đám mây; nếu không kịp thì máy này tự gửi, nhân viên dán nhãn vẫn được ghi nhận. Có thể xem cột nguồn báo cáo ở trang \"Lịch sử hàng đợi\" rồi điều chỉnh thời gian chờ.",
       "sortOnly": "Chế độ chỉ phân loại (chỉ trả về kênh phân loại, không xuất nhãn)",
-      "sortOnlyHint": "Khi bật chỉ phân loại: chỉ trả về kênh phân loại, không in nhãn, không ghi thống kê in. Đối chiếu số kiện và nhật ký vẫn hoạt động; nhãn lỗi của kiện bất thường vẫn được in.",
-      "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực"
+      "sortOnlyHint": "Khi bật chỉ phân loại: chỉ trả về kênh phân loại, không in nhãn, không ghi thống kê in. Đối chiếu số kiện và nhật ký vẫn hoạt động; nhãn cảnh báo của kiện bất thường do công tắc bên dưới kiểm soát riêng.",
+      "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực",
+      "errorLabel": "Nhãn cảnh báo kiện bất thường",
+      "errorLabelHint": "Khi bật: gặp tình huống cửa hàng ngừng chuyển, chưa xác nhận, đơn hàng bất thường, không tìm thấy đơn... sẽ in một nhãn cảnh báo và trả về kênh phân loại để nhân viên nhặt kiện ra xử lý. Khi tắt: không in nhãn, không trả về kênh, để máy phân loại tự xử lý. Nhật ký bất thường và đối chiếu số kiện vẫn hoạt động trong cả hai trường hợp."
     }
   },
   "page": {
@@ -843,6 +845,10 @@
       "sortOnly": {
         "enabled": "Đã bật chế độ chỉ phân loại",
         "disabled": "Đã tắt chế độ chỉ phân loại"
+      },
+      "errorLabel": {
+        "enabled": "Đã bật nhãn cảnh báo kiện bất thường",
+        "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
       },
       "pos": {
         "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4",

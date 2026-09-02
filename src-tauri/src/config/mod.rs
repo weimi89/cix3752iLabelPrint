@@ -27,6 +27,31 @@ pub struct AppConfig {
     pub sync: SyncConfig,
     #[serde(default)]
     pub sort_only: SortOnlyConfig,
+    #[serde(default)]
+    pub error_label: ErrorLabelConfig,
+}
+
+/// 錯誤面單總開關 —— 工控機查件遇雲端業務錯誤(門市關轉 / 未確認 / 訂單異常 / 查無訂單 /
+/// 非代寄 / 非轉寄 / 取單失敗 / 雲端不通等所有非 401 錯誤)時要不要出提示面單。
+///
+/// 關閉(預設):`GET /api/parcel` 只回 `error_code` 與訊息,**不產生提示面單、也不回分揀通道**
+///(`channel_code` / `print_profile` / `label_path` / `response_id` 皆為 null),異常包裹由工控機
+/// 自行走預設落格。開啟:產生提示面單(依面單路徑模式回路徑或本機直印)並照常解析分揀通道。
+///
+/// 兩種狀態都照常記 `parcel_alert`、`parcel_query_log`、`daily_stats` 與件數核對 —— 包裹實體
+/// 仍過機分揀,稽核資料不因開關而缺漏。**僅作用於工控機路徑**;桌面掃描列印 / 自動印單另有出口,
+/// 不受此開關控制。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErrorLabelConfig {
+    /// 總開關(預設關;開啟後才產生錯誤面單並回分揀通道)
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for ErrorLabelConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
 }
 
 /// 純分揀模式 —— 中介機只做「工控機刷碼 → 查雲端取物流商 → 回分揀通道代碼」,
@@ -400,6 +425,7 @@ impl Default for AppConfig {
             camera: CameraConfig::default(),
             sync: SyncConfig::default(),
             sort_only: SortOnlyConfig::default(),
+            error_label: ErrorLabelConfig::default(),
         }
     }
 }

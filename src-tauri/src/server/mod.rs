@@ -44,6 +44,9 @@ pub struct LabelPathResolver {
     /// 與面單路徑模式同放此解析器:兩者都在每筆 `get_parcel` 決定「面單輸出」行為,
     /// 且共用同一條 `update_config` 熱套用路徑(config_commands 只呼叫一次 `apply_config`)。
     sort_only: Arc<AtomicBool>,
+    /// 錯誤面單開關。關閉(預設)時 `get_parcel` 遇雲端業務錯誤只回 `error_code`,
+    /// 不產出提示面單、也不回分揀通道。同放此解析器的理由同 `sort_only`。
+    error_label: Arc<AtomicBool>,
 }
 
 impl LabelPathResolver {
@@ -51,12 +54,14 @@ impl LabelPathResolver {
         Self {
             inner: Arc::new(RwLock::new(config.label_path.clone())),
             sort_only: Arc::new(AtomicBool::new(config.sort_only.enabled)),
+            error_label: Arc::new(AtomicBool::new(config.error_label.enabled)),
         }
     }
 
     pub fn apply_config(&self, config: &AppConfig) {
         *self.inner.write() = config.label_path.clone();
         self.sort_only.store(config.sort_only.enabled, Ordering::Relaxed);
+        self.error_label.store(config.error_label.enabled, Ordering::Relaxed);
     }
 
     pub fn current_mode(&self) -> LabelPathMode {
@@ -66,6 +71,11 @@ impl LabelPathResolver {
     /// 純分揀模式是否開啟(熱套用,即時反映設定變更)
     pub fn is_sort_only(&self) -> bool {
         self.sort_only.load(Ordering::Relaxed)
+    }
+
+    /// 錯誤面單是否開啟(熱套用,即時反映設定變更)
+    pub fn is_error_label_enabled(&self) -> bool {
+        self.error_label.load(Ordering::Relaxed)
     }
 
     /// DirectPrint 自補回報前,等工控機回報的寬限秒數(熱套用,改設定不需重啟 server)。
@@ -1990,16 +2000,24 @@ async fn get_parcel(
             };
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
 
-            // 雲端帶出物流商代碼時(查得到訂單的業務錯誤,如 STORE_CLOSED / UNCONFIRMED),
-            // 錯誤面單照正常面單流程解析分揀通道與 print_profile;
-            // 查不到物流商時(NOT_FOUND / 雲端連線失敗)統一退回「未指派通道代碼」,
-            // 讓所有錯誤面單只要有設 fallback 就一定有格口可分揀
-            let (channel_code, print_profile) = match err_provider.as_deref() {
-                Some(p) => {
-                    let (cc, _) = resolve_channel_code(&state.db, &state.rr, p).await;
-                    (cc, fetch_print_profile(&state.db, p).await)
+            // 錯誤面單總開關(設定頁熱切換,預設關)。關閉時工控機只拿得到 error_code:
+            // 不出提示面單、不回分揀通道,異常包裹由工控機自行走預設落格。
+            let error_label_on = state.label_resolver.is_error_label_enabled();
+
+            // 開啟時:雲端帶出物流商代碼(查得到訂單的業務錯誤,如 STORE_CLOSED / UNCONFIRMED)
+            // 就照正常面單流程解析分揀通道與 print_profile;查不到物流商(NOT_FOUND / 雲端連線失敗)
+            // 統一退回「未指派通道代碼」,讓所有錯誤面單只要有設 fallback 就一定有格口可分揀。
+            // 關閉時一律不回通道 —— 連帶不查 print_profile(沒有面單就沒有列印參數)。
+            let (channel_code, print_profile) = if !error_label_on {
+                (None, None)
+            } else {
+                match err_provider.as_deref() {
+                    Some(p) => {
+                        let (cc, _) = resolve_channel_code(&state.db, &state.rr, p).await;
+                        (cc, fetch_print_profile(&state.db, p).await)
+                    }
+                    None => (fetch_unassigned_channel_code(&state.db).await, None),
                 }
-                None => (fetch_unassigned_channel_code(&state.db).await, None),
             };
 
             // 記錄雲端查件異常(門市關轉等),供手機 / 桌面回看清單
@@ -2038,56 +2056,59 @@ async fn get_parcel(
             // 錯誤面單:即使在純分揀模式也照常產出/列印 —— 現場需靠它辨識、揀出異常包裹,
             // 屬「必須處理」的例外,不受純分揀「不出面單」規則抑制。
             let t_label = std::time::Instant::now();
-            let label_bytes = crate::error_label::generate(
-                &query_no,
-                &err_code,
-                crate::error_label::LabelHeight::H100mm,
-            );
-            let (label_path, err_label_key) = if state.label_resolver.current_mode()
-                == LabelPathMode::DirectPrint
-            {
-                spawn_print_error_label_bytes(
-                    state.db.clone(),
-                    state.app.clone(),
-                    query_no.clone(),
-                    label_bytes,
-                    channel_code.clone(),
-                );
+            let (label_path, err_label_key) = if !error_label_on {
                 (None, None)
             } else {
-                let cache_base = state.cache.base_dir();
-                match write_error_label_to_cache(&cache_base, &query_no, &err_code, &label_bytes)
-                    .await
-                {
-                    Some(key) => {
-                        let local_abs = cache_base.join(&key);
-                        let resolved = state.label_resolver.resolve(
-                            &local_abs,
-                            &cache_base,
-                            &key,
-                            Some(host.as_str()),
-                        );
-                        (Some(resolved), Some(key))
-                    }
-                    None => {
-                        // 寫檔失敗 → 改在本機嘗試列印 + 回 502,不讓工控機誤以為有面單
-                        emit_error_label_failed(&state.app, &query_no, "cache_write_failed");
-                        spawn_print_error_label_bytes(
-                            state.db.clone(),
-                            state.app.clone(),
-                            query_no.clone(),
-                            label_bytes,
-                            channel_code.clone(),
-                        );
-                        return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
+                let label_bytes = crate::error_label::generate(
+                    &query_no,
+                    &err_code,
+                    crate::error_label::LabelHeight::H100mm,
+                );
+                if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+                    spawn_print_error_label_bytes(
+                        state.db.clone(),
+                        state.app.clone(),
+                        query_no.clone(),
+                        label_bytes,
+                        channel_code.clone(),
+                    );
+                    (None, None)
+                } else {
+                    let cache_base = state.cache.base_dir();
+                    match write_error_label_to_cache(&cache_base, &query_no, &err_code, &label_bytes)
+                        .await
+                    {
+                        Some(key) => {
+                            let local_abs = cache_base.join(&key);
+                            let resolved = state.label_resolver.resolve(
+                                &local_abs,
+                                &cache_base,
+                                &key,
+                                Some(host.as_str()),
+                            );
+                            (Some(resolved), Some(key))
+                        }
+                        None => {
+                            // 寫檔失敗 → 改在本機嘗試列印 + 回 502,不讓工控機誤以為有面單
+                            emit_error_label_failed(&state.app, &query_no, "cache_write_failed");
+                            spawn_print_error_label_bytes(
+                                state.db.clone(),
+                                state.app.clone(),
+                                query_no.clone(),
+                                label_bytes,
+                                channel_code.clone(),
+                            );
+                            return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
+                        }
                     }
                 }
             };
             let label_ms = t_label.elapsed().as_millis() as i64;
 
-            // 錯誤面單也寫入查詢記錄:response_id 用本地負數遞減(與雲端正數 ID 區隔),
+            // 雲端錯誤一律寫入查詢記錄(不論錯誤面單開關):response_id 用本地負數遞減(與雲端正數 ID 區隔),
             // 工控機照正常流程 POST /api/report 才反查得到(負數回報只記錄、不推雲端 webhook);
             // 查詢記錄頁同時也看得到錯誤查詢,不留診斷盲區。
+            // 開關關閉時 should_print=0(沒有面單可印),與正常路徑純分揀模式的記法一致。
             // 寫入失敗時退回 response_id=null(工控機不回報),不影響出單
             let total_ms = t_start.elapsed().as_millis() as i64;
             let response_id: Option<i64> = match sqlx::query_scalar::<_, i64>(
@@ -2095,13 +2116,14 @@ async fn get_parcel(
                    (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, created_at, cloud_ms, label_ms, total_ms)
                  VALUES (
                    (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
-                   ?, '', ?, ?, ?, 1, ?, datetime('now','localtime'), ?, ?, ?)
+                   ?, '', ?, ?, ?, ?, ?, datetime('now','localtime'), ?, ?, ?)
                  RETURNING response_id",
             )
             .bind(&query_no)
             .bind(&err_provider)
             .bind(&channel_code)
             .bind(&print_profile)
+            .bind(if error_label_on { 1 } else { 0 })
             .bind(&err_label_key)
             .bind(cloud_ms)
             .bind(label_ms)
@@ -2120,12 +2142,14 @@ async fn get_parcel(
                 }
             };
 
+            // 開關關閉時不回 response_id:沒有面單可印,工控機不必也不該 POST /api/report
+            //(對齊 NoRead 的回應形態);查詢記錄仍留在本機供回看。
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
                 label_path,
-                response_id,
-                is_error_label: true,
+                response_id: if error_label_on { response_id } else { None },
+                is_error_label: error_label_on,
                 error_code: Some(err_code),
                 message: Some(msg),
             })))

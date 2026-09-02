@@ -64,7 +64,7 @@ lib.rs                    AppState + bootstrap(initial migration / server start 
 ├── bag_check/            分揀袋件核對(常駐記憶體清單 + 袋件連續性偵測)
 ├── sync/                 跨機同步(Reverb/WebSocket 訂閱:件數核對 / 清關進度即時廣播)
 ├── watermark.rs          列印次數浮水印(字型編譯期內嵌)
-├── error_label.rs        錯誤面單提示圖產生(雲端業務錯誤時)
+├── error_label.rs        錯誤面單提示圖產生(雲端業務錯誤時;工控機路徑由 `error_label.enabled` 開關控制)
 ├── printer/              系統印表機列舉與列印
 ├── health/               三層網路偵測(OS / Anchor / Cloud API)+ 抖動緩衝
 ├── log/ + event_log.rs   分類事件 log(category × level)
@@ -139,6 +139,20 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 - **快照存證** — `get_parcel` 一收到請求就「釘住」`camera` 最新一幀(純記憶體複製,不擋回應),查得到訂單才丟背景寫檔到**存證目錄**(獨立於面單快取,`camera.keep_days` 單獨清理),回寫 `parcel_query_log.photo_path`,前端請求記錄頁以 `/captures/{key}` 檢視。相機由後端 `nokhwa` 獨佔,`/camera/preview/stream` 出 MJPEG 給設定頁預覽(預覽=存證同一畫面)。
 - **NoRead(相機讀不到單號)** — 工控機以 `queryNo=NoRead`(正規化去符號小寫比對 `noread`,容錯 `NO_READ`/`no read`)呼叫時 `is_noread` 短路:**不打雲端**、仍拍照存證(檔名 `NoRead_{時間}_{進程序號}.jpg`,序號避免同秒覆蓋)、記 `parcel_query_log`(負數 `response_id`、`photo_path`,先寫 NULL 背景回填不阻塞回應)、`daily_stats` `request_count + noread_count`(不計 success)、emit `parcel-alert` kind=`noread`(前端只 toast 不出聲、空 message 用 i18n 標題)、回 200 `error_code:"NOREAD"` 無面單無通道。實作:`server/mod.rs` 的 `is_noread` / `handle_noread`。
+
+### 異常件提示面單開關(`error_label.enabled`,預設關)
+
+工控機 `GET /api/parcel` 遇雲端業務錯誤(門市關轉 / 未確認 / 訂單異常 / 查無訂單 / 非代寄 / 非轉寄 /
+取單失敗 / 雲端不通等所有非 401 錯誤)時要不要出提示面單的總開關,設定頁「分揀通道」切換、熱套用不需重啟。
+
+- **關閉(預設)** — 只回 `error_code` + `message`,`channel_code` / `print_profile` / `label_path` /
+  `response_id` **全為 null**、`is_error_label=false`;工控機不列印、不回報,異常包裹自行走預設格口。
+  `parcel_query_log` 仍寫一筆(`should_print=0`)不留診斷盲區。
+- **開啟** — 回復舊行為:產提示圖 → 依面單路徑模式回 `label_path`(`direct_print` 走本機直印)、
+  照正常面單流程解析分揀通道、`response_id` 給本地負數供工控機回報。
+
+兩種狀態下 `parcel_alert`、`daily_stats`、件數核對(`bag_check`)皆照常 —— 包裹實體仍過機分揀。
+**只作用於工控機路徑**;桌面掃描列印 / 自動印單(`cloud_commands.rs`)另有出口,不受此開關控制。
 
 ### 分揀袋件核對(常駐清單 + 袋件連續性偵測)
 

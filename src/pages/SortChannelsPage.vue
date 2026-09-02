@@ -46,6 +46,11 @@ const sortOnly = ref(false)
 const savingSortOnly = ref(false)
 const savingUnassigned = ref(false)
 
+// 錯誤面單總開關(存於 AppConfig.error_label.enabled)。關閉時工控機查件遇雲端錯誤只收到
+// 錯誤代碼,不出提示面單也不回分揀通道。與純分揀並列在這頁:兩者都是工控機查件的回應行為。
+const errorLabelOn = ref(false)
+const savingErrorLabel = ref(false)
+
 const openUnassignedDialog = () => {
   unassignedDraft.value = unassignedCode.value
   unassignedDialog.value = true
@@ -80,6 +85,7 @@ const load = async () => {
     dispatchOptions.value = dispatch
     unassignedCode.value = uCode ?? ''
     sortOnly.value = !!cfg?.sort_only?.enabled
+    errorLabelOn.value = !!cfg?.error_label?.enabled
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
     dirty.value = new Set()
   } catch (e) {
@@ -131,6 +137,24 @@ const toggleSortOnly = async val => {
     errorMsg.value = errorMessageFromException(e)
   } finally {
     savingSortOnly.value = false
+  }
+}
+
+// 錯誤面單切換:同樣重抓 config 再寫回,避免蓋掉其他頁的併發變更;熱套用即時生效。
+const toggleErrorLabel = async val => {
+  savingErrorLabel.value = true
+  errorMsg.value = ''
+  try {
+    const cfg = await getConfig()
+    cfg.error_label = { ...(cfg.error_label || {}), enabled: val }
+    await updateConfig(cfg)
+    errorLabelOn.value = val
+    toast.success(t(val ? 'page.sort.errorLabel.enabled' : 'page.sort.errorLabel.disabled'))
+  } catch (e) {
+    errorLabelOn.value = !val // 失敗回復開關狀態
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingErrorLabel.value = false
   }
 }
 // 手機遙控(同區網手機開 /control 暫停通道)→ 後端廣播 sort-channel-updated,桌面即時同步開關
@@ -458,6 +482,32 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           density="compact"
           class="flex-shrink-0"
           @update:model-value="toggleSortOnly"
+        />
+      </div>
+    </VCard>
+
+    <!-- 錯誤面單總開關(關閉時異常件不出提示面單、不回分揀通道) -->
+    <VCard variant="outlined" class="mb-4" :color="errorLabelOn ? 'warning' : undefined">
+      <div class="d-flex align-center ga-3 px-4 py-3">
+        <VIcon
+          :icon="errorLabelOn ? 'tabler-file-alert' : 'tabler-file-off'"
+          size="18"
+          :color="errorLabelOn ? 'warning' : 'medium-emphasis'"
+          class="flex-shrink-0"
+        />
+        <div class="flex-grow-1">
+          <div class="text-body-medium font-weight-medium">{{ $t('label.settings.errorLabel') }}</div>
+          <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.errorLabelHint') }}</div>
+        </div>
+        <VSwitch
+          :model-value="errorLabelOn"
+          :loading="savingErrorLabel"
+          color="warning"
+          inset
+          hide-details
+          density="compact"
+          class="flex-shrink-0"
+          @update:model-value="toggleErrorLabel"
         />
       </div>
     </VCard>

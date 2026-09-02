@@ -48,6 +48,7 @@ const MOCK_CONFIG = {
   camera: { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 },
   sync: { enabled: false, reverb_host: '', reverb_port: 443, reverb_scheme: 'wss', reverb_app_key: '' },
   sort_only: { enabled: false },
+  error_label: { enabled: false },
   network: {
     interval_secs: 15,
     degrade_interval_secs: 60,
