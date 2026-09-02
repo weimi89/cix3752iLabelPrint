@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-02（v0.20.0 發版中）**　目前版本：**v0.20.0（已 tag、CI 建置中，尚未公開）**；前一穩定版 v0.19.0 已發佈
+最後更新：**2026-09-02（v0.20.0 已公開發佈）**　目前版本：**v0.20.0（已發佈，九項產物齊全，`latest.json` 生效）**
 
 ---
 
@@ -73,8 +73,16 @@
 | `CHANGELOG.md` 寫 v0.20.0 段落 | ✅ |
 | 三處版本號同步（package.json / tauri.conf.json / Cargo.toml） | ✅ `cargo check` 綠、Cargo.lock 同步 |
 | commit + tag + push | ✅ |
-| GitHub Actions 建置 | ⏳ 見下方進度 |
-| 公開 draft release（`gh release edit v0.20.0 --draft=false`） | ⏳ 待建置與 `verify-assets` 綠燈後執行 |
+| GitHub Actions 建置（run `33584518592`） | ✅ 七個 job 全綠，`verify-assets` 通過，全程約 19 分 |
+| 公開 draft release | ✅ 2026-09-02 03:07 UTC 公開，`releases/latest` 已指向 v0.20.0 |
+
+`latest.json` 實查：version `0.20.0`、四個平台簽章齊全、notes 正確帶入 CHANGELOG（342 字元），
+App 內「發現新版本」會正常顯示。九項產物：三條 Linux tarball（20.04 86MB / 22.04 32MB / 24.04 32MB）、
+macOS arm64 dmg + app.tar.gz + sig、Windows NSIS + sig、latest.json。
+
+**順帶驗證到：9/1 建的 20.04 快取預熱機制確實生效** —— 這次 tag 觸發的 run，20.04 只花 **7 分**
+（v0.19.0 首次發版時是 1 小時 13 分，全程從原始碼編 webkit）。「快取按 ref 隔離、tag 永遠讀不到」
+那個問題已由排程在 main 分支預熱解決，實測有效。
 
 ---
 
