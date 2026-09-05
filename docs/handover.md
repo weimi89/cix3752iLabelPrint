@@ -26,7 +26,7 @@
 ### 做了什麼
 - 主人反映雲端頁「每日貼單」無法查某日；雲端 cix3752iWeb 已修（`d18f0d1c`，已 push）：`FieldOperationMonitorService::payload(from, to, stickerDate)`，網頁與 `api/v1/local-middleware/field-operation-monitor` 都多收 `sticker_date`（空／格式錯／不存在日期→今日業務日，晚於今日→裁回今日），回應多 `stickerDate`。
 - 中介端同步：`FieldOperationMonitorRequest`（from/to/sticker_date）取代原本借用的 `ClearanceProgressRequest`；`CloudClient::fetch_field_operation_monitor` 只在 `sticker_date` 非空時才送該參數（舊版雲端照常回應）；`api/tauri.js` 第三參數 + mock 回 `stickerDate`；`AppDatePicker` 新增 `max` prop；頁面「每日貼單」標題列加日期欄位＋查詢鈕，回應的 `stickerDate` 寫回欄位；i18n 雙語補 `businessDayHint`、`noRows` 改「此業務日尚無貼單資料」。
-- CHANGELOG `## v0.20.1` 段落、三檔版本號已改，tag `v0.20.1` 已 push 觸發 Release CI；CI 產出的是 draft，要 `gh release edit v0.20.1 --draft=false` 才公開。
+- CHANGELOG `## v0.20.1` 段落、三檔版本號已改，tag `v0.20.1` 已 push 觸發 Release CI；五平台 CI 全綠，release 已公開，`latest.json` 版本 0.20.1、notes 正確。
 
 ### 驗證結果
 - `cargo check` 綠、`vite build` 綠、兩份 i18n JSON 可解析。
@@ -34,7 +34,7 @@
 - **Tauri 實機未跑**（雲端正式站尚未部署 `d18f0d1c`，就算跑了也只會固定今日）。
 
 ### 尚未處理
-- 雲端正式站部署 `d18f0d1c`（要 `yarn vite-build`）；CI 綠後把 draft release 公開。
+- 雲端正式站部署 `d18f0d1c`（要 `yarn vite-build`）。
 
 ## 2026-09-02：異常件提示面單改為可切換開關（v0.20.0）
 
