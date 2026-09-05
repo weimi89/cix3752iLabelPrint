@@ -719,6 +719,7 @@
       "providerHint": "Số túi là 'số túi có kiện của đơn vị đó'; một túi trộn nhiều đơn vị sẽ tính cho từng đơn vị nên tổng theo đơn vị lớn hơn tổng túi ở trên",
       "daily": "Dán đơn hằng ngày",
       "businessDay": "Ngày làm việc {date}",
+      "businessDayHint": "Tính từ 06:00 đến 05:59 hôm sau",
       "operators": "Thiết bị / máy",
       "stickerBags": "Số túi đã dán (không trùng)",
       "stickerOrders": "Số đơn đã dán (không trùng)",
@@ -730,7 +731,7 @@
       "colPackageNum": "Túi đã dán",
       "colOrderNum": "Đơn đã dán",
       "dedupTotal": "Tổng (không trùng)",
-      "noRows": "Hôm nay chưa có dữ liệu dán đơn",
+      "noRows": "Ngày làm việc này chưa có dữ liệu dán đơn",
       "setRange": "Đặt khoảng ngày",
       "rangeHint": "Theo ngày khai báo, mặc định hôm nay; tối đa 3 ngày, vượt sẽ cắt từ ngày bắt đầu."
     },

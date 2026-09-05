@@ -719,6 +719,7 @@
       "providerHint": "袋數為「該物流有件在裡面的袋數」,同一袋混裝多家時各家皆計入,故各家袋數相加會大於上方的總袋數",
       "daily": "每日貼單",
       "businessDay": "業務日 {date}",
+      "businessDayHint": "06:00 起算至次日 05:59",
       "operators": "設備機台",
       "stickerBags": "貼單袋數(去重)",
       "stickerOrders": "貼單單數(去重)",
@@ -730,7 +731,7 @@
       "colPackageNum": "貼單袋數",
       "colOrderNum": "貼單單數",
       "dedupTotal": "去重總計",
-      "noRows": "今日尚無貼單資料",
+      "noRows": "此業務日尚無貼單資料",
       "setRange": "設定日期區間",
       "rangeHint": "依報關日,預設當日;最多 3 天,超過自起始日裁切。"
     },

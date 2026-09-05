@@ -380,6 +380,17 @@ pub struct ClearanceProgressRequest {
     pub print_type: Option<String>,
 }
 
+/// 現場作業監控頁的查詢條件:from/to 為清關進度看板的報關日區間,sticker_date 為每日貼單要看的業務日
+#[derive(Debug, Deserialize)]
+pub struct FieldOperationMonitorRequest {
+    pub from: String,
+    #[serde(default)]
+    pub to: Option<String>,
+    /// 每日貼單業務日(Y-m-d;空=今日業務日)。雲端會把格式錯誤或晚於今日的值收斂成有效業務日
+    #[serde(default)]
+    pub sticker_date: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ClearanceStickerRequest {
     /// 廠別(0=桃園廠直發 / 1=台中廠轉寄 / 空=全廠)
@@ -408,14 +419,15 @@ pub async fn cloud_clearance_sticker(
     state.cloud.fetch_clearance_sticker(print_type).await
 }
 
-/// 現場作業監控頁:指定報關日區間 → 進度看板 + 各廠別作業人員貼單統計(透傳雲端 JSON)
+/// 現場作業監控頁:指定報關日區間 + 貼單業務日 → 進度看板 + 各廠別作業人員貼單統計(透傳雲端 JSON)
 #[tauri::command]
 pub async fn cloud_field_operation_monitor(
     state: State<'_, SharedState>,
-    req: ClearanceProgressRequest,
+    req: FieldOperationMonitorRequest,
 ) -> AppResult<serde_json::Value> {
     let to = req.to.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&req.from);
-    state.cloud.fetch_field_operation_monitor(&req.from, to).await
+    let sticker_date = req.sticker_date.as_deref().map(str::trim).unwrap_or("");
+    state.cloud.fetch_field_operation_monitor(&req.from, to, sticker_date).await
 }
 
 /// 設定清關進度浮動框要即時追蹤的報關日(浮動框開啟/換日期/關閉時呼叫;空=退訂所有日期頻道)。

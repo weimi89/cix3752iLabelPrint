@@ -480,15 +480,19 @@ impl CloudClient {
     }
 
     /// 現場作業監控:清關/轉寄進度看板 + 每日貼單作業人員統計(透傳雲端 JSON,與網頁版同一份資料)
+    /// `sticker_date` 為每日貼單的業務日;空字串代表今日,此時不送該參數,舊版雲端也能照常回應
     pub async fn fetch_field_operation_monitor(
         &self,
         from: &str,
         to: &str,
+        sticker_date: &str,
     ) -> AppResult<serde_json::Value> {
         let path = self.inner.state.read().field_operation_monitor_path.clone();
-        let text = self
-            .authed_get(&path, &[("from", from), ("to", to)])
-            .await?;
+        let mut query: Vec<(&str, &str)> = vec![("from", from), ("to", to)];
+        if !sticker_date.is_empty() {
+            query.push(("sticker_date", sticker_date));
+        }
+        let text = self.authed_get(&path, &query).await?;
         parse_cloud_json(&text, "field-operation-monitor")
     }
 

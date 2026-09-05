@@ -266,9 +266,12 @@ export const clearanceStickerTotals = async (printType = '') => {
 }
 
 // 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與雲端網頁版同一份資料)
-export const fieldOperationMonitor = async (from, to = '') => {
+// stickerDate 為每日貼單的業務日(空=今日);雲端會把格式錯誤或晚於今日的值收斂後由 stickerDate 回傳實際查的日期
+export const fieldOperationMonitor = async (from, to = '', stickerDate = '') => {
   if (!isTauri) {
     const row = (name, min, max, p, o, sys = false) => ({ name, is_system: sys, min_time: min, max_time: max, package_num: p, order_num: o })
+    const today = new Date().toISOString().slice(0, 10)
+    const businessDate = stickerDate && stickerDate <= today ? stickerDate : today
     return {
       respond_code: 'OK',
       progress: {
@@ -280,13 +283,14 @@ export const fieldOperationMonitor = async (from, to = '') => {
         ],
       },
       progressRange: { from, to: to || from, range: to && to !== from ? `${from} to ${to}` : from },
+      stickerDate: businessDate,
       scopes: {
-        taoyuan: { business_date: from, updated_at: '20:15:00', rows: [row('王小明', '08:02:11', '17:40:03', 120, 3210), row('陳美玲', '08:10:45', '17:38:20', 98, 2877), row('物流貓', '07:55:00', '18:01:12', 40, 900, true)], total: { package_num: 240, order_num: 6980 } },
-        taichung: { business_date: from, updated_at: '20:15:00', rows: [row('李大華', '09:00:00', '16:30:00', 12, 300)], total: { package_num: 12, order_num: 300 } },
+        taoyuan: { business_date: businessDate, updated_at: '20:15:00', rows: [row('王小明', '08:02:11', '17:40:03', 120, 3210), row('陳美玲', '08:10:45', '17:38:20', 98, 2877), row('物流貓', '07:55:00', '18:01:12', 40, 900, true)], total: { package_num: 240, order_num: 6980 } },
+        taichung: { business_date: businessDate, updated_at: '20:15:00', rows: [row('李大華', '09:00:00', '16:30:00', 12, 300)], total: { package_num: 12, order_num: 300 } },
       },
     }
   }
-  return await invoke('cloud_field_operation_monitor', { req: { from, to: to || from } })
+  return await invoke('cloud_field_operation_monitor', { req: { from, to: to || from, sticker_date: stickerDate || '' } })
 }
 
 // 清關進度浮動框 — 設定要即時追蹤的報關日(開啟/換日期傳日期陣列;關閉傳空陣列退訂)

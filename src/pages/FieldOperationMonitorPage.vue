@@ -1,7 +1,7 @@
 <script setup>
 // 現場作業監控:與雲端網頁版 field-operation-monitor 同一份資料 ——
 // 上半「清關 / 轉寄進度」看板(依報關日區間,最多 3 天)+ 依物流細分;
-// 下半「每日貼單」作業人員統計(今日業務日 06:00 起算,桃園 / 台中分頁)。30 秒輪詢,視窗在背景時略過。
+// 下半「每日貼單」作業人員統計(可選業務日,06:00 起算,預設今日;桃園 / 台中分頁)。30 秒輪詢,視窗在背景時略過。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppHeader from '@/components/AppHeader.vue'
@@ -20,6 +20,8 @@ const todayStr = () => {
 
 const from = ref(todayStr())
 const to = ref(todayStr())
+// 每日貼單要看的業務日。雲端會把晚於今日或格式錯誤的值收斂成有效業務日,回來後以它回的為準寫回欄位
+const stickerDate = ref(todayStr())
 const progress = ref({ bag_total: 0, bag_remaining: 0, parcel_total: 0, parcel_remaining: 0, printed: 0, storage_total: 0, storage_printed: 0, storage_remaining: 0, providers: [] })
 const scopes = ref({})
 const currentTab = ref('taoyuan')
@@ -49,12 +51,13 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const r = await fieldOperationMonitor(from.value, to.value)
+    const r = await fieldOperationMonitor(from.value, to.value, stickerDate.value)
     if (r?.progress) progress.value = r.progress
     if (r?.scopes) scopes.value = r.scopes
     // 雲端會把區間裁到上限,以它回的為準
     if (r?.progressRange?.from) from.value = r.progressRange.from
     if (r?.progressRange?.to) to.value = r.progressRange.to
+    if (r?.stickerDate) stickerDate.value = r.stickerDate
   } catch (e) {
     errorMsg.value = errorMessageFromException(e)
   } finally {
@@ -218,13 +221,22 @@ const applyDates = () => {
       </VCardText>
     </VCard>
 
-    <!-- 每日貼單(作業人員維度)-->
-    <div class="d-flex align-center ga-2 mb-2">
-      <VIcon icon="tabler-users" size="22" color="primary" />
-      <span class="text-title-large">{{ $t('page.fieldOperationMonitor.daily') }}</span>
-      <VChip size="small" variant="tonal" color="secondary">
-        <VIcon icon="tabler-calendar" size="14" start />{{ $t('page.fieldOperationMonitor.businessDay', { date: formatBusinessDate(currentScope.business_date) }) }}
-      </VChip>
+    <!-- 每日貼單(作業人員維度):可選業務日,最晚到今天 -->
+    <div class="d-flex flex-wrap align-center justify-space-between ga-2 mb-2">
+      <div class="d-flex align-center flex-wrap ga-2">
+        <VIcon icon="tabler-users" size="22" color="primary" />
+        <span class="text-title-large">{{ $t('page.fieldOperationMonitor.daily') }}</span>
+        <VChip size="small" variant="tonal" color="secondary">
+          <VIcon icon="tabler-calendar" size="14" start />{{ $t('page.fieldOperationMonitor.businessDay', { date: formatBusinessDate(currentScope.business_date) }) }}
+        </VChip>
+        <span class="text-body-small text-medium-emphasis">{{ $t('page.fieldOperationMonitor.businessDayHint') }}</span>
+      </div>
+      <div class="d-flex align-center flex-wrap ga-2">
+        <AppDatePicker v-model="stickerDate" :max="todayStr()" density="compact" width="160px" />
+        <VBtn color="primary" variant="flat" size="small" :loading="loading" @click="load">
+          <VIcon icon="tabler-database-search" size="18" class="me-1" />{{ $t('common.search') }}
+        </VBtn>
+      </div>
     </div>
 
     <VRow class="mb-4">

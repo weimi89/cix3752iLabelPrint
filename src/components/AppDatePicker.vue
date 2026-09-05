@@ -17,6 +17,8 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   // 輸入框寬度(預設滿版);日曆 popup 寬度由下方 content-class 壓掉 min-width,不受此影響
   width: { type: String, default: '100%' },
+  // 可選的最晚日期('yyyy-mm-dd');空=不限制。之後的日子在日曆上會被停用
+  max: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -81,6 +83,7 @@ const dateObj = computed({
     <VDatePicker
       v-model="dateObj"
       :locale="dateLocale"
+      :max="strToDate(max) || undefined"
       show-adjacent-months
       hide-header
     />
