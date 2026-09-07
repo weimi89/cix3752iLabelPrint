@@ -505,7 +505,7 @@ export const dispatchProviderDelete = code => {
 }
 
 // 分揀通道
-const POSITIONS = ['L1', 'L2', 'L3', 'L4', 'R1', 'R2', 'R3', 'R4']
+const POSITIONS = ['L1', 'L2', 'L3', 'L4', 'L5', 'R1', 'R2', 'R3', 'R4', 'R5']
 const MOCK_CHANNELS = POSITIONS.map(p => ({
   position: p,
   channel_code: null,

@@ -4,7 +4,9 @@ use tauri::State;
 
 use crate::{db::DbPool, AppError, AppResult, SharedState};
 
-pub const POSITIONS: [&str; 8] = ["L1", "L2", "L3", "L4", "R1", "R2", "R3", "R4"];
+pub const POSITIONS: [&str; 10] = [
+    "L1", "L2", "L3", "L4", "L5", "R1", "R2", "R3", "R4", "R5",
+];
 
 /// 將人員姓名寫入共用歷史名單(操作 / 貼單 / 貼標人員三者共用同一份),
 /// 已存在則只更新 used_at。空字串不寫入。
@@ -45,7 +47,7 @@ fn default_true() -> bool {
 
 #[tauri::command]
 pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<SortChannel>> {
-    // 用 CASE 排序保證 L1..L4, R1..R4 順序
+    // 用 CASE 排序保證 L1..L5, R1..R5 順序
     let rows = sqlx::query(
         "SELECT position, channel_code, job_sticker, printer_name, enabled
          FROM sort_channels

@@ -371,7 +371,7 @@ struct ChannelView {
     last_tracking: Option<String>,
 }
 
-/// GET /api/channels — 列出 8 個分揀通道與啟用狀態(手機控制頁輪詢用)
+/// GET /api/channels — 列出 10 個分揀通道與啟用狀態(手機控制頁輪詢用)
 async fn list_channels(State(state): State<ServerState>) -> impl IntoResponse {
     let rows = sqlx::query(
         "SELECT position, channel_code, enabled, job_sticker, skip_count

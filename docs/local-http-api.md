@@ -128,7 +128,7 @@ Host: <middleware-ip>:18080
    - 命中 → `record_hit`
    - 未命中 → `record_miss` + 同步下載至完成（`fetch_now`）
 5. 用 `shipping_provider` 查 `sort_channels.dispatch_code`，取得所有對應的 `channel_code`：
-   - 排序：先 L 後 R，數字小到大（L1 < L2 < L3 < L4 < R1 < R2 < R3 < R4）
+   - 排序：先 L 後 R，數字小到大（L1 < L2 < L3 < L4 < L5 < R1 < R2 < R3 < R4 < R5）
    - **同物流商配置多通道時，採 round-robin 輪流分配** *[從 code 補]*
 6. 用 `shipping_provider` 查 `dispatch_provider.print_profile`，作為 `print_profile`
    - *[實作差異]*：規格書原寫從 `printer_profile.provider_code` 取 `printer_name`，實作中已改為從「指派物流」頁的 `dispatch_provider.print_profile` 欄位讀取

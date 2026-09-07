@@ -21,7 +21,7 @@ import { errorMessageFromException } from '@/composables/useLabelStatus'
 const { t } = useI18n()
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
-const channels = ref([]) // 後端回來的 8 筆,position L1..R4
+const channels = ref([]) // 後端回來的 10 筆,position L1..L5 / R1..R5
 const dispatchOptions = ref([])
 // direct_print 模式:各通道可設定本機印表機(面單依分配到的通道送對應印表機)
 const isDirectPrintMode = ref(false)
@@ -57,11 +57,11 @@ const openUnassignedDialog = () => {
 }
 
 const POSITION_LABELS = computed(() => ({
-  L1: t('page.sort.pos.L1'), L2: t('page.sort.pos.L2'), L3: t('page.sort.pos.L3'), L4: t('page.sort.pos.L4'),
-  R1: t('page.sort.pos.R1'), R2: t('page.sort.pos.R2'), R3: t('page.sort.pos.R3'), R4: t('page.sort.pos.R4'),
+  L1: t('page.sort.pos.L1'), L2: t('page.sort.pos.L2'), L3: t('page.sort.pos.L3'), L4: t('page.sort.pos.L4'), L5: t('page.sort.pos.L5'),
+  R1: t('page.sort.pos.R1'), R2: t('page.sort.pos.R2'), R3: t('page.sort.pos.R3'), R4: t('page.sort.pos.R4'), R5: t('page.sort.pos.R5'),
 }))
-const LEFT_POSITIONS = ['L1', 'L2', 'L3', 'L4']
-const RIGHT_POSITIONS = ['R1', 'R2', 'R3', 'R4']
+const LEFT_POSITIONS = ['L1', 'L2', 'L3', 'L4', 'L5']
+const RIGHT_POSITIONS = ['R1', 'R2', 'R3', 'R4', 'R5']
 
 const findChannel = pos => channels.value.find(c => c.position === pos)
 

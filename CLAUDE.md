@@ -188,7 +188,7 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 - `parcel_query_log` — `/api/parcel` 請求 log(含 `photo_path` 讀碼站存證、負數 `response_id` 表錯誤面單 / NoRead)
 - `parcel_alert` — 雲端查件異常記錄(門市關轉 / 未確認 …,供手機 + 桌面回看)
 - `report_queue` — 雲端回報佇列(pending / sending / success / failed)
-- `sort_channels` / `sort_channel_dispatch` / `dispatch_provider` — 8 固定通道(L1-L4 / R1-R4)× 指派物流(多對多)
+- `sort_channels` / `sort_channel_dispatch` / `dispatch_provider` — 10 固定通道(L1-L5 / R1-R5)× 指派物流(多對多)
 - `daily_stats` — 每日 request / success / **noread** / cache 統計(NoRead 計入 request、獨立 noread、不計 success)
 - `pregen_done` — 面單預產去重單一來源(自動 + 手動共用,取代舊 localStorage)
 

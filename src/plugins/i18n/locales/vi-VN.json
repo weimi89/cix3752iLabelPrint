@@ -839,7 +839,7 @@
     },
     "sort": {
       "title": "Kênh phân loại",
-      "subtitle": "4 kênh trái / 4 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
+      "subtitle": "5 kênh trái / 5 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
       "saveAll": "Lưu tất cả thay đổi ({n})",
       "savedFlash": "Đã lưu hàng loạt {n} mục",
@@ -852,8 +852,8 @@
         "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
       },
       "pos": {
-        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4",
-        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4"
+        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4", "L5": "Trái 5",
+        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4", "R5": "Phải 5"
       },
       "leftColumn": "Bên trái (L)",
       "rightColumn": "Bên phải (R)",

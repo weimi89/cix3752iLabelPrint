@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-02（v0.20.0 已公開發佈）**　目前版本：**v0.20.0（已發佈，九項產物齊全，`latest.json` 生效）**
+最後更新：**2026-09-07（分揀通道擴充為左右各 5，未發版）**　目前版本：**v0.20.1（已發佈）**；工作區有未 commit 的通道擴充變更
 
 ---
 
@@ -20,6 +20,29 @@
 - 廠商未修好之前，桌面 App「佇列歷史」頁的**回報來源欄會整批顯示黃色「僅中介機自印」** —— 這是預期現象，不是故障。修好後會轉綠色「工控機已回報」。
 
 ---
+
+## 2026-09-07：分揀通道由左右各 4 擴充為各 5（尚未發版）
+
+### 做了什麼
+- `migrations/0029_sort_channel_l5_r5.sql`：補建 `L5`、`R5` 兩列（`INSERT OR IGNORE`，`updated_at` 明寫 `localtime`，因建表預設值是 UTC）。舊檔一律沒動。
+- `commands/sort_channel_commands.rs`：`POSITIONS` 由 8 筆改 10 筆。這個常數同時是桌面 command 與手機遙控四支 API（暫停 / 跳過 / 最近件 / 指派）的位置白名單，改一處全通。清單排序 SQL 本來就是 `substr` + `CAST`，不必動。
+- 前端 `SortChannelsPage.vue`：`LEFT_POSITIONS` / `RIGHT_POSITIONS` / `POSITION_LABELS` 各補 L5、R5；i18n 雙語補 `page.sort.pos.L5` / `R5`，並改掉頁面副標「左 4 通道 / 右 4 通道」→「左 5 / 右 5」（vi 同步）。
+- `api/tauri.js` 瀏覽器預覽用的 mock `POSITIONS` 同步補到 10 筆。
+- 文件：`CLAUDE.md`、`README.md`、`docs/local-http-api.md`（排序範例 L1…L5 < R1…R5）已改，`local-http-api.docx` 用 pandoc 重產。
+
+### 驗證結果
+- migration 實跑：`_sqlx_migrations` 第 29 筆 success=1，`sort_channels` 10 列，L5 / R5 的 `updated_at` 是本地時間。
+- 執行中的中介服務打 `GET /api/channels` 回 10 筆、順序 L1…L5、R1…R5。
+- L5 / R5 走過手機遙控四支 API：暫停 / 恢復 200、跳過累加回 `skip_count:1`、最近件 200、指派 200；無效位置 `L6` 正確回 400。**驗證用的暫停、skip、貼標人員已全數還原，`sticker_history` 的測試名字也已刪除。**
+- 桌面「分揀通道」頁實機截圖：左 5 / 右 5 共 10 張卡，新卡顯示「未設定」與代碼範例佔位字，副標已變「左 5 通道 / 右 5 通道」，未動到既有通道（儲存變更數維持 0）。
+- 桌面存檔路徑實跑:在「左 5」填代碼 → 儲存 → DB 寫入、卡片狀態由「未設定」轉「已啟用」→ 再清空存檔 → DB 回 NULL。**測試代碼已還原,10 列現況與改動前一致。**
+- `cargo test` 全綠（67 項、1 ignored，分散在 6 個 test target）；`yarn build` 綠；`node tests/control-page.test.mjs` 35 通過 0 失敗；兩份 i18n JSON 的 key 完全對齊（雙向皆無缺）。
+- 未改動的等價推論（不另外實測）:round-robin 分配（`resolve_channel_code`）、印單統計的通道彙總都是純 SQL 驅動、沒有寫死通道數,新增位置走的是同一條路徑。
+- 手機遙控頁 `/control`：**不需改任何程式碼**，它整頁由 `/api/channels` 驅動、位置文字是 `posLabel()` 依 L/R + 數字組出來的。以 jsdom 載入該頁、fetch 轉打執行中的服務實測，清單 10 格全出現，`左5` 的詳情頁與「設定」（貼標 / 指派物流）頁都進得去、選項正常。
+
+### 尚未處理
+- 未 commit、未寫 CHANGELOG、未發版（等主人指示）。
+- 分揀機端（工控機／PLC）要能實際路由到新的兩個格口，得由現場設定新格口的通道代碼並確認機器側對應，桌面填代碼只是中介端的對照表。
 
 ## 2026-09-05：現場作業監控「每日貼單」可指定業務日（v0.20.1）
 

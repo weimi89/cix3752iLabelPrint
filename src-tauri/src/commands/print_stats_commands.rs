@@ -548,7 +548,7 @@ pub async fn print_stats_by_scanner(
 pub struct ChannelCount {
     /// 分揀通道代碼(print_event.channel_code,工控機分揀機出口)
     pub channel_code: String,
-    /// 該通道當前對應的物理位置(L1-L4 / R1-R4),通道代碼已被改派則為 None
+    /// 該通道當前對應的物理位置(L1-L5 / R1-R5),通道代碼已被改派則為 None
     pub position: Option<String>,
     /// 該通道當前指派的物流商代碼(對齊 dispatch_provider.code,可多個,以逗號分隔),未設定則為 None
     pub dispatch_code: Option<String>,
