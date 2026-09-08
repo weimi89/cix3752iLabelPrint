@@ -463,6 +463,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('ши
             route="/sort-board"
             window-label="display-sort-board"
             :title="$t('page.board.title')"
+            web-path="/board"
           />
           <VBtn variant="outlined" :loading="loading" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}

@@ -51,6 +51,13 @@ const noTail = computed(() => {
 
 // 字級隨單號長度自適應(見樣式的 --len):固定字級遇到 15 碼的順豐單號會撐破中欄、蓋到燈號
 const noLen = computed(() => Math.max(6, String(board.value.no || '').length))
+// 異常訊息在逗號處斷行:「無法列印,訂單當前狀態異常」拆成兩行比擠成一長條好讀,
+// 行變短字也能放更大
+const noteLines = computed(() =>
+  noteText.value.split(/[\uFF0C,、]/).map(t => t.trim()).filter(Boolean),
+)
+// 字級除以「最長那一行」的字數:訊息長短差很多,固定字級會換行並蓋到兩側燈號
+const noteLen = computed(() => Math.max(8, ...noteLines.value.map(l => l.length), 0))
 
 const providerText = computed(() => {
   if (board.value.status === 'idle') return t('page.board.waiting')
@@ -146,9 +153,11 @@ onUnmounted(() => {
         <span class="board-no__head">{{ noHead }}</span>
         <span class="board-no__tail">{{ noTail }}</span>
       </div>
-      <div class="board-sub">
+      <div class="board-sub" :style="{ '--nlen': noteLen }">
         <div class="board-provider">{{ providerText }}</div>
-        <div class="board-note">{{ noteText }}</div>
+        <div v-if="noteLines.length" class="board-note">
+          <div v-for="(line, i) in noteLines" :key="i">{{ line }}</div>
+        </div>
       </div>
     </div>
 
@@ -177,9 +186,9 @@ onUnmounted(() => {
 .sort-board {
   display: grid;
 
-  /* 左右欄只要放得下燈與位置名就好,剩下的寬度全給中間的單號 ——
-     固定比例會讓單號兩側留一大片空白,字放不大 */
-  grid-template-columns: auto 1fr auto;
+  /* 側欄用固定寬(燈 6vw + 間距 + 位置名約 11.8vw,取 15vw 有餘裕):
+     用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
+  grid-template-columns: 15vw 1fr 15vw;
   gap: 1.5vw;
   min-block-size: calc(100vh - 12rem);
   padding: 1.5vh 1vw;
@@ -248,14 +257,16 @@ onUnmounted(() => {
   &--paused &__name { color: rgb(var(--v-theme-warning)); }
 }
 
-/* 單號要落在整個畫面的正中央(上下、左右都置中)。
-   上下各留一條等高的彈性列,單號夾在中間 —— 物流名放到下面那條裡,
-   才不會把單號往上推。 */
+/* 單號偏上、下面留大一點的空間:異常訊息字大又長短不一,
+   若把單號放在正中央,訊息一長就會把版面往下擠出去。 */
 .board-center {
   display: grid;
-  grid-template-rows: 1fr auto 1fr;
+  grid-template-rows: 0.55fr auto 1.45fr;
   justify-items: center;
   min-inline-size: 0;
+
+  /* 中欄兩側再留一點安全邊距,單號不會貼著燈號 */
+  padding-inline: 1.5vw;
 }
 
 .board-no { grid-row: 2; }
@@ -281,14 +292,14 @@ onUnmounted(() => {
 
   /* 除以長度:短單號放到最大,長單號自動縮到塞得下,不會蓋到兩側燈號 */
   &__head {
-    font-size: min(9.4vw, calc(104vw / (var(--len) + 2)));
+    font-size: min(9vw, calc(95vw / (var(--len) + 2)));
     opacity: .78;
   }
 
   /* 後四碼再加大:現場核對只看這幾碼 */
   &__tail {
     margin-inline-start: .06em;
-    font-size: min(13.8vw, calc(153vw / (var(--len) + 2)));
+    font-size: min(13.2vw, calc(140vw / (var(--len) + 2)));
   }
 }
 
@@ -299,9 +310,13 @@ onUnmounted(() => {
   text-align: center;
 }
 
+/* 異常原因是現場要據以處理的資訊,不是附註 —— 用正文色與接近物流名的字級,
+   遠處才看得清楚 */
 .board-note {
-  color: rgba(var(--v-theme-on-background), .5);
-  font-size: clamp(13px, 1.6vw, 30px);
+  color: rgb(var(--v-theme-on-background));
+  font-size: min(5.4vw, calc(62vw / var(--nlen)));
+  font-weight: 700;
+  line-height: 1.25;
   text-align: center;
 }
 

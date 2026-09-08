@@ -26,9 +26,9 @@
   .link.on .dot { background: #28C76F; box-shadow: 0 0 1.2vw rgba(40,199,111,.5); }
   .lang { cursor: pointer; color: rgba(47, 43, 61, .5); border: 1px solid rgba(47, 43, 61, .16); border-radius: 999px; padding: .4vh 1vw; }
 
-  /* 左右欄只要放得下燈與位置名就好,剩下的寬度全給中間的單號 ——
-     固定比例會讓單號兩側留一大片空白,字放不大 */
-  main { flex: 1; display: grid; grid-template-columns: auto 1fr auto; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
+  /* 側欄用固定寬(燈 6.5vw + 間距 + 位置名約 12.7vw,取 15vw 有餘裕):
+     用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
+  main { flex: 1; display: grid; grid-template-columns: 15vw 1fr 15vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
 
   .col { display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
   /* 燈號容器要自己撐滿並均分,否則五盞燈只佔內容高度、被擠在欄位下半部 */
@@ -53,9 +53,10 @@
   .slot.paused .name { color: #FF9F43; }
 
   /* 中央:單號特大字,後四碼再加大 —— 現場核對就是看後幾碼 */
-  /* 單號要落在整個畫面的正中央(上下、左右都置中):上下各留一條等高的彈性列,
-     單號夾在中間,物流名放到下面那條裡,才不會把單號往上推。 */
-  .center { display: grid; grid-template-rows: 1fr auto 1fr; justify-items: center; min-width: 0; }
+  /* 單號偏上、下面留大一點的空間:異常訊息字大又長短不一,
+     若把單號放在正中央,訊息一長就會把版面往下擠出去。 */
+  /* 中欄兩側再留一點安全邊距,單號不會貼著燈號 */
+  .center { display: grid; grid-template-rows: 0.55fr auto 1.45fr; justify-items: center; min-width: 0; padding-inline: 1.5vw; }
   .center .no { grid-row: 2; }
   .center .sub { grid-row: 3; align-self: start; padding-top: 2.5vh; display: flex; flex-direction: column; gap: 1.2vh; }
   .no {
@@ -67,10 +68,11 @@
      固定字級遇到 15 碼的順豐單號會撐破中欄、蓋到兩側燈號;
      除以長度才能讓短單號放到最大、長單號自動縮到塞得下。 */
   .no { --len: 12; }
-  .no .head { font-size: min(9.4vw, calc(104vw / (var(--len) + 2))); color: inherit; opacity: .78; }
-  .no .tail { font-size: min(13.8vw, calc(153vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
+  .no .head { font-size: min(9vw, calc(95vw / (var(--len) + 2))); color: inherit; opacity: .78; }
+  .no .tail { font-size: min(13.2vw, calc(140vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
   .provider { font-size: clamp(20px, 3.4vw, 70px); font-weight: 700; color: rgba(47, 43, 61, .68); text-align: center; }
-  .note { font-size: clamp(14px, 1.8vw, 34px); color: rgba(47, 43, 61, .5); text-align: center; }
+  /* 異常原因是現場要據以處理的資訊,不是附註 —— 用正文色與接近物流名的字級,遠處才看得清楚 */
+  .note { font-size: min(5.6vw, calc(62vw / var(--nlen, 12))); font-weight: 700; line-height: 1.25; color: #2F2B3D; text-align: center; }
 
   /* 三種狀態的字色:正常白、查件異常紅、沒有指派通道黃 */
   .center.ok .no { color: #2F2B3D; }
@@ -157,8 +159,13 @@ function applyEvent(ev) {
   renderNo(ev.no);
   document.getElementById('provider').textContent =
     ev.status === 'unassigned' && !ev.provider ? tr('unassigned') : (ev.provider || '');
-  document.getElementById('note').textContent =
-    ev.status === 'error' ? (ev.message || '') : (ev.status === 'unassigned' ? tr('unassigned') : '');
+  const note = ev.status === 'error' ? (ev.message || '') : (ev.status === 'unassigned' ? tr('unassigned') : '');
+  const noteEl = document.getElementById('note');
+  // 逗號處斷行:「無法列印,訂單當前狀態異常」拆兩行比擠成一長條好讀,行短了字也能更大
+  const lines = note.split(/[\uFF0C,、]/).map(t => t.trim()).filter(Boolean);
+  noteEl.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
+  // 字級除以「最長那一行」的字數,才不會換行蓋到兩側燈號
+  noteEl.style.setProperty('--nlen', Math.max(8, ...lines.map(l => l.length), 0));
 
   activePos = ev.position || null;
   renderSlots();

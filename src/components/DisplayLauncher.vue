@@ -7,11 +7,16 @@ import { toast } from 'vue3-toastify'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useDisplayWindow } from '@/composables/useDisplayWindow'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { localLanIps } from '@/api/tauri'
+import QRCode from 'qrcode'
 
 const props = defineProps({
   route: { type: String, required: true },       // 如 '/print-stats'
   windowLabel: { type: String, required: true },  // 如 'display-stats'
   title: { type: String, required: true },        // 子視窗標題
+  // 本機也有網頁版時填它的路徑(如 '/board'),選單會多出網址與 QR,
+  // 方便用電視或另一台機器開。沒有網頁版的頁面不必傳。
+  webPath: { type: String, default: '' },
 })
 
 const { t } = useI18n()
@@ -29,14 +34,44 @@ if (isTauriRuntime) {
 
 const menu = ref(false)
 const monitors = ref([])
+// 網頁版連線資訊(區網網址 + QR)
+const webUrls = ref([])
+const webQr = ref('')
 const loading = ref(false)
 const launchingIdx = ref(-1)
+
+const loadWebUrls = async () => {
+  if (!props.webPath) return
+  try {
+    const { ips, port } = await localLanIps()
+    webUrls.value = (ips || []).map(i => ({
+      name: i.name,
+      addr: `${i.ip}:${port}${props.webPath}`,
+      url: `http://${i.ip}:${port}${props.webPath}`,
+    }))
+    // QR 只給第一個位址 —— 多網卡時掃哪個都通,列表仍列出全部供手動輸入
+    webQr.value = webUrls.value[0] ? await QRCode.toDataURL(webUrls.value[0].url, { width: 168, margin: 1 }) : ''
+  } catch {
+    webUrls.value = []
+    webQr.value = ''
+  }
+}
+
+const copyAddr = async addr => {
+  try {
+    await navigator.clipboard.writeText(addr)
+    toast(t('common.copied'), { type: 'success' })
+  } catch (e) {
+    toast(errorMessageFromException(e), { type: 'error' })
+  }
+}
 
 const loadMonitors = async opened => {
   if (!opened) return
   loading.value = true
   try {
     monitors.value = await getMonitors()
+    await loadWebUrls()
   } catch (e) {
     toast(`${t('page.display.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
     monitors.value = []
@@ -118,6 +153,33 @@ const launch = async (mon, { fullscreen, borderless }) => {
           <VListItemSubtitle>{{ $t('page.display.windowModeHint') }}</VListItemSubtitle>
         </VListItem>
       </VList>
+
+      <!-- 網頁版:給電視或另一台機器用網址開,掃 QR 免手動輸入 -->
+      <template v-if="webPath && !loading">
+        <VDivider class="my-1" />
+        <VCardText class="pt-2 pb-3">
+          <div class="text-body-small text-medium-emphasis mb-2">{{ $t('page.display.webTitle') }}</div>
+
+          <VAlert v-if="!webUrls.length" type="warning" variant="tonal" density="compact">
+            {{ $t('page.display.webNoIp') }}
+          </VAlert>
+
+          <template v-else>
+            <div v-if="webQr" class="d-flex justify-center mb-2">
+              <img :src="webQr" alt="QR" style="border-radius: 8px; background: #fff; padding: 6px;">
+            </div>
+            <div v-for="u in webUrls" :key="u.addr" class="d-flex align-center ga-1 mb-1">
+              <VIcon icon="tabler-network" size="14" class="flex-shrink-0 text-medium-emphasis" />
+              <code class="flex-grow-1 text-truncate text-body-small">{{ u.addr }}</code>
+              <VChip size="x-small" variant="tonal">{{ u.name }}</VChip>
+              <VBtn icon size="x-small" variant="text" color="default" @click="copyAddr(u.url)">
+                <VIcon icon="tabler-copy" size="14" />
+                <VTooltip activator="parent" location="bottom">{{ $t('common.copy') }}</VTooltip>
+              </VBtn>
+            </div>
+          </template>
+        </VCardText>
+      </template>
     </VCard>
   </VMenu>
 </template>

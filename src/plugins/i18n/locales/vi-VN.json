@@ -654,6 +654,8 @@
       "fullscreenKanban": "Bảng toàn màn hình",
       "windowMode": "Chế độ cửa sổ (di chuyển được)",
       "windowModeHint": "Mở dạng cửa sổ di chuyển được, tiện kéo sang màn hình mong muốn",
+      "webTitle": "Xem trên TV hoặc máy khác: mở địa chỉ bên dưới bằng trình duyệt (hoặc quét QR)",
+      "webNoIp": "Không tìm thấy IP mạng nội bộ, vui lòng kiểm tra kết nối mạng",
       "opened": "Đã mở bảng hiển thị trên {screen}",
       "focused": "Bảng hiển thị đã mở, đã chuyển sang cửa sổ đó",
       "failed": "Mở bảng hiển thị thất bại",

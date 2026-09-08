@@ -654,6 +654,8 @@
       "fullscreenKanban": "全螢幕看板",
       "windowMode": "視窗模式(可移動)",
       "windowModeHint": "開成可移動視窗,方便拖到想要的螢幕",
+      "webTitle": "用電視或其他電腦看:瀏覽器開下面網址(掃 QR 也可以)",
+      "webNoIp": "找不到區網 IP,請確認本機已連上區網",
       "opened": "已在 {screen} 開啟看板",
       "focused": "看板已開啟,已切換到該視窗",
       "failed": "開啟看板失敗",
