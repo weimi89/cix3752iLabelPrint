@@ -28,7 +28,7 @@
 
   /* 側欄用固定寬(燈 6.5vw + 間距 + 位置名約 12.7vw,取 15vw 有餘裕):
      用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
-  main { flex: 1; display: grid; grid-template-columns: 15vw 1fr 15vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
+    main { position: relative; flex: 1; display: grid; grid-template-columns: 15vw 1fr 15vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
 
   .col { display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
   /* 燈號容器要自己撐滿並均分,否則五盞燈只佔內容高度、被擠在欄位下半部 */
@@ -70,7 +70,13 @@
   .no { --len: 12; }
   .no .head { font-size: min(9vw, calc(95vw / (var(--len) + 2))); color: inherit; opacity: .78; }
   .no .tail { font-size: min(13.2vw, calc(140vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
-  .provider { font-size: clamp(20px, 3.4vw, 70px); font-weight: 700; color: rgba(47, 43, 61, .68); text-align: center; }
+  .provider { font-size: clamp(22px, 4.6vw, 90px); font-weight: 700; color: rgba(47, 43, 61, .68); text-align: center; }
+  /* 分揀時刻貼在單號正上方,只佔中欄(不跨到左右燈號那兩欄,也不另外吃一整列高度)。
+     藍色是刻意寫死的:主題色盤裡沒有藍(info 偏青綠),這裡要的是跟紅色單號、
+     黑色訊息都分得開的第三個顏色 */
+  /* 貼在看板最上緣正中央。用絕對定位是刻意的:它不佔版面高度,
+     單號、物流名、訊息與兩側燈號都留在原本的位置 */
+  main > .time { position: absolute; top: 2vh; left: 0; right: 0; line-height: 1; font-size: clamp(16px, 3.4vw, 66px); font-weight: 700; color: #1976D2; font-variant-numeric: tabular-nums; text-align: center; }
   /* 異常原因是現場要據以處理的資訊,不是附註 —— 用正文色與接近物流名的字級,遠處才看得清楚 */
   .note { font-size: min(5.6vw, calc(62vw / var(--nlen, 12))); font-weight: 700; line-height: 1.25; color: #2F2B3D; text-align: center; }
 
@@ -90,6 +96,8 @@
 </header>
 
 <main>
+  <div class="time" id="time"></div>
+
   <div class="col col-left">
     <div class="lamps" id="left"></div>
   </div>
@@ -159,6 +167,7 @@ function applyEvent(ev) {
   renderNo(ev.no);
   document.getElementById('provider').textContent =
     ev.status === 'unassigned' && !ev.provider ? tr('unassigned') : (ev.provider || '');
+  document.getElementById('time').textContent = ev.at || '';
   const note = ev.status === 'error' ? (ev.message || '') : (ev.status === 'unassigned' ? tr('unassigned') : '');
   const noteEl = document.getElementById('note');
   // 逗號處斷行:「無法列印,訂單當前狀態異常」拆兩行比擠成一長條好讀,行短了字也能更大

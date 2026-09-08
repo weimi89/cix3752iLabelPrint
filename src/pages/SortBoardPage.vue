@@ -26,7 +26,7 @@ const CHANNEL_POLL_MS = 10000
 const channels = ref([])
 const activePos = ref(null)
 // 中央顯示:等待第一件時是 idle
-const board = ref({ no: '', provider: '', status: 'idle', message: '' })
+const board = ref({ no: '', provider: '', status: 'idle', message: '', at: '' })
 
 const leftSlots = computed(() => channels.value.filter(c => c.position?.[0] === 'L'))
 const rightSlots = computed(() => channels.value.filter(c => c.position?.[0] === 'R'))
@@ -78,6 +78,7 @@ const applyEvent = payload => {
     provider: payload.provider || '',
     status: payload.status || 'ok',
     message: payload.message || '',
+    at: payload.at || '',
   }
   activePos.value = payload.position || null
   if (fadeTimer) clearTimeout(fadeTimer)
@@ -149,6 +150,7 @@ onUnmounted(() => {
     </div>
 
     <div class="board-center" :class="`board-center--${board.status}`">
+        <div v-if="board.at" class="board-time">{{ board.at }}</div>
       <div class="board-no" :style="{ '--len': noLen }">
         <span class="board-no__head">{{ noHead }}</span>
         <span class="board-no__tail">{{ noTail }}</span>
@@ -188,6 +190,7 @@ onUnmounted(() => {
 
   /* 側欄用固定寬(燈 6vw + 間距 + 位置名約 11.8vw,取 15vw 有餘裕):
      用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
+  position: relative;
   grid-template-columns: 15vw 1fr 15vw;
   gap: 1.5vw;
   min-block-size: calc(100vh - 12rem);
@@ -305,8 +308,25 @@ onUnmounted(() => {
 
 .board-provider {
   color: rgba(var(--v-theme-on-background), .68);
-  font-size: clamp(18px, 3.2vw, 64px);
+  font-size: clamp(22px, 4.4vw, 86px);
   font-weight: 700;
+  text-align: center;
+}
+
+/* 分揀時刻貼在單號正上方,只佔中欄(不跨到左右燈號那兩欄,也不另外吃一整列高度)。
+   藍色是刻意寫死的:主題色盤裡沒有藍(info 偏青綠),這裡要的是跟紅色單號、
+   黑色訊息都分得開的第三個顏色 */
+.board-time {
+  /* 貼在看板最上緣正中央。用絕對定位是刻意的:它不佔版面高度,
+     單號、物流名、訊息與兩側燈號都留在原本的位置 */
+  position: absolute;
+  inset-block-start: 2vh;
+  inset-inline: 0;
+  color: #1976D2;
+  line-height: 1;
+  font-size: clamp(16px, 3.2vw, 62px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 

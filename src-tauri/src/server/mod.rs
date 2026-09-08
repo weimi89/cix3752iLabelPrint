@@ -1393,11 +1393,19 @@ struct BoardEvent {
     status: &'static str,
     /// 異常訊息,只在 status=error 時有值
     message: Option<String>,
+    /// 分揀時刻(本機時間,到秒)。看板顯示它,現場核對包裹經過的時間用
+    at: String,
     seq: u64,
 }
 
 /// 把一則看板狀態同時送到桌面看板頁(Tauri 事件)與網頁看板(SSE)。
 /// 兩邊看同一份資料,不會一邊即時、一邊慢半拍。
+/// 看板顯示的分揀時刻:取推播當下的本機時間,日期到秒都給 ——
+/// 夜班跨午夜時只有時分秒會分不出是哪一天的件
+fn board_now() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
 fn publish_board(state: &ServerState, ev: BoardEvent) {
     use tauri::Emitter;
     let _ = state.app.emit("sort-board", &ev);
@@ -2187,6 +2195,7 @@ async fn get_parcel(
                     provider: fetch_provider_name(&state.db, &info.shipping_provider).await,
                     status: if has_assigned { "ok" } else { "unassigned" },
                     message: None,
+                    at: board_now(),
                     seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
                 },
             );
@@ -2399,6 +2408,7 @@ async fn get_parcel(
                     },
                     status: "error",
                     message: Some(msg.clone()),
+                    at: board_now(),
                     seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
                 },
             );
