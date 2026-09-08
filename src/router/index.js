@@ -15,6 +15,7 @@ import ParcelQueryLogPage from '@/pages/ParcelQueryLogPage.vue'
 import ParcelAlertLogPage from '@/pages/ParcelAlertLogPage.vue'
 import PrintStatsPage from '@/pages/PrintStatsPage.vue'
 import SortChannelsPage from '@/pages/SortChannelsPage.vue'
+import SortBoardPage from '@/pages/SortBoardPage.vue'
 import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
 import ClearanceAddPage from '@/pages/ClearanceAddPage.vue'
 import ClearanceDispatchPage from '@/pages/ClearanceDispatchPage.vue'
@@ -34,6 +35,8 @@ const routes = [
     meta: { title: 'nav.preGenerate', icon: 'tabler-photo-down', group: 'nav.section.print' } },
   { path: '/sort-channels', name: 'sort-channels', component: SortChannelsPage,
     meta: { title: 'nav.sortChannels', icon: 'tabler-route', group: 'nav.section.main' } },
+  { path: '/sort-board', name: 'sort-board', component: SortBoardPage,
+    meta: { title: 'page.board.title', icon: 'tabler-device-tv' } },
   { path: '/clearance-add', name: 'clearance-add', component: ClearanceAddPage,
     meta: { title: 'nav.clearanceAdd', icon: 'tabler-scan', group: 'nav.section.clearance' } },
   { path: '/clearance-dispatch', name: 'clearance-dispatch', component: ClearanceDispatchPage,

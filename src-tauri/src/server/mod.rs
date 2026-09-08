@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path as StdPath, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::event_log;
@@ -9,6 +9,7 @@ use crate::event_log;
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
+    response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -17,7 +18,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
@@ -142,10 +143,34 @@ fn join_share(root: &str, relative: &str) -> String {
     format!("{}{}{}", root_trimmed, sep, rel_trimmed)
 }
 
-/// 每個物流商代碼下一次該分配的 channel 索引（round-robin）。
+/// 本進程分配出去的排序值基準:一定大於任何 print_event.id,
+/// 讓「這次跑起來之後分過的」永遠排在啟動前的歷史之後。
+const RUNTIME_SEQ_BASE: i64 = 1 << 40;
+
+/// 一個格口最近一次收件的狀態
+#[derive(Clone)]
+struct ChannelLast {
+    /// 收件先後的排序值,越大越新。啟動前的歷史取 print_event.id,本進程分配取 RUNTIME_SEQ_BASE + 序號。
+    /// 0 = 這個格口沒收過任何件,排最前面(最該輪到它)。
+    seq: i64,
+    /// 最近一次收到的配送單號,用來比對後兩碼。None = 沒有歷史。
+    no: Option<String>,
+}
+
+/// 分揀分配的跨請求狀態。
 /// 用 tokio async Mutex(非 parking_lot):resolve_channel_code 需在持鎖期間 await DB
 /// 做原子 skip 消耗,把「讀-判定-扣減」全序列化,杜絕並發 double-skip 競態。
-type RoundRobinState = Arc<tokio::sync::Mutex<HashMap<String, usize>>>;
+/// 各格口的最近收件狀態共用同一把鎖:選格口時排序與尾碼要一起看,拆兩把會在並發下
+/// 讀到半新半舊的組合,選出錯的格口。
+#[derive(Default)]
+struct SortRouting {
+    /// 通道代碼 → 最近一次收件狀態。缺項代表還沒回查過 DB。
+    last: HashMap<String, ChannelLast>,
+    /// 本進程已分配次數,作為收件先後的排序值
+    seq: i64,
+}
+
+type SortRoutingState = Arc<tokio::sync::Mutex<SortRouting>>;
 
 #[derive(Clone)]
 struct ServerState {
@@ -153,7 +178,7 @@ struct ServerState {
     cloud: CloudClient,
     cache: CacheManager,
     queue: QueueManager,
-    rr: RoundRobinState,
+    routing: SortRoutingState,
     label_resolver: LabelPathResolver,
     watermark: WatermarkRenderer,
     bag_check: BagCheckState,
@@ -161,6 +186,8 @@ struct ServerState {
     /// 讀碼站存證目錄(獨立於面單快取,server 啟動時由 config 解析定版;存檔與 /captures 服務共用)
     captures_dir: PathBuf,
     app: tauri::AppHandle,
+    /// 分揀看板的即時推播來源:網頁看板(SSE)訂閱它,桌面看板走 Tauri 事件。
+    board_tx: broadcast::Sender<BoardEvent>,
     /// DirectPrint 模式有序列印佇列:get_parcel 把工作丟進來,由單一 worker 逐筆 FIFO 處理。
     /// 保證列印順序 = 請求順序,且同時只有一筆在送印(不並發打 spooler)。
     direct_print_tx: mpsc::UnboundedSender<DirectPrintJob>,
@@ -253,7 +280,9 @@ pub async fn start(
         cloud,
         cache: cache.clone(),
         queue,
-        rr: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        routing: Arc::new(tokio::sync::Mutex::new(SortRouting::default())),
+        // 容量 16:看板只在意最新一件,訂閱端落後時寧可丟舊事件也不要卡住分揀
+        board_tx: broadcast::channel(16).0,
         label_resolver,
         watermark,
         bag_check,
@@ -273,6 +302,9 @@ pub async fn start(
         .route("/api/device-alert", post(post_device_alert))
         // 手機遙控分揀通道暫停(換紙等臨時暫停某通道,不影響其他通道)
         .route("/control", get(control_page))
+        // 分揀看板:/board 是網頁版(大螢幕開網址),/board/stream 是它的即時推播
+        .route("/board", get(board_page))
+        .route("/board/stream", get(board_stream))
         .route("/api/alerts", get(list_alerts))
         .route("/api/channels", get(list_channels))
         .route("/api/channels/{position}", post(set_channel_enabled))
@@ -365,7 +397,7 @@ struct ChannelView {
     dispatch_names: Vec<String>,
     /// 該通道的貼標人員(現場個別指派,方便人員認出自己負責的通道)
     job_sticker: Option<String>,
-    /// 待跳過本輪次數(round-robin 輪到時消耗一次)
+    /// 待跳過本輪次數(輪到它時消耗一次)
     skip_count: i64,
     /// 該通道最近一筆分到的物流單號(print_event.shipping_no,供現場對單)
     last_tracking: Option<String>,
@@ -961,6 +993,34 @@ async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoRes
         .into_response()
 }
 
+/// GET /board — 分揀看板網頁版(大螢幕 / 電視用網址開,不佔中介機畫面)
+async fn board_page() -> impl IntoResponse {
+    axum::response::Html(include_str!("board_page.html"))
+}
+
+/// GET /board/stream — 看板的即時推播(SSE)。
+/// 用長連線而非輪詢:看板是整天開著的頁面,每秒問一次既慢半拍又白費電;
+/// 斷線由瀏覽器 EventSource 自動重連,不需前端自己補。
+async fn board_stream(State(state): State<ServerState>) -> impl IntoResponse {
+    let rx = state.board_tx.subscribe();
+    let stream = futures::stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    let event = Event::default()
+                        .json_data(&ev)
+                        .unwrap_or_else(|_| Event::default().data("{}"));
+                    return Some((Ok::<_, std::convert::Infallible>(event), rx));
+                }
+                // 看板落後時只補最新的,舊事件直接丟 —— 現場要看的是「現在這件」
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 async fn control_page() -> impl IntoResponse {
     axum::response::Html(include_str!("control_page.html"))
 }
@@ -976,14 +1036,75 @@ fn classify_parcel_alert(code: &str) -> &'static str {
     }
 }
 
-/// 依物流商代碼解析分揀通道:有指派通道時 round-robin 輪流分配;
+/// 取配送單號的後兩碼(統一大寫)。不足兩碼回 None —— 比不出後兩碼就不套用尾碼迴避。
+fn tail2(no: &str) -> Option<String> {
+    let chars: Vec<char> = no.trim().chars().collect();
+    if chars.len() < 2 {
+        return None;
+    }
+    Some(
+        chars[chars.len() - 2..]
+            .iter()
+            .collect::<String>()
+            .to_uppercase(),
+    )
+}
+
+/// 該格口最近一次收件的狀態(收件先後 + 單號)。
+/// 記憶體沒有紀錄(進程剛啟動)時回查一次列印記錄補上:不補的話每次重開 App,
+/// 分配順序與尾碼迴避都會從頭來過 —— 剛收過件的格口會被當成整天沒收件,連著再收一件。
+async fn channel_last(
+    db: &DbPool,
+    routing: &mut SortRouting,
+    channel_code: &str,
+) -> ChannelLast {
+    if !routing.last.contains_key(channel_code) {
+        let row = sqlx::query(
+            "SELECT id, shipping_no FROM print_event
+              WHERE channel_code = ? AND shipping_no IS NOT NULL AND shipping_no <> ''
+              ORDER BY id DESC LIMIT 1",
+        )
+        .bind(channel_code)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten();
+        let last = match row {
+            Some(r) => ChannelLast {
+                seq: r.try_get::<i64, _>("id").unwrap_or(0),
+                no: r.try_get::<String, _>("shipping_no").ok(),
+            },
+            None => ChannelLast { seq: 0, no: None },
+        };
+        routing.last.insert(channel_code.to_string(), last);
+    }
+    routing.last.get(channel_code).cloned().unwrap_or(ChannelLast { seq: 0, no: None })
+}
+
+/// 消耗一次該通道的「跳過本輪」額度。回傳 true 代表這次真的扣到、該通道本輪不參與分配。
+async fn consume_skip(db: &DbPool, position: &str) -> bool {
+    sqlx::query(
+        "UPDATE sort_channels SET skip_count = skip_count - 1 WHERE position = ? AND skip_count > 0",
+    )
+    .bind(position)
+    .execute(db)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
+}
+
+/// 依物流商代碼解析分揀通道:有指派通道時挑最久沒收件的那個(公平輪替);
 /// 未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
 /// 回傳 `(channel_code, has_assigned)`,`has_assigned=false` 代表該物流商沒有任何指派通道。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
+///
+/// `shipping_no` 是本件的配送單號,用來避開「同一格口連著兩張後兩碼相同的單」——
+/// 作業員貼單就是靠後兩碼確認手上的單對得上包裹,連兩張尾碼一樣會分不出誰是誰。
 async fn resolve_channel_code(
     db: &DbPool,
-    rr: &RoundRobinState,
+    routing: &SortRoutingState,
     provider: &str,
+    shipping_no: Option<&str>,
 ) -> (Option<String>, bool) {
     // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)
     let rows = sqlx::query(
@@ -1019,36 +1140,72 @@ async fn resolve_channel_code(
     }
 
     let n = candidates.len();
-    // 全程持 async 鎖跨 await:把「輪轉選位 + skip 原子消耗」序列化,杜絕並發 double-skip。
+    // 尾碼迴避只在「這家物流有兩個以上可用通道」時成立 —— 只有一格時無處可換,
+    // 硬迴避會變成該件不分配。單號短於兩碼也不套用(比不出後兩碼)。
+    let tail = if n >= 2 { shipping_no.and_then(tail2) } else { None };
+
+    // 全程持 async 鎖跨 await:把「排序選位 + skip 原子消耗」序列化,杜絕並發 double-skip。
     // skip 消耗用條件 UPDATE(WHERE skip_count > 0)+ rows_affected 判定:
     // 真的扣到一次才視為「跳過此通道」,扣不到(額度已被其他請求用盡)就選它 —— 不依賴鎖外快照。
     let chosen: Option<String> = {
-        let mut rr = rr.lock().await;
-        let entry = rr.entry(provider.to_string()).or_insert(0);
-        let start = *entry % n;
+        let mut rt = routing.lock().await;
+
+        // 依「最久沒收件」排序,平手時照 L1→R5 的固定順序 ——
+        // 排序值看的是格口實際收了什麼,不分物流。共用格口(例如同時掛 7-11 與全家)
+        // 剛被別家的件用掉,下一件就會讓給比較閒的格口,現場各格口的量才會平均。
+        let mut order: Vec<usize> = (0..n).collect();
+        let mut seqs: Vec<i64> = Vec::with_capacity(n);
+        for (_, code) in &candidates {
+            seqs.push(channel_last(db, &mut rt, code).await.seq);
+        }
+        order.sort_by_key(|&i| (seqs[i], i));
+
         let mut picked: Option<String> = None;
-        for step in 0..n {
-            let idx = (start + step) % n;
+        // 只因尾碼撞號而讓過的候選(依上面的排序)。它們的 skip 額度尚未消耗,
+        // 第二輪回頭挑時才扣 —— 先扣會把「跳過本輪」的額度浪費在根本沒分給它的那次。
+        let mut tail_blocked: Vec<usize> = Vec::new();
+
+        for &idx in &order {
             let (pos, code) = &candidates[idx];
-            let consumed = sqlx::query(
-                "UPDATE sort_channels SET skip_count = skip_count - 1 WHERE position = ? AND skip_count > 0",
-            )
-            .bind(pos)
-            .execute(db)
-            .await
-            .map(|r| r.rows_affected() > 0)
-            .unwrap_or(false);
-            if consumed {
+            if let Some(t) = tail.as_deref() {
+                let last_tail = channel_last(db, &mut rt, code).await.no.and_then(|no| tail2(&no));
+                if last_tail.as_deref() == Some(t) {
+                    tail_blocked.push(idx);
+                    continue;
+                }
+            }
+            if consume_skip(db, pos).await {
                 // 該通道本輪待跳過:已原子消耗一次,改看下一個
                 continue;
             }
             picked = Some(code.clone());
-            *entry = (idx + 1) % n;
             break;
         }
+
+        // 尾碼迴避只跑一輪:繞完一圈每個候選不是撞尾碼就是待跳過,就不再堅持,
+        // 回頭在「只因撞尾碼而讓過」的候選裡照同一個順序挑 —— 否則這件會無格口可去。
         if picked.is_none() {
-            // 全部通道本輪都被跳過:不分配,前進指標避免卡同一位置
-            *entry = (start + 1) % n;
+            for idx in tail_blocked {
+                let (pos, code) = &candidates[idx];
+                if consume_skip(db, pos).await {
+                    continue;
+                }
+                picked = Some(code.clone());
+                break;
+            }
+        }
+
+        // 記住這格口這次收到誰、以及它是最新收件的那個。以「分配」為準而非列印結果:
+        // 包裹已經滾進那個格口,後面印不印得出來都不影響作業員看到的順序。
+        if let Some(code) = &picked {
+            rt.seq += 1;
+            let seq = RUNTIME_SEQ_BASE + rt.seq;
+            let no = shipping_no
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .or_else(|| rt.last.get(code).and_then(|l| l.no.clone()));
+            rt.last.insert(code.clone(), ChannelLast { seq, no });
         }
         picked
     };
@@ -1220,6 +1377,61 @@ pub(crate) async fn write_error_label_to_cache(
 }
 
 /// emit `parcel-alert` 給前端;失敗只記 warn,不影響回應工控機
+/// 看板事件的流水號:看板用它分辨「這是新的一件」還是重連後補到的同一筆。
+static BOARD_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// 分揀看板的一則即時狀態 —— 一件包裹剛分完格口,看板該亮哪盞燈、中央顯示什麼。
+#[derive(Clone, Serialize)]
+struct BoardEvent {
+    /// 亮燈的格口位置(L1..R5)。未指派通道或查無物流時為 None,看板只出字不亮燈。
+    position: Option<String>,
+    /// 中央特大字的單號。查得到訂單用配送單號,查不到則退回工控機掃到的條碼。
+    no: String,
+    /// 單號下方的物流名稱。雲端帶不出物流商時為 None。
+    provider: Option<String>,
+    /// ok=正常(白字) / error=查件異常(紅字) / unassigned=該物流沒有指派通道(黃字)
+    status: &'static str,
+    /// 異常訊息,只在 status=error 時有值
+    message: Option<String>,
+    seq: u64,
+}
+
+/// 把一則看板狀態同時送到桌面看板頁(Tauri 事件)與網頁看板(SSE)。
+/// 兩邊看同一份資料,不會一邊即時、一邊慢半拍。
+fn publish_board(state: &ServerState, ev: BoardEvent) {
+    use tauri::Emitter;
+    let _ = state.app.emit("sort-board", &ev);
+    // 沒有任何網頁看板開著時 send 會回 Err,屬正常狀態,不必記錄
+    let _ = state.board_tx.send(ev);
+}
+
+/// 依通道代碼反查它掛在哪個位置(L1..R5)。看板亮燈看的是位置,不是代碼。
+async fn fetch_position_by_code(db: &DbPool, channel_code: &str) -> Option<String> {
+    sqlx::query("SELECT position FROM sort_channels WHERE channel_code = ?")
+        .bind(channel_code)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<String, _>("position").ok())
+}
+
+/// 取物流商顯示名稱(「指派物流」頁維護的主檔);查不到就退回代碼本身,看板不會空一塊。
+async fn fetch_provider_name(db: &DbPool, code: &str) -> Option<String> {
+    if code.trim().is_empty() {
+        return None;
+    }
+    let name = sqlx::query("SELECT name FROM dispatch_provider WHERE code = ?")
+        .bind(code)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<String, _>("name").ok())
+        .filter(|s| !s.trim().is_empty());
+    Some(name.unwrap_or_else(|| code.to_string()))
+}
+
 fn emit_parcel_alert(app: &tauri::AppHandle, kind: &str, message: &str, query_no: &str) {
     use tauri::Emitter;
     let payload = ParcelAlert {
@@ -1666,8 +1878,13 @@ async fn get_parcel(
             // 未指派任何通道(has_assigned=false)時工控機無格口可分揀、不需面單 ——
             // DirectPrint 不可入列送印(否則印出一疊無格口可分揀的面單),
             // 其他模式也不必同步下載(白等雲端一趟、結果直接被丟棄)。四種模式行為一致。
-            let (channel_code, has_assigned) =
-                resolve_channel_code(&state.db, &state.rr, &info.shipping_provider).await;
+            let (channel_code, has_assigned) = resolve_channel_code(
+                &state.db,
+                &state.routing,
+                &info.shipping_provider,
+                Some(info.shipping_no.as_str()),
+            )
+            .await;
 
             // 貼標人員在此一次查妥,下面 print_event 與 DirectPrint 自補回報共用同一份 ——
             // 兩處各查一次會在「查詢之間操作員剛好改了通道設定」時對不起來(印單統計記 A、回報推 B)。
@@ -1957,6 +2174,23 @@ async fn get_parcel(
                 info.response_id
             };
 
+            // 推一則給分揀看板:亮該格口的燈、中央顯示單號與物流名。
+            // 未指派通道(has_assigned=false)時不亮燈、單號轉黃字,提醒現場這件沒有格口可去。
+            publish_board(
+                &state,
+                BoardEvent {
+                    position: match (has_assigned, channel_code.as_deref()) {
+                        (true, Some(cc)) => fetch_position_by_code(&state.db, cc).await,
+                        _ => None,
+                    },
+                    no: info.shipping_no.clone(),
+                    provider: fetch_provider_name(&state.db, &info.shipping_provider).await,
+                    status: if has_assigned { "ok" } else { "unassigned" },
+                    message: None,
+                    seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
+                },
+            );
+
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
@@ -2013,7 +2247,9 @@ async fn get_parcel(
             } else {
                 match err_provider.as_deref() {
                     Some(p) => {
-                        let (cc, _) = resolve_channel_code(&state.db, &state.rr, p).await;
+                        let (cc, _) =
+                            resolve_channel_code(&state.db, &state.routing, p, err_shipping_no.as_deref())
+                                .await;
                         (cc, fetch_print_profile(&state.db, p).await)
                     }
                     None => (fetch_unassigned_channel_code(&state.db).await, None),
@@ -2144,6 +2380,29 @@ async fn get_parcel(
 
             // 開關關閉時不回 response_id:沒有面單可印,工控機不必也不該 POST /api/report
             //(對齊 NoRead 的回應形態);查詢記錄仍留在本機供回看。
+            // 查件異常也要上看板(紅字):現場才知道這件為什麼沒面單、要不要撿出來處理。
+            // 提示面單開關關閉時不回通道,燈自然不亮。
+            publish_board(
+                &state,
+                BoardEvent {
+                    position: match channel_code.as_deref() {
+                        Some(cc) => fetch_position_by_code(&state.db, cc).await,
+                        None => None,
+                    },
+                    no: err_shipping_no
+                        .clone()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or_else(|| query_no.clone()),
+                    provider: match err_provider.as_deref() {
+                        Some(p) => fetch_provider_name(&state.db, p).await,
+                        None => None,
+                    },
+                    status: "error",
+                    message: Some(msg.clone()),
+                    seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
+                },
+            );
+
             Ok(Json(DataEnvelope::new(ParcelData {
                 channel_code,
                 print_profile,
@@ -2339,5 +2598,218 @@ mod tests {
         for q in ["SF0220862051573", "noread123", "read", "0STTJX9B1694", ""] {
             assert!(!is_noread(q), "不應判定為 NoRead: {q:?}");
         }
+    }
+
+    #[test]
+    fn tail2_takes_last_two_chars_case_insensitively() {
+        assert_eq!(tail2("SF0220862051573").as_deref(), Some("73"));
+        assert_eq!(tail2("  0STTJX9B169a  ").as_deref(), Some("9A"));
+        // 不足兩碼比不出後兩碼,一律不套用尾碼迴避
+        assert_eq!(tail2("7"), None);
+        assert_eq!(tail2(""), None);
+    }
+
+    // ── 尾碼迴避的分配測試 ──────────────────────────────────
+    // 作業員貼單靠單號後兩碼認包裹,同一格口連著兩張尾碼相同的單會分不出誰是誰。
+    // 以下用 in-memory SQLite 建與 migration 等價的三張表,直接跑 resolve_channel_code。
+
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    /// 建三張路由會用到的表(sort_channels / sort_channel_dispatch / print_event / settings)
+    async fn routing_db(positions: &[(&str, &str)], provider: &str) -> DbPool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for sql in [
+            "CREATE TABLE sort_channels (
+                position TEXT PRIMARY KEY,
+                channel_code TEXT,
+                job_sticker TEXT,
+                printer_name TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                skip_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            )",
+            "CREATE TABLE sort_channel_dispatch (
+                position TEXT NOT NULL,
+                dispatch_code TEXT NOT NULL,
+                PRIMARY KEY (position, dispatch_code)
+            )",
+            "CREATE TABLE print_event (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                shipping_no TEXT NOT NULL,
+                channel_code TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            )",
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        for (pos, code) in positions {
+            sqlx::query("INSERT INTO sort_channels (position, channel_code) VALUES (?, ?)")
+                .bind(pos)
+                .bind(code)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO sort_channel_dispatch (position, dispatch_code) VALUES (?, ?)")
+                .bind(pos)
+                .bind(provider)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool
+    }
+
+    fn routing_state() -> SortRoutingState {
+        Arc::new(tokio::sync::Mutex::new(SortRouting::default()))
+    }
+
+    #[tokio::test]
+    async fn same_tail_goes_to_the_next_channel() {
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        let routing = routing_state();
+
+        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047")).await;
+        assert_eq!(first.as_deref(), Some("A01"));
+        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999988")).await;
+        assert_eq!(second.as_deref(), Some("A02"));
+        // 第三件又是 47:輪替指標指回 A01,但 A01 上一件就是 47 → 改給尾碼不撞的 A02
+        let (third, _) = resolve_channel_code(&db, &routing, "C", Some("SF12312312347")).await;
+        assert_eq!(third.as_deref(), Some("A02"), "撞尾碼的格口不該再收一件同尾碼");
+        // 換回不撞的尾碼:輪替回到 A01,不該因為前一件被改道就一直卡在 A02
+        let (fourth, _) = resolve_channel_code(&db, &routing, "C", Some("SF45645645612")).await;
+        assert_eq!(fourth.as_deref(), Some("A01"));
+    }
+
+    #[tokio::test]
+    async fn single_channel_ignores_tail_rule() {
+        // 只有一個可用通道時無處可換,尾碼相同也照給 —— 否則這件會無格口可去
+        let db = routing_db(&[("L1", "A01")], "C").await;
+        let routing = routing_state();
+
+        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047")).await;
+        assert_eq!(first.as_deref(), Some("A01"));
+        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999947")).await;
+        assert_eq!(second.as_deref(), Some("A01"));
+    }
+
+    #[tokio::test]
+    async fn tail_rule_runs_only_one_lap() {
+        // 兩個格口上一件都是 47,再來一件 47:繞完一圈仍找不到不撞的,
+        // 就照輪替順序給出去,不能因此不分配
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        let routing = routing_state();
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047")).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111147")).await;
+
+        let (third, has_assigned) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247")).await;
+        assert_eq!(third.as_deref(), Some("A01"), "全部撞尾碼時應照輪替順序分配");
+        assert!(has_assigned);
+    }
+
+    #[tokio::test]
+    async fn cold_start_reads_last_number_from_print_events() {
+        // 進程剛啟動、記憶體是空的:要回查列印記錄,否則重開 App 後尾碼迴避形同失效
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        sqlx::query(
+            "INSERT INTO print_event (source, shipping_no, channel_code) VALUES ('ipc', 'SF00000000047', 'A01')",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        let routing = routing_state();
+
+        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF98765432147")).await;
+        assert_eq!(picked.as_deref(), Some("A02"), "A01 的歷史尾碼是 47,應改給 A02");
+    }
+
+    #[tokio::test]
+    async fn tail_skip_does_not_consume_skip_quota() {
+        // 「跳過本輪」是操作員按的額度,只該花在真的輪到它的那次;
+        // 因撞尾碼而讓過的那次不能偷扣,否則手機按的一次跳過會平白消失
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        sqlx::query("UPDATE sort_channels SET skip_count = 1 WHERE position = 'L1'")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO print_event (source, shipping_no, channel_code) VALUES ('ipc', 'SF00000000047', 'A01')",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        let routing = routing_state();
+
+        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF55555555547")).await;
+        assert_eq!(picked.as_deref(), Some("A02"));
+        let left: i64 = sqlx::query("SELECT skip_count FROM sort_channels WHERE position = 'L1'")
+            .fetch_one(&db)
+            .await
+            .unwrap()
+            .try_get("skip_count")
+            .unwrap();
+        assert_eq!(left, 1, "撞尾碼讓過不該消耗跳過額度");
+    }
+
+    /// 左1=7-11、左2=7-11+全家、左3=7-11 —— 共用格口的情境
+    async fn shared_channel_db() -> DbPool {
+        let db = routing_db(&[("L1", "L1"), ("L2", "L2"), ("L3", "L3")], "7").await;
+        sqlx::query("INSERT INTO sort_channel_dispatch (position, dispatch_code) VALUES ('L2','F')")
+            .execute(&db)
+            .await
+            .unwrap();
+        db
+    }
+
+    #[tokio::test]
+    async fn shared_channel_yields_to_the_idlest_one() {
+        // 包裹順序 7-11 → 全家 → 7-11。中間那件全家進了左2,第三件 7-11 就該讓給
+        // 一直沒收件的左3 —— 排序看的是「格口實際收了什麼」,不是各家物流自己的順序。
+        let db = shared_channel_db().await;
+        let routing = routing_state();
+
+        let (a, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000011")).await;
+        let (b, _) = resolve_channel_code(&db, &routing, "F", Some("SF00000000022")).await;
+        let (c, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000033")).await;
+        assert_eq!(
+            (a.as_deref(), b.as_deref(), c.as_deref()),
+            (Some("L1"), Some("L2"), Some("L3")),
+            "左2 剛收過全家的件,第三件應讓給最久沒收的左3"
+        );
+    }
+
+    #[tokio::test]
+    async fn tail_rule_looks_at_the_channel_not_the_provider() {
+        // 格口的「上一件」不分物流:左2 上一件是全家的單,接著輪到左2 的 7-11 件
+        // 若尾碼與它相同,一樣要讓開 —— 作業員站在格口前看的是單號,不是哪家物流。
+        let db = shared_channel_db().await;
+        let routing = routing_state();
+
+        resolve_channel_code(&db, &routing, "F", Some("SF00000000044")).await; // 左2 收全家,尾碼 44
+        resolve_channel_code(&db, &routing, "7", Some("SF00000000011")).await; // 左1
+        resolve_channel_code(&db, &routing, "7", Some("SF00000000022")).await; // 左3
+        // 此時最久沒收的是左2,但它上一件尾碼正是 44 → 讓給次久的左1
+        let (d, _) = resolve_channel_code(&db, &routing, "7", Some("SF99999999944")).await;
+        assert_eq!(d.as_deref(), Some("L1"), "撞到別家物流留下的尾碼一樣要讓開");
+    }
+
+    #[tokio::test]
+    async fn no_shipping_no_still_alternates_channels() {
+        // 錯誤面單等拿不到配送單號的情況:沒有尾碼可比,仍照「最久沒收件」輪流
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        let routing = routing_state();
+
+        let (a, _) = resolve_channel_code(&db, &routing, "C", None).await;
+        let (b, _) = resolve_channel_code(&db, &routing, "C", None).await;
+        let (c, _) = resolve_channel_code(&db, &routing, "C", None).await;
+        assert_eq!(
+            (a.as_deref(), b.as_deref(), c.as_deref()),
+            (Some("A01"), Some("A02"), Some("A01"))
+        );
     }
 }

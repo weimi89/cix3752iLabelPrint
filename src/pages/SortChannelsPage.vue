@@ -11,6 +11,7 @@ import {
   updateConfig,
 } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
@@ -290,6 +291,26 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 </script>
 
 <style scoped lang="scss">
+/* 兩個開關並排;畫面窄時改成上下堆疊,避免文字擠成兩行 */
+.switch-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.switch-item {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: center;
+  min-inline-size: 0;
+  padding: 10px 16px;
+}
+
+@media (max-width: 960px) {
+  .switch-row { flex-direction: column; }
+  .switch-divider { display: none; }
+}
+
 .channel-card {
   position: relative;
   border: 1px solid rgb(var(--v-theme-on-surface) / 0.08);
@@ -438,6 +459,11 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle')" icon="tabler-route">
       <template #actions>
         <div class="d-flex ga-2">
+          <DisplayLauncher
+            route="/sort-board"
+            window-label="display-sort-board"
+            :title="$t('page.board.title')"
+          />
           <VBtn variant="outlined" :loading="loading" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
@@ -460,55 +486,57 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
-    <!-- 純分揀模式總開關(只回分揀通道、不出面單、不記印單) -->
-    <VCard variant="outlined" class="mb-4" :color="sortOnly ? 'primary' : undefined">
-      <div class="d-flex align-center ga-3 px-4 py-3">
-        <VIcon
-          :icon="sortOnly ? 'tabler-arrows-split-2' : 'tabler-printer'"
-          size="18"
-          :color="sortOnly ? 'primary' : 'medium-emphasis'"
-          class="flex-shrink-0"
-        />
-        <div class="flex-grow-1">
-          <div class="text-body-medium font-weight-medium">{{ $t('label.settings.sortOnly') }}</div>
-          <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.sortOnlyHint') }}</div>
+    <!-- 兩個分揀行為開關(純分揀 / 異常件提示面單)並排一列:
+         這頁主體是十個通道卡片,開關只是切換,不該把說明鋪滿整個畫面 -->
+    <VCard variant="outlined" class="mb-4">
+      <div class="switch-row">
+        <div class="switch-item">
+          <VIcon
+            :icon="sortOnly ? 'tabler-arrows-split-2' : 'tabler-printer'"
+            size="20"
+            :color="sortOnly ? 'primary' : 'medium-emphasis'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('label.settings.sortOnly') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.sortOnlyBrief') }}</div>
+          </div>
+          <VSwitch
+            :model-value="sortOnly"
+            :loading="savingSortOnly"
+            color="primary"
+            inset
+            hide-details
+            density="compact"
+            class="flex-shrink-0"
+            @update:model-value="toggleSortOnly"
+          />
         </div>
-        <VSwitch
-          :model-value="sortOnly"
-          :loading="savingSortOnly"
-          color="primary"
-          inset
-          hide-details
-          density="compact"
-          class="flex-shrink-0"
-          @update:model-value="toggleSortOnly"
-        />
-      </div>
-    </VCard>
 
-    <!-- 錯誤面單總開關(關閉時異常件不出提示面單、不回分揀通道) -->
-    <VCard variant="outlined" class="mb-4" :color="errorLabelOn ? 'warning' : undefined">
-      <div class="d-flex align-center ga-3 px-4 py-3">
-        <VIcon
-          :icon="errorLabelOn ? 'tabler-file-alert' : 'tabler-file-off'"
-          size="18"
-          :color="errorLabelOn ? 'warning' : 'medium-emphasis'"
-          class="flex-shrink-0"
-        />
-        <div class="flex-grow-1">
-          <div class="text-body-medium font-weight-medium">{{ $t('label.settings.errorLabel') }}</div>
-          <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.errorLabelHint') }}</div>
+        <VDivider vertical class="switch-divider" />
+
+        <div class="switch-item">
+          <VIcon
+            :icon="errorLabelOn ? 'tabler-file-alert' : 'tabler-file-off'"
+            size="20"
+            :color="errorLabelOn ? 'warning' : 'medium-emphasis'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('label.settings.errorLabel') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.errorLabelBrief') }}</div>
+          </div>
+          <VSwitch
+            :model-value="errorLabelOn"
+            :loading="savingErrorLabel"
+            color="warning"
+            inset
+            hide-details
+            density="compact"
+            class="flex-shrink-0"
+            @update:model-value="toggleErrorLabel"
+          />
         </div>
-        <VSwitch
-          :model-value="errorLabelOn"
-          :loading="savingErrorLabel"
-          color="warning"
-          inset
-          hide-details
-          density="compact"
-          class="flex-shrink-0"
-          @update:model-value="toggleErrorLabel"
-        />
       </div>
     </VCard>
 
