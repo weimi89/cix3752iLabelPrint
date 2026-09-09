@@ -17,9 +17,6 @@ if (isTauriRuntime) {
   } catch { /* 取不到 label 就當作主視窗 */ }
 }
 
-// 綠燈持續時間:亮完自動淡回灰。6 秒 —— 現場包裹間隔約 2~5 秒,
-// 太短來不及看,太長會分不出「剛剛那件」和「這件」。
-const HIGHLIGHT_MS = 6000
 // 通道啟用 / 暫停是慢速變動的設定,不必跟著每件包裹重抓
 const CHANNEL_POLL_MS = 10000
 
@@ -30,8 +27,6 @@ const board = ref({ no: '', provider: '', status: 'idle', message: '', at: '' })
 
 const leftSlots = computed(() => channels.value.filter(c => c.position?.[0] === 'L'))
 const rightSlots = computed(() => channels.value.filter(c => c.position?.[0] === 'R'))
-
-const posLabel = pos => t(`page.board.pos.${pos[0] === 'L' ? 'left' : 'right'}`, { n: pos.slice(1) })
 
 const slotClass = pos => {
   if (pos === activePos.value) return 'slot--active'
@@ -70,7 +65,6 @@ const noteText = computed(() => {
   return ''
 })
 
-let fadeTimer = null
 const applyEvent = payload => {
   if (!payload) return
   board.value = {
@@ -80,11 +74,9 @@ const applyEvent = payload => {
     message: payload.message || '',
     at: payload.at || '',
   }
+  // 綠燈一直亮到下一件進來 —— 現場隨時看得出「最後一件去了哪一格」,
+  // 停機時也還看得到上一件的去向
   activePos.value = payload.position || null
-  if (fadeTimer) clearTimeout(fadeTimer)
-  if (activePos.value) {
-    fadeTimer = setTimeout(() => { activePos.value = null }, HIGHLIGHT_MS)
-  }
 }
 
 const loadChannels = async () => {
@@ -112,7 +104,6 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-  if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null }
   if (unlistenBoard) { unlistenBoard(); unlistenBoard = null }
   if (unlistenChannel) { unlistenChannel(); unlistenChannel = null }
 })
@@ -144,8 +135,7 @@ onUnmounted(() => {
         class="slot"
         :class="slotClass(c.position)"
       >
-        <span class="slot__lamp" />
-        <span class="slot__name">{{ posLabel(c.position) }}</span>
+        <span class="slot__lamp">{{ c.position }}</span>
       </div>
     </div>
 
@@ -170,8 +160,7 @@ onUnmounted(() => {
         class="slot"
         :class="slotClass(c.position)"
       >
-        <span class="slot__lamp" />
-        <span class="slot__name">{{ posLabel(c.position) }}</span>
+        <span class="slot__lamp">{{ c.position }}</span>
       </div>
     </div>
     </div>
@@ -191,7 +180,7 @@ onUnmounted(() => {
   /* 側欄用固定寬(燈 6vw + 間距 + 位置名約 11.8vw,取 15vw 有餘裕):
      用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
   position: relative;
-  grid-template-columns: 15vw 1fr 15vw;
+  grid-template-columns: 6.5vw 1fr 6.5vw;
   gap: 1.5vw;
   min-block-size: calc(100vh - 12rem);
   padding: 1.5vh 1vw;
@@ -226,9 +215,18 @@ onUnmounted(() => {
   gap: 1vw;
 
   &__lamp {
+    display: flex;
     flex: none;
-    inline-size: 6vw;
-    block-size: 6vw;
+    align-items: center;
+    justify-content: center;
+
+    /* 位置標示放進燈裡:掛在燈旁邊會吃掉中欄的寬度,單號就放不大 */
+    color: rgba(var(--v-theme-on-background), .55);
+    font-size: 2vw;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    inline-size: 5.5vw;
+    block-size: 5.5vw;
     min-inline-size: 44px;
     min-block-size: 44px;
     /* 底色是淡灰,灰燈太淺會糊在背景裡,壓深到看得出「這格還沒輪到」 */
@@ -238,26 +236,19 @@ onUnmounted(() => {
     transition: background .25s ease, box-shadow .25s ease, border-color .25s ease;
   }
 
-  &__name {
-    color: rgba(var(--v-theme-on-background), .38);
-    font-size: clamp(16px, 2.4vw, 46px);
-    font-weight: 700;
-    transition: color .25s ease;
-  }
-
   &--active &__lamp {
     border-color: rgba(var(--v-theme-success), .45);
     background: rgb(var(--v-theme-success));
+    color: #fff;
     box-shadow: 0 0 2.2vw rgba(var(--v-theme-success), .5);
   }
-  &--active &__name { color: rgb(var(--v-theme-success)); }
 
   &--paused &__lamp {
     border-color: rgba(var(--v-theme-warning), .45);
     background: rgb(var(--v-theme-warning));
+    color: #fff;
     box-shadow: 0 0 1.4vw rgba(var(--v-theme-warning), .45);
   }
-  &--paused &__name { color: rgb(var(--v-theme-warning)); }
 }
 
 /* 單號偏上、下面留大一點的空間:異常訊息字大又長短不一,
@@ -294,20 +285,20 @@ onUnmounted(() => {
   white-space: nowrap;
 
   /* 除以長度:短單號放到最大,長單號自動縮到塞得下,不會蓋到兩側燈號 */
+  /* 前後段同一個顏色:淡色在監視器上反光就看不到了 */
   &__head {
-    font-size: min(9vw, calc(95vw / (var(--len) + 2)));
-    opacity: .78;
+    font-size: min(14vw, calc(132vw / (var(--len) + 2)));
   }
 
   /* 後四碼再加大:現場核對只看這幾碼 */
   &__tail {
     margin-inline-start: .06em;
-    font-size: min(13.2vw, calc(140vw / (var(--len) + 2)));
+    font-size: min(20.6vw, calc(194vw / (var(--len) + 2)));
   }
 }
 
 .board-provider {
-  color: rgba(var(--v-theme-on-background), .68);
+  color: rgb(var(--v-theme-on-background));
   font-size: clamp(22px, 4.4vw, 86px);
   font-weight: 700;
   text-align: center;
@@ -322,9 +313,9 @@ onUnmounted(() => {
   position: absolute;
   inset-block-start: 2vh;
   inset-inline: 0;
-  color: #1976D2;
+  color: #0D47A1;
   line-height: 1;
-  font-size: clamp(16px, 3.2vw, 62px);
+  font-size: clamp(24px, 6vw, 116px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -343,12 +334,13 @@ onUnmounted(() => {
 /* 三種狀態的字色:正常白、查件異常紅、沒有指派通道黃 */
 .board-center--ok .board-no { color: rgb(var(--v-theme-on-background)); }
 
+/* 監視器會反光,狀態色一律用深一階的版本(主題色太亮) */
 .board-center--error {
-  .board-no, .board-provider { color: rgb(var(--v-theme-error)); }
+  .board-no, .board-provider { color: #C62828; }
 }
 
 .board-center--unassigned {
-  .board-no, .board-provider { color: rgb(var(--v-theme-warning)); }
+  .board-no, .board-provider { color: #E65100; }
 }
 
 .board-center--idle {

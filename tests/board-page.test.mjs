@@ -7,7 +7,7 @@
 //   node tests/board-page.test.mjs
 //
 // 驗到的重點:三種狀態的字色 class、單號後四碼要單獨放大、暫停的通道亮黃燈、
-// 分到的通道亮綠燈且過幾秒淡回灰、物流名與異常訊息的顯示位置。
+// 分到的通道亮綠燈且持續到下一件進來、物流名與異常訊息的顯示位置。
 import { JSDOM } from 'jsdom'
 import fs from 'fs'
 
@@ -55,9 +55,10 @@ const headText = () => w.document.querySelector('#no .head').textContent
 const tailText = () => w.document.querySelector('#no .tail').textContent
 
 console.log('\n【1】通道燈:左右各五格,暫停的亮黃燈')
-ok(slots('left').length === 5 && slots('right').length === 5, '左右各五格', `左${slots('left').length} 右${slots('right').length}`)
+ok(slots('left').length === 5 && slots('right').length === 5, '左右各五格(只有燈,不再顯示位置名)', `左${slots('left').length} 右${slots('right').length}`)
 ok(slots('left')[1].classList.contains('paused'), '左2 暫停 → 黃燈')
 ok(!slots('left')[0].classList.contains('paused'), '左1 啟用中 → 不是黃燈')
+ok(slots('left').map(s => s.textContent.trim()).join(',') === 'L1,L2,L3,L4,L5', '燈圓內顯示位置代碼', slots('left').map(s => s.textContent.trim()).join(','))
 
 console.log('\n【2】正常件:白字 + 綠燈 + 後四碼單獨放大')
 w.applyEvent({ position: 'R3', no: '74Z01083017', provider: '7-ELEVEN', status: 'ok', message: null, seq: 1 })
@@ -77,14 +78,15 @@ w.applyEvent({ position: null, no: 'TW00000000002', provider: '黑貓宅急便',
 ok($('center').classList.contains('unassigned'), '未指派通道用 unassigned 樣式(黃字)')
 ok($('note').textContent.length > 0, '註記說明未指派通道')
 
-console.log('\n【5】綠燈亮完會自動淡回灰(不會一直卡著亮)')
+console.log('\n【5】綠燈一直亮到下一件進來(不自動熄滅)')
 w.applyEvent({ position: 'L1', no: '74Z01010866', provider: '7-ELEVEN', status: 'ok', message: null, seq: 4 })
 ok(slots('left')[0].classList.contains('active'), '剛分到時 L1 是綠燈')
-// HIGHLIGHT_MS 是 6 秒,這裡直接快轉計時器
-await new Promise(r => setTimeout(r, 50))
-w.eval('activePos = null; renderSlots();')
-ok(!slots('left')[0].classList.contains('active'), '淡出後 L1 不再是綠燈')
-ok(!slots('left')[0].classList.contains('paused'), '啟用中的通道淡出後回灰,不是黃燈')
+await new Promise(r => setTimeout(r, 120))
+ok(slots('left')[0].classList.contains('active'), '過一段時間後 L1 仍亮著(停機時也看得到上一件去向)')
+// 下一件進了別的格口,前一格才熄
+w.applyEvent({ position: 'R4', no: '74Z01010446', provider: '7-ELEVEN', status: 'ok', message: null, seq: 5 })
+ok(!slots('left')[0].classList.contains('active'), '下一件進來後 L1 熄滅')
+ok(slots('right')[3].classList.contains('active'), '換成 R4 亮綠燈')
 
 console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`)
 process.exit(fail ? 1 : 0)

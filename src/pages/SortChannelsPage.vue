@@ -419,29 +419,6 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
   }
 }
 
-.unassigned-setting-row {
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-
-  &--unset {
-    border-color: rgb(var(--v-theme-warning) / 0.5);
-    border-left: 3px solid rgb(var(--v-theme-warning));
-
-    &:hover {
-      box-shadow: 0 0 0 1px rgb(var(--v-theme-warning) / 0.3);
-    }
-  }
-
-  &--set {
-    border-color: rgb(var(--v-theme-primary) / 0.4);
-    border-left: 3px solid rgb(var(--v-theme-primary));
-
-    &:hover {
-      box-shadow: 0 0 0 1px rgb(var(--v-theme-primary) / 0.2);
-    }
-  }
-}
-
 .column-label {
   display: flex;
   align-items: center;
@@ -538,35 +515,33 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             @update:model-value="toggleErrorLabel"
           />
         </div>
-      </div>
-    </VCard>
 
-    <!-- 未設定指派物流 fallback 設定入口 -->
-    <VCard
-      variant="outlined"
-      class="mb-4 unassigned-setting-row"
-      :class="unassignedCode ? 'unassigned-setting-row--set' : 'unassigned-setting-row--unset'"
-      @click="openUnassignedDialog"
-    >
-      <div class="d-flex align-center ps-4 ga-3" style="min-height: 52px;">
-        <VIcon
-          :icon="unassignedCode ? 'tabler-check' : 'tabler-alert-triangle'"
-          size="18"
-          :color="unassignedCode ? 'primary' : 'warning'"
-          class="flex-shrink-0"
-        />
-        <span class="text-body-medium flex-grow-1">未指派物流通道 — 預設回傳代碼</span>
-        <VBtn
-          :color="unassignedCode ? 'primary' : 'warning'"
-          :variant="unassignedCode ? 'flat' : 'tonal'"
-          size="large"
-          class="px-5 font-weight-bold rounded-s-0"
-          style="align-self: stretch; height: auto;"
-        >
-          <VIcon :icon="unassignedCode ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-2" />
-          <template v-if="unassignedCode">{{ $t('page.sort.unassigned.current', { code: unassignedCode }) }}</template>
-          <template v-else>{{ $t('page.sort.status.unset') }}</template>
-        </VBtn>
+        <VDivider vertical class="switch-divider" />
+
+        <!-- 未指派物流的 fallback 通道:設定完幾乎不會再動,跟兩個開關併成同一列 -->
+        <div class="switch-item">
+          <VIcon
+            :icon="unassignedCode ? 'tabler-check' : 'tabler-alert-triangle'"
+            size="20"
+            :color="unassignedCode ? 'primary' : 'warning'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('page.sort.unassigned.title') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('page.sort.unassigned.brief') }}</div>
+          </div>
+          <VBtn
+            :color="unassignedCode ? 'primary' : 'warning'"
+            variant="tonal"
+            size="small"
+            class="flex-shrink-0 font-weight-bold"
+            @click="openUnassignedDialog"
+          >
+            <VIcon :icon="unassignedCode ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-1" />
+            <template v-if="unassignedCode">{{ unassignedCode }}</template>
+            <template v-else>{{ $t('page.sort.status.unset') }}</template>
+          </VBtn>
+        </div>
       </div>
     </VCard>
 

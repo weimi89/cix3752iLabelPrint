@@ -20,7 +20,7 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
-const { getMonitors, open } = useDisplayWindow()
+const { getMonitors, open, status, close, allBoards } = useDisplayWindow()
 
 const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
@@ -37,6 +37,11 @@ const monitors = ref([])
 // 網頁版連線資訊(區網網址 + QR)
 const webUrls = ref([])
 const webQr = ref('')
+// 這個看板目前開在哪一個螢幕(null=沒開;index=null 代表開著但認不出在哪,例如被拖到視窗模式)
+const openState = ref({ open: false, monitorIndex: null })
+// 所有已開啟的看板(含其他頁面開的),用來標出每台螢幕被誰佔用
+const boards = ref([])
+const occupantOf = idx => boards.value.find(b => b.monitorIndex === idx && b.label !== props.windowLabel)
 const loading = ref(false)
 const launchingIdx = ref(-1)
 
@@ -71,6 +76,9 @@ const loadMonitors = async opened => {
   loading.value = true
   try {
     monitors.value = await getMonitors()
+    boards.value = await allBoards(monitors.value)
+    const mine = boards.value.find(b => b.label === props.windowLabel)
+    openState.value = { open: !!mine, monitorIndex: mine ? mine.monitorIndex : null }
     await loadWebUrls()
   } catch (e) {
     toast(`${t('page.display.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
@@ -80,9 +88,44 @@ const loadMonitors = async opened => {
   }
 }
 
+const closing = ref(false)
+const closeBoard = async () => {
+  closing.value = true
+  try {
+    await close(props.windowLabel)
+    openState.value = { open: false, monitorIndex: null }
+    toast(t('page.display.closed'), { type: 'success' })
+    menu.value = false
+  } catch (e) {
+    toast(`${t('page.display.failed')}: ${errorMessageFromException(e)}`, { type: 'error' })
+  } finally {
+    closing.value = false
+  }
+}
+
 const launch = async (mon, { fullscreen, borderless }) => {
   launchingIdx.value = mon ? mon.index : -2
   try {
+    // 目標螢幕已被別的看板佔用時:自己也開著就兩邊對調(對方搬到我原本那台),
+    // 自己還沒開就只是提醒 —— 否則兩個看板會疊在同一台螢幕上,下面那個等於看不到
+    const occupant = mon ? occupantOf(mon.index) : null
+    if (occupant) {
+      const myMon = monitors.value.find(m => m.index === openState.value.monitorIndex)
+      if (myMon && occupant.route) {
+        await open({
+          label: occupant.label,
+          route: occupant.route,
+          title: occupant.title,
+          monitor: myMon,
+          fullscreen: occupant.fullscreen,
+          borderless: occupant.borderless,
+        })
+        toast(t('page.display.swapped', { name: occupant.title, screen: myMon.name }), { type: 'info' })
+      } else {
+        toast(t('page.display.occupied', { name: occupant.title }), { type: 'warning' })
+      }
+    }
+
     const { reused } = await open({
       label: props.windowLabel,
       route: props.route,
@@ -93,7 +136,9 @@ const launch = async (mon, { fullscreen, borderless }) => {
     })
     const where = mon ? mon.name : t('page.display.windowMode')
     toast(
-      reused ? t('page.display.focused') : t('page.display.opened', { screen: where }),
+      reused
+        ? t(mon ? 'page.display.moved' : 'page.display.focused', { screen: where })
+        : t('page.display.opened', { screen: where }),
       { type: 'success' },
     )
     menu.value = false
@@ -115,9 +160,26 @@ const launch = async (mon, { fullscreen, borderless }) => {
     </template>
 
     <VCard min-width="280" class="pa-1">
-      <VCardText class="text-body-small text-medium-emphasis pb-1">
-        {{ $t('page.display.pickScreen') }}
-      </VCardText>
+      <div class="d-flex align-center ga-2 px-4 pt-3 pb-1">
+        <span class="text-body-small flex-grow-1" :class="openState.open ? 'text-success' : 'text-medium-emphasis'">
+          <template v-if="openState.open && openState.monitorIndex !== null">
+            {{ $t('page.display.openedOn', { n: openState.monitorIndex + 1 }) }}
+          </template>
+          <template v-else-if="openState.open">{{ $t('page.display.openedWindow') }}</template>
+          <template v-else>{{ $t('page.display.pickScreen') }}</template>
+        </span>
+        <VBtn
+          v-if="openState.open"
+          size="x-small"
+          variant="tonal"
+          color="error"
+          :loading="closing"
+          class="flex-shrink-0"
+          @click="closeBoard"
+        >
+          {{ $t('page.display.close') }}
+        </VBtn>
+      </div>
 
       <div v-if="loading" class="d-flex justify-center py-4">
         <VProgressCircular indeterminate size="22" color="primary" />
@@ -135,6 +197,8 @@ const launch = async (mon, { fullscreen, borderless }) => {
           </template>
           <VListItemTitle>
             {{ $t('page.display.screen', { n: mon.index + 1 }) }}
+            <VChip v-if="openState.monitorIndex === mon.index" size="x-small" color="success" variant="flat" class="ms-1">{{ $t('page.display.here') }}</VChip>
+            <VChip v-else-if="occupantOf(mon.index)" size="x-small" color="secondary" variant="tonal" class="ms-1">{{ occupantOf(mon.index).title }}</VChip>
             <VChip v-if="mon.isCurrent" size="x-small" color="warning" variant="tonal" class="ms-1">{{ $t('page.display.current') }}</VChip>
           </VListItemTitle>
           <VListItemSubtitle>{{ mon.width }} × {{ mon.height }} · {{ $t('page.display.fullscreenKanban') }}</VListItemSubtitle>
@@ -149,9 +213,13 @@ const launch = async (mon, { fullscreen, borderless }) => {
           <template #prepend>
             <VIcon icon="tabler-window" size="18" />
           </template>
-          <VListItemTitle>{{ $t('page.display.windowMode') }}</VListItemTitle>
+          <VListItemTitle>
+            {{ $t('page.display.windowMode') }}
+            <VChip v-if="openState.open && openState.monitorIndex === null" size="x-small" color="success" variant="flat" class="ms-1">{{ $t('page.display.here') }}</VChip>
+          </VListItemTitle>
           <VListItemSubtitle>{{ $t('page.display.windowModeHint') }}</VListItemSubtitle>
         </VListItem>
+
       </VList>
 
       <!-- 網頁版:給電視或另一台機器用網址開,掃 QR 免手動輸入 -->

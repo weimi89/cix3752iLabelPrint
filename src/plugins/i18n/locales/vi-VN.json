@@ -647,6 +647,14 @@
       }
     },
     "display": {
+      "swapped": "{name} đã chuyển sang {screen}",
+      "occupied": "Màn hình này đang hiển thị {name}, mở lên sẽ che mất",
+      "here": "Đang ở đây",
+      "moved": "Đã chuyển bảng sang {screen}",
+      "closed": "Đã đóng bảng",
+      "close": "Đóng bảng",
+      "openedOn": "Đang mở ở màn hình {n}, bấm màn hình khác để chuyển",
+      "openedWindow": "Đang mở ở chế độ cửa sổ, bấm màn hình để chuyển",
       "open": "Mở bảng hiển thị",
       "pickScreen": "Chọn màn hình để mở bảng hiển thị",
       "screen": "Màn hình {n}",
@@ -842,11 +850,14 @@
     "board": {
       "title": "Bảng phân loại",
       "subtitle": "Hiển thị tức thời kiện hàng vào kênh nào",
-      "pos": { "left": "Trái {n}", "right": "Phải {n}" },
       "waiting": "Đang chờ kiện hàng",
       "unassigned": "Chưa gán kênh"
     },
     "sort": {
+      "pos": {
+        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4", "L5": "Trái 5",
+        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4", "R5": "Phải 5"
+      },
       "title": "Kênh phân loại",
       "subtitle": "5 kênh trái / 5 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
@@ -859,10 +870,6 @@
       "errorLabel": {
         "enabled": "Đã bật nhãn cảnh báo kiện bất thường",
         "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
-      },
-      "pos": {
-        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4", "L5": "Trái 5",
-        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4", "R5": "Phải 5"
       },
       "leftColumn": "Bên trái (L)",
       "rightColumn": "Bên phải (R)",
@@ -897,6 +904,8 @@
         "noIp": "Không tìm thấy IP mạng LAN, vui lòng kiểm tra máy đã kết nối mạng LAN"
       },
       "unassigned": {
+        "title": "Kênh chưa gán",
+        "brief": "Mã trả về khi hãng vận chuyển chưa gán kênh",
         "label": "Chưa chỉ định vận chuyển — Mã kênh mặc định",
         "hint": "Khi vận chuyển của kiện hàng chưa được gán vào kênh nào, trả về mã này",
         "placeholder": "VD: X00 (để trống = không trả mã)",

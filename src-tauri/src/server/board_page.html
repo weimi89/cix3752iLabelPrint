@@ -28,7 +28,7 @@
 
   /* 側欄用固定寬(燈 6.5vw + 間距 + 位置名約 12.7vw,取 15vw 有餘裕):
      用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
-    main { position: relative; flex: 1; display: grid; grid-template-columns: 15vw 1fr 15vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
+    main { position: relative; flex: 1; display: grid; grid-template-columns: 6.5vw 1fr 6.5vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
 
   .col { display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
   /* 燈號容器要自己撐滿並均分,否則五盞燈只佔內容高度、被擠在欄位下半部 */
@@ -38,19 +38,19 @@
   /* 一格 = 一盞燈 + 位置名。灰=還沒輪到、綠=剛分到、黃=暫停中 */
   .slot { display: flex; align-items: center; gap: 1vw; }
   .slot .lamp {
-    width: 6.5vw; height: 6.5vw; min-width: 48px; min-height: 48px;
+    width: 5.5vw; height: 5.5vw; min-width: 48px; min-height: 48px;
     /* 底色是淡灰,灰燈太淺會糊在背景裡,壓深到看得出「這格還沒輪到」 */
     border-radius: 50%; background: rgba(47, 43, 61, .2); border: .35vw solid rgba(47, 43, 61, .3);
+    /* 位置標示放進燈裡:掛在燈旁邊會吃掉中欄的寬度,單號就放不大 */
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(47, 43, 61, .55); font-size: 2vw; font-weight: 800; letter-spacing: -.02em;
     transition: background .25s ease, box-shadow .25s ease, border-color .25s ease;
     flex: none;
   }
-  .slot .name { font-size: clamp(18px, 2.6vw, 50px); font-weight: 700; color: rgba(47, 43, 61, .38); transition: color .25s ease; }
   .col-right .slot { flex-direction: row-reverse; }
 
-  .slot.active .lamp { background: #28C76F; border-color: rgba(40,199,111,.45); box-shadow: 0 0 2.5vw rgba(40,199,111,.5); }
-  .slot.active .name { color: #28C76F; }
-  .slot.paused .lamp { background: #FF9F43; border-color: rgba(255,159,67,.45); box-shadow: 0 0 1.6vw rgba(255,159,67,.45); }
-  .slot.paused .name { color: #FF9F43; }
+  .slot.active .lamp { color: #fff; background: #28C76F; border-color: rgba(40,199,111,.45); box-shadow: 0 0 2.5vw rgba(40,199,111,.5); }
+  .slot.paused .lamp { color: #fff; background: #FF9F43; border-color: rgba(255,159,67,.45); box-shadow: 0 0 1.6vw rgba(255,159,67,.45); }
 
   /* 中央:單號特大字,後四碼再加大 —— 現場核對就是看後幾碼 */
   /* 單號偏上、下面留大一點的空間:異常訊息字大又長短不一,
@@ -68,22 +68,23 @@
      固定字級遇到 15 碼的順豐單號會撐破中欄、蓋到兩側燈號;
      除以長度才能讓短單號放到最大、長單號自動縮到塞得下。 */
   .no { --len: 12; }
-  .no .head { font-size: min(9vw, calc(95vw / (var(--len) + 2))); color: inherit; opacity: .78; }
-  .no .tail { font-size: min(13.2vw, calc(140vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
-  .provider { font-size: clamp(22px, 4.6vw, 90px); font-weight: 700; color: rgba(47, 43, 61, .68); text-align: center; }
+  .no .head { font-size: min(14vw, calc(132vw / (var(--len) + 2))); color: inherit; }
+  .no .tail { font-size: min(20.6vw, calc(194vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
+  .provider { font-size: clamp(22px, 4.6vw, 90px); font-weight: 700; color: #2F2B3D; text-align: center; }
   /* 分揀時刻貼在單號正上方,只佔中欄(不跨到左右燈號那兩欄,也不另外吃一整列高度)。
      藍色是刻意寫死的:主題色盤裡沒有藍(info 偏青綠),這裡要的是跟紅色單號、
      黑色訊息都分得開的第三個顏色 */
   /* 貼在看板最上緣正中央。用絕對定位是刻意的:它不佔版面高度,
      單號、物流名、訊息與兩側燈號都留在原本的位置 */
-  main > .time { position: absolute; top: 2vh; left: 0; right: 0; line-height: 1; font-size: clamp(16px, 3.4vw, 66px); font-weight: 700; color: #1976D2; font-variant-numeric: tabular-nums; text-align: center; }
+  main > .time { position: absolute; top: 2vh; left: 0; right: 0; line-height: 1; font-size: clamp(24px, 6.2vw, 120px); font-weight: 700; color: #0D47A1; font-variant-numeric: tabular-nums; text-align: center; }
   /* 異常原因是現場要據以處理的資訊,不是附註 —— 用正文色與接近物流名的字級,遠處才看得清楚 */
   .note { font-size: min(5.6vw, calc(62vw / var(--nlen, 12))); font-weight: 700; line-height: 1.25; color: #2F2B3D; text-align: center; }
 
   /* 三種狀態的字色:正常白、查件異常紅、沒有指派通道黃 */
   .center.ok .no { color: #2F2B3D; }
-  .center.error .no, .center.error .provider { color: #FF4C51; }
-  .center.unassigned .no, .center.unassigned .provider { color: #FF9F43; }
+  /* 監視器會反光,狀態色一律用深一階的版本(主題色太亮) */
+  .center.error .no, .center.error .provider { color: #C62828; }
+  .center.unassigned .no, .center.unassigned .provider { color: #E65100; }
   .center.idle .no { color: rgba(47, 43, 61, .2); }
   .center.idle .provider { color: rgba(47, 43, 61, .2); }
 </style>
@@ -116,24 +117,20 @@
 </main>
 
 <script>
-// 綠燈持續時間:亮完自動淡回灰。設 6 秒 —— 現場包裹間隔通常 2~5 秒,
-// 太短會來不及看,太長會分不出「剛剛那件」和「這件」。
-const HIGHLIGHT_MS = 6000;
 // 通道啟用/暫停是慢速變動的設定,不必跟著每件包裹重抓
 const CHANNEL_POLL_MS = 10000;
 
 const I18N = {
   zh: { title: '分揀看板', online: '連線正常', offline: '連線中斷',
-        waiting: '等待包裹', unassigned: '未指派通道', pos: n => (n[0] === 'L' ? '左' : '右') + n.slice(1) },
+        waiting: '等待包裹', unassigned: '未指派通道' },
   vi: { title: 'Bảng phân loại', online: 'Đã kết nối', offline: 'Mất kết nối',
-        waiting: 'Đang chờ kiện hàng', unassigned: 'Chưa gán kênh', pos: n => (n[0] === 'L' ? 'Trái ' : 'Phải ') + n.slice(1) },
+        waiting: 'Đang chờ kiện hàng', unassigned: 'Chưa gán kênh' },
 };
 let lang = localStorage.getItem('board_lang') || 'zh';
 const tr = k => (I18N[lang] || I18N.zh)[k];
 
 let channels = [];        // /api/channels 的快照(位置 + 啟用狀態)
 let activePos = null;     // 目前亮綠燈的位置
-let fadeTimer = null;
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
@@ -146,8 +143,7 @@ function renderSlots() {
     const list = channels.filter(c => c.position[0] === side);
     box.innerHTML = list.map(c => {
       const cls = c.position === activePos ? 'active' : (c.enabled ? '' : 'paused');
-      return '<div class="slot ' + cls + '"><span class="lamp"></span>' +
-             '<span class="name">' + esc(tr('pos')(c.position)) + '</span></div>';
+      return '<div class="slot ' + cls + '"><span class="lamp">' + esc(c.position) + '</span></div>';
     }).join('');
   }
 }
@@ -176,12 +172,10 @@ function applyEvent(ev) {
   // 字級除以「最長那一行」的字數,才不會換行蓋到兩側燈號
   noteEl.style.setProperty('--nlen', Math.max(8, ...lines.map(l => l.length), 0));
 
+  // 綠燈一直亮到下一件進來 —— 現場隨時看得出「最後一件去了哪一格」,
+  // 停機時也還看得到上一件的去向
   activePos = ev.position || null;
   renderSlots();
-  if (fadeTimer) clearTimeout(fadeTimer);
-  if (activePos) {
-    fadeTimer = setTimeout(() => { activePos = null; renderSlots(); }, HIGHLIGHT_MS);
-  }
 }
 
 async function loadChannels() {
