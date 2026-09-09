@@ -256,5 +256,15 @@ body,
       color: rgba(var(--v-theme-on-surface), var(--v-disabled-opacity)) !important;
       opacity: 1 !important;
     }
+
+    // label 還沒浮上去時（欄位空著且沒有 focus），提示文字會和框內的 label 疊在一起，
+    // Vuetify 本來用 opacity: 0 藏住它，但本區塊不在 @layer 內、又帶 !important，會把那條蓋掉。
+    // 這裡把同樣的條件寫回來：只有 label 已浮起或本來就沒有 label 時才顯示提示文字
+    .v-field:not(.v-field--no-label, .v-field--active) {
+      input::placeholder,
+      textarea::placeholder {
+        opacity: 0 !important;
+      }
+    }
   }
 }
