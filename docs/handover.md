@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-10（v1.0.0 已提交並推送，CI 打包中）**　目前版本：**v1.0.0（tag 已推，draft release 待手動公開）**
+最後更新：**2026-09-10（v1.0.0 已公開發佈）**　目前版本：**v1.0.0（已發佈，九項產物齊全，`latest.json` 生效）**
 
 ---
 
@@ -19,8 +19,9 @@
 - CHANGELOG 已寫(標題 `## v1.0.0`,`release.yml` 靠這個 regex 抽段落注入 release notes 與 `latest.json`)
 - 三處版本號已改並過 `cargo check`(`package.json` / `tauri.conf.json` / `Cargo.toml`;`Cargo.lock` 自動同步)
 - commit `891b1d9`,tag `v1.0.0`,兩者都已推上 origin
-- **Actions 打包中,產出是 draft release** —— 要 `gh release edit v1.0.0 --draft=false` 才會公開,
-  `latest.json` 也才會生效供 in-app 自動更新
+- **已公開發佈**(2026-09-10 08:53 UTC):CI 六個 job 全綠含 `verify-assets`,九項產物齊全,
+  `latest.json` 匿名可取、四個平台的自動更新已生效。現場機器會開始收到更新提示。
+- 這一版第一次驗到:`build.rs` 的 dist 佔位與 rust-embed 嵌入在三平台 CI 上都能正常打包
 
 ### 這一版尚未驗證的事（發版後請補）
 
