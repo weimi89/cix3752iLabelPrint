@@ -229,6 +229,9 @@ body {
 .app-header-card {
   display: flex;
   align-items: center;
+  // 手機寬度下按鈕放不下時要換行。少了這行,按鈕會把標題壓成一字一行的直排,
+  // 按鈕多的頁面(分揀通道有三顆)甚至會把整個版面撐寬、逼瀏覽器縮小全頁字級。
+  flex-wrap: wrap;
   padding: 0.625rem 1rem;
   margin-block-end: 1rem;
   background: rgb(var(--v-theme-surface));
@@ -254,6 +257,23 @@ body {
   &__icon {
     color: rgba(var(--v-theme-on-surface), 0.78);
     margin-inline-end: 4px;
+    flex: 0 0 auto;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    // flex 子項預設 min-inline-size:auto,文字不會縮到比最長的詞還窄 ——
+    // 歸零才允許它換行,否則寧可撐破容器也不折行
+    min-inline-size: 0;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   &__title {
@@ -267,6 +287,36 @@ body {
     font-size: 0.875rem;
     color: rgba(var(--v-theme-on-surface), 0.55);
     margin-block-start: 2px;
+  }
+
+  // 手機:標題與按鈕各佔一整列,按鈕才有足夠寬度顯示文字、也才好按
+  @media (max-width: 599.98px) {
+    padding: 0.75rem;
+    gap: 0.5rem;
+
+    &__text {
+      flex: 1 1 100%;
+    }
+
+    &__actions {
+      flex: 1 1 100%;
+
+      // 只允許收縮、不強制伸展:強制伸展會把只有圖示的按鈕拉成一整條橫槓,
+      // 看起來像壞掉的版面
+      > * {
+        flex: 0 1 auto;
+      }
+
+      // 各頁常在 slot 裡再包一層 d-flex 放好幾顆按鈕,那一層在手機上也要能折行,
+      // 否則它會以「所有按鈕排成一列」的寬度撐開整個版面(分揀通道有四顆,實測 442px)
+      .d-flex {
+        flex-wrap: wrap;
+      }
+    }
+
+    &__title {
+      font-size: 1.125rem;
+    }
   }
 }
 
@@ -635,3 +685,75 @@ body {
 .Toastify__toast--error .Toastify__toast-icon { color: var(--toastify-icon-color-error); }
 .Toastify__toast--warning .Toastify__toast-icon { color: var(--toastify-icon-color-warning); }
 .Toastify__toast--info .Toastify__toast-icon { color: var(--toastify-icon-color-info); }
+
+// =============================================================================
+// 卡片說明文字要能換行
+// =============================================================================
+// Vuetify 的 VCardSubtitle 預設單行、超出就用刪節號截掉。桌面寬度多半看得完,
+// 但手機寬度會把整段說明截成半句 —— 設定頁的說明正是用它寫的,截掉之後
+// 使用者看不出這個開關在做什麼。寧可佔兩三行,也不要只看到前半句。
+.v-card-subtitle {
+  white-space: normal;
+}
+
+// =============================================================================
+// 表格在手機上改成卡片式（.table-cards）
+// =============================================================================
+// 記錄類頁面的欄位多（請求記錄有 12 欄,整列寬度超過 1300px）,在手機上只看得到
+// 前兩欄,要看完一筆得左右滑好幾次。窄螢幕改成「一筆一張卡、欄名寫在每格左邊」,
+// 直著讀就看得完。
+//
+// 刻意不另外做一套手機版模板:那等於同一份資料維護兩份畫面,日後改欄位很容易漏掉一邊。
+// 欄名取自各 <td> 的 data-label，加新欄位時要一併補上，否則手機上那格會沒有名稱。
+@media (max-width: 599.98px) {
+  .table-cards {
+    .v-table__wrapper > table,
+    .v-table__wrapper > table > tbody {
+      display: block;
+      inline-size: 100%;
+    }
+
+    // 表頭在卡片模式沒有意義（欄名改寫在每一格前面）
+    .v-table__wrapper > table > thead {
+      display: none;
+    }
+
+    .v-table__wrapper > table > tbody > tr {
+      display: block;
+      margin-block-end: 0.5rem;
+      padding-block: 0.25rem;
+      border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+      border-radius: 8px;
+    }
+
+    .v-table__wrapper > table > tbody > tr > td {
+      display: flex !important;
+      align-items: center;
+      justify-content: space-between !important;
+      gap: 0.75rem;
+      block-size: auto !important;
+      min-block-size: 0 !important;
+      padding: 0.375rem 0.75rem !important;
+      border: none !important;
+      text-align: end !important;
+
+      &::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        color: rgba(var(--v-theme-on-surface), 0.6);
+        font-size: 0.8125rem;
+        text-align: start;
+      }
+
+      // 「查無資料」這種橫跨整列的格子沒有欄名，維持置中
+      &[colspan] {
+        justify-content: center !important;
+        text-align: center !important;
+
+        &::before {
+          content: none;
+        }
+      }
+    }
+  }
+}

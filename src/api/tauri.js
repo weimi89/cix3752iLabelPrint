@@ -1,21 +1,30 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from '@tauri-apps/plugin-autostart'
+import { hasBackend, isTauriRuntime } from './runtime'
+import { rpcInvoke } from './rpc'
 
-const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+/**
+ * 桌面走 Tauri IPC、網頁走 HTTP RPC。兩者的參數格式相同(後端 /rpc 沿用 Tauri
+ * 的 camelCase → snake_case 規則),因此底下每一支 API 的呼叫方式兩種環境共用。
+ */
+const invoke = (command, args) =>
+  isTauriRuntime ? tauriInvoke(command, args) : rpcInvoke(command, args)
 
 // 健康檢查
 export const ping = async () => {
-  if (!isTauri) return 'pong'
+  if (!hasBackend) return 'pong'
   return await invoke('ping')
 }
 
 // 開機自動啟動(走 tauri-plugin-autostart)
+// 這是作業系統層級的設定,只有桌面 App 能改 —— 網頁版即使連得到後端也不提供,
+// 設定頁會把開關標成僅桌面可設,避免使用者以為改了卻沒生效。
 export const getAutoStart = async () => {
-  if (!isTauri) return false
+  if (!isTauriRuntime) return false
   return await autostartIsEnabled()
 }
 export const setAutoStart = async enabled => {
-  if (!isTauri) return
+  if (!isTauriRuntime) return
   if (enabled) await autostartEnable()
   else await autostartDisable()
 }
@@ -72,26 +81,26 @@ const MOCK_CONFIG = {
   },
 }
 export const getConfig = async () => {
-  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CONFIG))
+  if (!hasBackend) return JSON.parse(JSON.stringify(MOCK_CONFIG))
   return await invoke('get_config')
 }
 export const updateConfig = async newConfig => {
-  if (!isTauri) return JSON.parse(JSON.stringify(newConfig))
+  if (!hasBackend) return JSON.parse(JSON.stringify(newConfig))
   return await invoke('update_config', { newConfig })
 }
 // 即時調整數位變焦(不存檔):相機預覽對話框拖滑桿時呼叫,後端下一幀就套用到 MJPEG 串流
 export const cameraSetZoom = async zoom => {
-  if (!isTauri) return
+  if (!hasBackend) return
   return await invoke('camera_set_zoom', { zoom })
 }
 // 手動拍一張:抓當下最新一幀存進存證目錄,回相對 key(相機未啟用/無幀時回 null)
 export const cameraCaptureNow = async () => {
-  if (!isTauri) return null
+  if (!hasBackend) return null
   return await invoke('camera_capture_now')
 }
 // 面單預產自動排程的可觀測狀態(排程啟動 / 上次執行),供前端顯示確認排程是否運作
 export const getPregenStatus = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return {
       scheduler_started_at: '2026-06-17 09:00:00',
       last_run_at: '2026-06-17 13:00:12',
@@ -109,30 +118,30 @@ export const getPregenStatus = async () => {
 
 // 面單預產「今日已預產的 order_sn」快照(自動排程 + 手動頁共用去重,cache_day 範圍)
 export const pregenDoneSnapshot = async () => {
-  if (!isTauri) return { cache_day: new Date().toISOString().slice(0, 10), order_sns: [] }
+  if (!hasBackend) return { cache_day: new Date().toISOString().slice(0, 10), order_sns: [] }
   return await invoke('pregen_done_snapshot')
 }
 
 // 標記一批 order_sn 為「今日已預產」(寫回後端共用去重)
 export const pregenMarkDone = async (orderSns) => {
-  if (!isTauri) return
+  if (!hasBackend) return
   return await invoke('pregen_mark_done', { orderSns })
 }
 
 // 清除「今日已預產」記憶(後端 DB + 記憶體)
 export const pregenClearDone = async () => {
-  if (!isTauri) return
+  if (!hasBackend) return
   return await invoke('pregen_clear_done')
 }
 
 // 雲端
 const MOCK_SESSION = { logged_in: false, api_base: '', user_label: null }
 export const cloudPing = async () => {
-  if (!isTauri) return { ok: true }
+  if (!hasBackend) return { ok: true }
   return await invoke('cloud_ping')
 }
 export const cloudLogin = async (apiBase, token) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     // 寫回共用的 MOCK_SESSION,讓緊接著的 cloudSession() 讀到一致的登入狀態(否則畫面會先顯示登入成功、下一秒被 cloudSession() 的初始值蓋回未登入)
     MOCK_SESSION.api_base = apiBase
     MOCK_SESSION.logged_in = true
@@ -142,7 +151,7 @@ export const cloudLogin = async (apiBase, token) => {
   return await invoke('cloud_login', { req: { api_base: apiBase, token } })
 }
 export const cloudLogout = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     MOCK_SESSION.logged_in = false
     MOCK_SESSION.api_base = ''
     MOCK_SESSION.user_label = null
@@ -151,11 +160,11 @@ export const cloudLogout = async () => {
   return await invoke('cloud_logout')
 }
 export const cloudSession = async () => {
-  if (!isTauri) return { ...MOCK_SESSION }
+  if (!hasBackend) return { ...MOCK_SESSION }
   return await invoke('cloud_session')
 }
 export const cloudFetchLabel = async (orderSn, { printTypes = ['ALL'], enforce = false, mode = 'web_print', scannerUser = '', stickerUser = '', force = false } = {}) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     // 'LABEL-PROCESS' 是後端 cloud_fetch_label 唯一的成功值,ScanPrintPage 與 PreGeneratePage
     // 都拿這個字串判斷是否成功;帶非空 print_file_path 讓成功分支真的演練得起來
     return {
@@ -172,7 +181,7 @@ export const cloudFetchLabel = async (orderSn, { printTypes = ['ALL'], enforce =
   return await invoke('cloud_fetch_label', { req: { order_sn: orderSn, print_type: printTypes, enforce, mode, scanner_user: scannerUser, sticker_user: stickerUser, force_refetch: force } })
 }
 export const cloudFetchCloudPrint = async (orderSn, { printTypes = ['ALL'], enforce = false, packageSn = '', scannerUser = '', stickerUser = '' } = {}) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     // 'PRINT-SUCCESS' 是 AutoPrintPage 的 respond_code 判斷成功送印的唯一值
     return {
       respond_code: 'PRINT-SUCCESS',
@@ -189,7 +198,7 @@ export const cloudFetchCloudPrint = async (orderSn, { printTypes = ['ALL'], enfo
   return await invoke('cloud_fetch_cloud_print', { req: { order_sn: orderSn, print_type: printTypes, enforce, package_sn: packageSn, scanner_user: scannerUser, sticker_user: stickerUser } })
 }
 export const cloudExaminePackage = async shipmentNo => {
-  if (!isTauri) {
+  if (!hasBackend) {
     // 'FIND-PACKAGE-ORDER' 是 AutoPrintPage 判斷成功反查整袋訂單的唯一值,
     // 與 cloudPackageOrders / cloudOrdersByDate 的 mock 用同一個真實 code
     return {
@@ -205,14 +214,14 @@ export const cloudExaminePackage = async shipmentNo => {
 }
 // 面單預產:袋號反查整袋訂單編號
 export const cloudPackageOrders = async packageSn => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return { respond_code: 'FIND-PACKAGE-ORDER', package_sn: packageSn, order_sns: ['SO-MOCK-1', 'SO-MOCK-2', 'SO-MOCK-3'] }
   }
   return await invoke('cloud_package_orders', { req: { package_sn: packageSn } })
 }
 // 面單預產:依日期反查整批訂單編號(source: clearance 清關 / transfer 轉寄出貨)
 export const cloudOrdersByDate = async (date, source = 'clearance') => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return { respond_code: 'FIND-PACKAGE-ORDER', date, source, package_count: source === 'clearance' ? 2 : 0, order_sns: ['SO-MOCK-1', 'SO-MOCK-2', 'SO-MOCK-3', 'SO-MOCK-4'] }
   }
   return await invoke('cloud_orders_by_date', { req: { date, source } })
@@ -220,7 +229,7 @@ export const cloudOrdersByDate = async (date, source = 'clearance') => {
 
 // 清關作業 — 選項(倉庫 / 清關公司 / 司機 歷史清單,供下拉;欄位仍可自由輸入)
 export const cloudClearanceOptions = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return {
       storages: [
         { value: '33843', title: '桃園' },
@@ -242,7 +251,7 @@ export const cloudClearanceOptions = async () => {
 // 清關進度浮動框 — 指定報關日區間 → 袋數/件數/已印/剩餘 + 各件列印狀態(供去重遞減)
 // printType 只影響一併回來的貼單去重數('0'=桃園廠直發 / '1'=台中廠轉寄 / ''=全廠)
 export const clearanceProgress = async (from, to = '', printType = '') => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const parcels = Array.from({ length: 14 }, (_, i) => ({
       shipping_no: `74Z0100${1000 + i}`,
       package_sn: i < 8 ? 'XYE2619201' : '0Y9T5714',
@@ -258,7 +267,7 @@ export const clearanceProgress = async (from, to = '', printType = '') => {
 
 // 清關進度浮動框 — 只取業務日的貼單去重數(輕量,列印廣播後校正用,不重拉清關明細)
 export const clearanceStickerTotals = async (printType = '') => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const orderNum = printType === '0' ? 980 : printType === '1' ? 254 : 1234
     return { respond_code: 'OK', sticker: { business_date: new Date().toISOString().slice(0, 10), print_type: printType === '' ? null : Number(printType), package_num: 2, order_num: orderNum } }
   }
@@ -268,7 +277,7 @@ export const clearanceStickerTotals = async (printType = '') => {
 // 現場作業監控 — 清關/轉寄進度看板 + 每日貼單作業人員統計(與雲端網頁版同一份資料)
 // stickerDate 為每日貼單的業務日(空=今日);雲端會把格式錯誤或晚於今日的值收斂後由 stickerDate 回傳實際查的日期
 export const fieldOperationMonitor = async (from, to = '', stickerDate = '') => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const row = (name, min, max, p, o, sys = false) => ({ name, is_system: sys, min_time: min, max_time: max, package_num: p, order_num: o })
     const today = new Date().toISOString().slice(0, 10)
     const businessDate = stickerDate && stickerDate <= today ? stickerDate : today
@@ -295,13 +304,13 @@ export const fieldOperationMonitor = async (from, to = '', stickerDate = '') => 
 
 // 清關進度浮動框 — 設定要即時追蹤的報關日(開啟/換日期傳日期陣列;關閉傳空陣列退訂)
 export const progressSetDates = async (dates = []) => {
-  if (!isTauri) return
+  if (!hasBackend) return
   return await invoke('progress_set_dates', { dates })
 }
 
 // 清關作業 — 新增包裹(transport_package_sn 為逗號分隔多筆袋號)
 export const cloudClearanceStore = async ({ transportPackageSn, clearanceCompany = '', clearanceDate = '', storageCode = '33843' }) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const n = transportPackageSn.split(/[,\s]+/).filter(Boolean).length
     return { success: true, upserted: n, confirm_success: n, confirm_failed: 0, message: `已新增 ${n} 個包裹,訂單自動確認成功 ${n} / 失敗 0` }
   }
@@ -311,7 +320,7 @@ export const cloudClearanceStore = async ({ transportPackageSn, clearanceCompany
 }
 // 清關作業 — 司機派工
 export const cloudClearanceDispatch = async ({ transportPackageSn, driverName, shippingDate = '', storageCode = '33843' }) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const n = transportPackageSn.split(/[,\s]+/).filter(Boolean).length
     return { success: true, dispatched: n, driver_name: driverName, message: `已派工 ${n} 個包裹給司機「${driverName}」` }
   }
@@ -323,7 +332,7 @@ export const cloudClearanceDispatch = async ({ transportPackageSn, driverName, s
 // 入倉驗單 — 邏輯全在雲端 WarehouseScannerService,中介端透傳。
 // 選項(倉庫 / 物流商)
 export const warehouseOptions = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return {
       warehouses: { '41466': '台中', '33843': '桃園' },
       providers: [
@@ -338,7 +347,7 @@ export const warehouseOptions = async () => {
 }
 // 建立 / 載入箱號(payload = 整個表單物件)
 export const warehouseCreatePackage = async (payload) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const sn = (payload.return_provider || '7') + String(payload.serial_number || 1).padStart(3, '0') + (payload.return_date || '').replace(/-/g, '').slice(2)
     return { respond_code: 'FIND-PACKAGE-GOODS', respond_message: '箱號載入成功', storage_warehouse: payload.storage_warehouse, package_sn: sn, goods_list: [], goods_total: 0 }
   }
@@ -346,7 +355,7 @@ export const warehouseCreatePackage = async (payload) => {
 }
 // 驗單入倉(payload = 整個表單物件)
 export const warehouseExamine = async (payload) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const sn = (payload.return_provider || '7') + String(payload.serial_number || 1).padStart(3, '0') + (payload.return_date || '').replace(/-/g, '').slice(2)
     return {
       respond_code: 'FIND-PACKAGE-GOODS', respond_message: '包裹入倉成功', storage_warehouse: payload.storage_warehouse, package_sn: sn,
@@ -358,30 +367,30 @@ export const warehouseExamine = async (payload) => {
 }
 // 移除單一商品
 export const warehouseRemoveGoods = async (shipmentNo) => {
-  if (!isTauri) return { respond_code: 'FIND-PACKAGE-GOODS', respond_message: '商品已移除', goods_list: [], goods_total: 0 }
+  if (!hasBackend) return { respond_code: 'FIND-PACKAGE-GOODS', respond_message: '商品已移除', goods_list: [], goods_total: 0 }
   return await invoke('warehouse_remove_goods', { req: { shipment_no: shipmentNo } })
 }
 // 刪除整個箱號
 export const warehouseRemovePackage = async (storageWarehouse, packageSn) => {
-  if (!isTauri) return { respond_code: 'SUCCESS', respond_message: '箱號已刪除' }
+  if (!hasBackend) return { respond_code: 'SUCCESS', respond_message: '箱號已刪除' }
   return await invoke('warehouse_remove_package', { req: { storage_warehouse: storageWarehouse, package_sn: packageSn } })
 }
 // 取箱標列印資料
 export const warehouseLabelData = async (storageWarehouse, packageSn, endNum = 0, continuous = false) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return { labels: [{ package_sn: packageSn, provider_code: packageSn.slice(0, 1), provider_name: '7-11', serial_number: packageSn.slice(1, 4), date_part: packageSn.slice(4), package_date: '06-28', warehouse_name: '台中', package_remarks: '' }], error: null }
   }
   return await invoke('warehouse_label_data', { req: { storage_warehouse: storageWarehouse, package_sn: packageSn, end_num: endNum, continuous } })
 }
 // 箱標本地列印(labels 來自 warehouseLabelData)
 export const warehousePrintLabels = async (printerName, labels) => {
-  if (!isTauri) return labels.length
+  if (!hasBackend) return labels.length
   return await invoke('warehouse_print_labels', { req: { printer_name: printerName, labels } })
 }
 
 // 印表機
 export const listPrinters = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return [
       { name: 'EPSON L6190 (預覽)', system_name: 'EPSON_L6190', driver_name: 'EPSON', is_default: true, state: 'idle' },
       { name: 'HP LaserJet M404dn (預覽)', system_name: 'HP_M404dn', driver_name: 'HP', is_default: false, state: 'idle' },
@@ -390,17 +399,17 @@ export const listPrinters = async () => {
   return await invoke('list_printers')
 }
 export const printImage = async ({ printerName, imageBase64, imagePath }) => {
-  if (!isTauri) return
+  if (!hasBackend) return
   return await invoke('print_image', { req: { printer_name: printerName, image_base64: imageBase64, image_path: imagePath } })
 }
 
 // Server
 export const serverStatus = async () => {
-  if (!isTauri) return { running: false, bind_addr: '' }
+  if (!hasBackend) return { running: false, bind_addr: '' }
   return await invoke('server_status')
 }
 export const serverRestart = async () => {
-  if (!isTauri) return { running: false, bind_addr: '' }
+  if (!hasBackend) return { running: false, bind_addr: '' }
   return await invoke('server_restart')
 }
 
@@ -424,7 +433,7 @@ const MOCK_PARCEL_ALERTS = Array.from({ length: 63 }, (_, i) => {
   }
 })
 export const parcelAlertList = async ({ keyword = null, queryNo = null, shippingNo = null, kind = null, limit = 25, offset = 0 } = {}) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     const kw = (keyword || '').toLowerCase()
     const qn = splitNos(queryNo)
     const sn = splitNos(shippingNo)
@@ -440,7 +449,7 @@ export const parcelAlertList = async ({ keyword = null, queryNo = null, shipping
 
 // 本機 LAN IP 清單(工控機連線位址)
 export const localLanIps = async () => {
-  if (!isTauri) {
+  if (!hasBackend) {
     return {
       ips: [
         { name: 'en0', ip: '192.168.1.50' },
@@ -454,7 +463,7 @@ export const localLanIps = async () => {
 
 // Queue
 export const queueStats = async () => {
-  if (!isTauri) return { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 }
+  if (!hasBackend) return { pending: 0, sending: 0, success: 0, failed: 0, cancelled: 0 }
   return await invoke('queue_stats')
 }
 export const queueList = ({ status = null, keyword = null, trackingNo = null, unreportedOnly = false, limit = 100, offset = 0 } = {}) =>
@@ -465,21 +474,21 @@ export const queuePurge = ({ status = 'success', olderThanDays = 7 } = {}) =>
 
 // Cache
 export const cacheStats = async () => {
-  if (!isTauri) return { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 }
+  if (!hasBackend) return { file_count: 0, total_bytes: 0, hit_count: 0, miss_count: 0, hit_rate: 0 }
   return await invoke('cache_stats')
 }
 export const cacheClear = async () => {
-  if (!isTauri) return 0
+  if (!hasBackend) return 0
   return await invoke('cache_clear')
 }
 
 // Event log
 export const eventLogList = async ({ level = null, category = null, keyword = null, limit = 200, offset = 0 } = {}) => {
-  if (!isTauri) return []
+  if (!hasBackend) return []
   return await invoke('event_log_list', { req: { level, category, keyword, limit, offset } })
 }
 export const dailyStats = async ({ days = 7 } = {}) => {
-  if (!isTauri) return []
+  if (!hasBackend) return []
   return await invoke('daily_stats', { req: { days } })
 }
 
@@ -490,17 +499,17 @@ const MOCK_DISPATCH = [
   { code: 'P', name: '中華郵政', sort_order: 2, print_profile: 'PROFILE_P' },
 ]
 export const dispatchProviderList = async () => {
-  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_DISPATCH))
+  if (!hasBackend) return JSON.parse(JSON.stringify(MOCK_DISPATCH))
   return await invoke('dispatch_provider_list')
 }
 export const dispatchProviderUpsert = ({ code, name, sortOrder = 0, printProfile = null }) => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return invoke('dispatch_provider_upsert', {
     req: { code, name, sort_order: sortOrder, print_profile: printProfile || null },
   })
 }
 export const dispatchProviderDelete = code => {
-  if (!isTauri) return Promise.resolve(0)
+  if (!hasBackend) return Promise.resolve(0)
   return invoke('dispatch_provider_delete', { code })
 }
 
@@ -515,11 +524,11 @@ const MOCK_CHANNELS = POSITIONS.map(p => ({
   enabled: true,
 }))
 export const sortChannelList = async () => {
-  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_CHANNELS))
+  if (!hasBackend) return JSON.parse(JSON.stringify(MOCK_CHANNELS))
   return await invoke('sort_channel_list')
 }
 export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobSticker, printerName }) => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_save', {
     req: {
       position,
@@ -531,27 +540,27 @@ export const sortChannelSave = ({ position, channelCode, dispatchCodes, jobStick
   })
 }
 export const sortChannelSetEnabled = (position, enabled) => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_set_enabled', { position, enabled })
 }
 export const sortChannelUnassignedGet = async () => {
-  if (!isTauri) return null
+  if (!hasBackend) return null
   return await invoke('sort_channel_unassigned_get')
 }
 export const sortChannelUnassignedSave = (code) => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_unassigned_save', { code: code || null })
 }
 export const stickerHistoryList = async () => {
-  if (!isTauri) return ['王小明', '陳大華', '林美麗']
+  if (!hasBackend) return ['王小明', '陳大華', '林美麗']
   return await invoke('sticker_history_list')
 }
 export const stickerHistoryAdd = name => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return invoke('sticker_history_add', { name })
 }
 export const stickerHistoryDelete = name => {
-  if (!isTauri) return Promise.resolve(0)
+  if (!hasBackend) return Promise.resolve(0)
   return invoke('sticker_history_delete', { name })
 }
 
@@ -570,7 +579,7 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   photo_path: i % 3 === 0 ? `${16021200 - i}_20260626001425.jpg` : null,
 }))
 export const parcelQueryLogList = async ({ queryNo = null, trackingNo = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
-  if (!isTauri) {
+  if (!hasBackend) {
     let list = MOCK_PARCEL_QUERY_LOG
     const qn = splitNos(queryNo); if (qn.length) list = list.filter(r => qn.includes(r.query_no))
     const tn = splitNos(trackingNo); if (tn.length) list = list.filter(r => tn.includes(r.tracking_no))
@@ -600,11 +609,11 @@ const MOCK_NET_HEALTH = {
   checked_at_ms: Date.now(),
 }
 export const networkHealthGet = async () => {
-  if (!isTauri) return MOCK_NET_HEALTH
+  if (!hasBackend) return MOCK_NET_HEALTH
   return await invoke('network_health_get')
 }
 export const networkHealthCheck = async () => {
-  if (!isTauri) return MOCK_NET_HEALTH
+  if (!hasBackend) return MOCK_NET_HEALTH
   return await invoke('network_health_check')
 }
 
@@ -659,28 +668,28 @@ const MOCK_STATS_STICKERS = [
 ]
 
 export const printStatsSummary = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_SUMMARY
+  if (!hasBackend) return MOCK_STATS_SUMMARY
   return await invoke('print_stats_summary', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsDaily = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_DAILY
+  if (!hasBackend) return MOCK_STATS_DAILY
   return await invoke('print_stats_daily', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsHourly = async () => {
-  if (!isTauri) return MOCK_STATS_HOURLY
+  if (!hasBackend) return MOCK_STATS_HOURLY
   return await invoke('print_stats_hourly')
 }
 // 指定區間逐小時(單日趨勢用):選取區間為 1 天時,每日趨勢改顯示該日小時趨勢
 export const printStatsHourlyRange = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_HOURLY
+  if (!hasBackend) return MOCK_STATS_HOURLY
   return await invoke('print_stats_hourly_range', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsByProvider = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_PROVIDERS
+  if (!hasBackend) return MOCK_STATS_PROVIDERS
   return await invoke('print_stats_by_provider', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsBySticker = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_STICKERS
+  if (!hasBackend) return MOCK_STATS_STICKERS
   return await invoke('print_stats_by_sticker', { req: { start_date: startDate, end_date: endDate } })
 }
 
@@ -725,35 +734,35 @@ const MOCK_STATS_COMPARE = [
 ]
 
 export const printStatsByScanner = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_SCANNERS
+  if (!hasBackend) return MOCK_STATS_SCANNERS
   return await invoke('print_stats_by_scanner', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsByChannel = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_CHANNELS
+  if (!hasBackend) return MOCK_STATS_CHANNELS
   return await invoke('print_stats_by_channel', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsHeatmap = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_HEATMAP
+  if (!hasBackend) return MOCK_STATS_HEATMAP
   return await invoke('print_stats_heatmap', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsReprint = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_REPRINT
+  if (!hasBackend) return MOCK_STATS_REPRINT
   return await invoke('print_stats_reprint', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsProviderSource = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_PROVIDER_SOURCE
+  if (!hasBackend) return MOCK_STATS_PROVIDER_SOURCE
   return await invoke('print_stats_provider_source', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsFailure = async ({ startDate = '', endDate = '' } = {}) => {
-  if (!isTauri) return MOCK_STATS_FAILURE
+  if (!hasBackend) return MOCK_STATS_FAILURE
   return await invoke('print_stats_failure', { req: { start_date: startDate, end_date: endDate } })
 }
 export const printStatsCompare = async () => {
-  if (!isTauri) return MOCK_STATS_COMPARE
+  if (!hasBackend) return MOCK_STATS_COMPARE
   return await invoke('print_stats_compare')
 }
 export const workSessionReset = async () => {
-  if (!isTauri) return new Date().toISOString().slice(0, 19).replace('T', ' ')
+  if (!hasBackend) return new Date().toISOString().slice(0, 19).replace('T', ' ')
   return await invoke('work_session_reset')
 }
 
@@ -833,11 +842,21 @@ const MOCK_BAG_CHECK = [
   },
 ]
 export const bagCheckSnapshot = async () => {
-  if (!isTauri) return JSON.parse(JSON.stringify(MOCK_BAG_CHECK))
+  if (!hasBackend) return JSON.parse(JSON.stringify(MOCK_BAG_CHECK))
   return await invoke('bag_check_snapshot')
 }
 export const bagCheckClear = async () => {
-  if (!isTauri) return Promise.resolve()
+  if (!hasBackend) return Promise.resolve()
   return await invoke('bag_check_clear')
 }
 
+// 網頁存取(對外開放時的共用密碼)
+export const webAuthStatus = async () => {
+  if (!hasBackend) return { password_set: false }
+  return await invoke('web_auth_status')
+}
+/** 傳空字串等於清除密碼;清除後外網無法登入 */
+export const webAuthSetPassword = async password => {
+  if (!hasBackend) return
+  return await invoke('web_auth_set_password', { req: { password } })
+}

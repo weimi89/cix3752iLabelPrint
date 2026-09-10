@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::cloud::CloudClient;
 
@@ -139,7 +139,7 @@ impl BagCheckState {
 
     fn emit(&self) {
         let payload = self.snapshot();
-        if let Err(e) = self.app.emit(BAG_CHECK_UPDATED_EVENT, payload) {
+        if let Err(e) = crate::event_bridge::emit(&self.app, BAG_CHECK_UPDATED_EVENT, payload) {
             tracing::warn!(?e, "emit bag-check-updated 失敗");
         }
     }

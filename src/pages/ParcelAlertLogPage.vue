@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
@@ -168,7 +168,7 @@ const empty = computed(() => !loading.value && items.value.length === 0)
 
       <VDivider />
 
-      <VTable v-if="!empty" density="comfortable" class="alert-log-table">
+      <VTable v-if="!empty" density="comfortable" class="table-cards alert-log-table">
         <thead>
           <tr>
             <th class="text-center" style="width: 170px;">{{ $t('page.alertLog.col.time') }}</th>
@@ -181,12 +181,12 @@ const empty = computed(() => !loading.value && items.value.length === 0)
         </thead>
         <tbody>
           <tr v-for="a in items" :key="a.id">
-            <td class="text-center text-medium-emphasis">{{ a.created_at }}</td>
-            <td class="text-center"><VChip :color="kindColor(a.kind)" size="small" variant="tonal">{{ kindLabel(a.kind) }}</VChip></td>
-            <td class="text-center font-weight-medium">{{ a.query_no || '—' }}</td>
-            <td class="text-center font-weight-medium">{{ a.shipping_no || '—' }}</td>
-            <td class="text-center">{{ a.channel_code || '—' }}</td>
-            <td class="text-medium-emphasis">{{ a.message || '—' }}</td>
+            <td :data-label="$t('page.alertLog.col.time')" class="text-center text-medium-emphasis">{{ a.created_at }}</td>
+            <td :data-label="$t('page.alertLog.col.kind')" class="text-center"><VChip :color="kindColor(a.kind)" size="small" variant="tonal">{{ kindLabel(a.kind) }}</VChip></td>
+            <td :data-label="$t('page.alertLog.col.queryNo')" class="text-center font-weight-medium">{{ a.query_no || '—' }}</td>
+            <td :data-label="$t('page.alertLog.col.shippingNo')" class="text-center font-weight-medium">{{ a.shipping_no || '—' }}</td>
+            <td :data-label="$t('page.alertLog.col.channel')" class="text-center">{{ a.channel_code || '—' }}</td>
+            <td :data-label="$t('page.alertLog.col.message')" class="text-medium-emphasis">{{ a.message || '—' }}</td>
           </tr>
         </tbody>
       </VTable>

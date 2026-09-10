@@ -185,7 +185,7 @@ const applyDates = () => {
           </div>
           <VExpandTransition>
             <div v-show="showProviders">
-              <VTable density="compact" hover>
+              <VTable density="compact" hover class="table-cards">
                 <thead>
                   <tr>
                     <th class="text-center">{{ $t('page.fieldOperationMonitor.colProvider') }}</th>
@@ -197,10 +197,10 @@ const applyDates = () => {
                 <tbody>
                   <template v-if="providerRows.length">
                     <tr v-for="row in providerRows" :key="row.name">
-                      <td class="text-center font-weight-medium">{{ row.name }}</td>
-                      <td class="text-center"><span class="font-weight-bold text-info">{{ fmt(row.bag_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.bag_total) }}</span></td>
-                      <td class="text-center"><span class="font-weight-bold text-warning">{{ fmt(row.clearance_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.clearance_total) }}</span></td>
-                      <td class="text-center"><span class="font-weight-bold text-primary">{{ fmt(row.storage_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.storage_total) }}</span></td>
+                      <td :data-label="$t('page.fieldOperationMonitor.colProvider')" class="text-center font-weight-medium">{{ row.name }}</td>
+                      <td :data-label="$t('page.fieldOperationMonitor.colBags')" class="text-center"><span class="font-weight-bold text-info">{{ fmt(row.bag_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.bag_total) }}</span></td>
+                      <td :data-label="$t('page.fieldOperationMonitor.colClearance')" class="text-center"><span class="font-weight-bold text-warning">{{ fmt(row.clearance_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.clearance_total) }}</span></td>
+                      <td :data-label="$t('page.fieldOperationMonitor.colStorage')" class="text-center"><span class="font-weight-bold text-primary">{{ fmt(row.storage_remaining) }}</span><span class="text-disabled mx-1">/</span><span class="text-medium-emphasis">{{ fmt(row.storage_total) }}</span></td>
                     </tr>
                   </template>
                   <tr v-else>
@@ -273,7 +273,7 @@ const applyDates = () => {
       <VTab v-for="tab in tabs" :key="tab.value" :value="tab.value">{{ tab.label }}</VTab>
     </VTabs>
     <VCard class="bookmark-card">
-      <VTable hover>
+      <VTable hover class="table-cards">
         <thead>
           <tr>
             <th class="text-center" style="min-width: 160px;">{{ $t('page.fieldOperationMonitor.colOperator') }}</th>
@@ -286,16 +286,16 @@ const applyDates = () => {
         <tbody>
           <template v-if="currentScope.rows.length">
             <tr v-for="(row, i) in currentScope.rows" :key="`${currentTab}-${i}`">
-              <td class="text-center font-weight-medium">{{ row.name }}</td>
-              <td class="text-center">{{ row.min_time || '-' }}</td>
-              <td class="text-center">{{ row.max_time || '-' }}</td>
-              <td class="text-center">{{ fmt(row.package_num) }}</td>
-              <td class="text-center">{{ fmt(row.order_num) }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colOperator')" class="text-center font-weight-medium">{{ row.name }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colMinTime')" class="text-center">{{ row.min_time || '-' }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colMaxTime')" class="text-center">{{ row.max_time || '-' }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colPackageNum')" class="text-center">{{ fmt(row.package_num) }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colOrderNum')" class="text-center">{{ fmt(row.order_num) }}</td>
             </tr>
             <tr class="total-row">
               <td class="text-center font-weight-bold" colspan="3">{{ $t('page.fieldOperationMonitor.dedupTotal') }}</td>
-              <td class="text-center font-weight-bold text-primary">{{ fmt(currentScope.total.package_num) }}</td>
-              <td class="text-center font-weight-bold text-primary">{{ fmt(currentScope.total.order_num) }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colPackageNum')" class="text-center font-weight-bold text-primary">{{ fmt(currentScope.total.package_num) }}</td>
+              <td :data-label="$t('page.fieldOperationMonitor.colOrderNum')" class="text-center font-weight-bold text-primary">{{ fmt(currentScope.total.order_num) }}</td>
             </tr>
           </template>
           <tr v-else>

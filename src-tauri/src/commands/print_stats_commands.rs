@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 use crate::{AppResult, SharedState};
 
@@ -27,7 +27,7 @@ pub fn emit_print_stats_updated(app: &AppHandle, source: &'static str, shipping_
         source,
         shipping_no: shipping_no.to_string(),
     };
-    if let Err(e) = app.emit(PRINT_STATS_UPDATED_EVENT, payload) {
+    if let Err(e) = crate::event_bridge::emit(&app, PRINT_STATS_UPDATED_EVENT, payload) {
         tracing::warn!(?e, "emit print-stats-updated 失敗");
     }
 }

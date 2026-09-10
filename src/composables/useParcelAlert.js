@@ -1,7 +1,7 @@
 // 工控機 GET /api/parcel 失敗時的全域聲音 + toast 提示
 // 後端 server 端在請求失敗時 emit 'parcel-alert' { kind, message, query_no },
 // 操作員不在電腦前盯著,靠聲音分辨「這件有問題、要處理」。成功不出聲(高頻會吵)。
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 import { playSound } from '@/composables/useSoundEffects'

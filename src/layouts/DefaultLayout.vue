@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getVersion } from '@tauri-apps/api/app'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { VerticalNavLayout } from '@layouts'
 import { layoutConfig } from '@layouts'
 import { useLayoutConfigStore } from '@layouts/stores/config'
@@ -17,6 +17,7 @@ import { useDeviceAlert } from '@/composables/useDeviceAlert'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
 import { playSound } from '@/composables/useSoundEffects'
+import { hasBackend } from '@/api/runtime'
 
 const { layoutAttrs } = useSkins()
 const configStore = useLayoutConfigStore()
@@ -26,7 +27,6 @@ const deviceAlert = useDeviceAlert()
 const { t } = useI18n()
 const appVersion = ref('')
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 let timer = null
 let unlistenPrintStats = null
 let unlistenBindFailed = null
@@ -50,7 +50,7 @@ onMounted(async () => {
   } catch {
     // 非 Tauri 環境(如純瀏覽器預覽)取不到版本,留空即可
   }
-  if (!isTauriRuntime) {
+  if (!hasBackend) {
     await status.refreshPrintStats()
     return
   }

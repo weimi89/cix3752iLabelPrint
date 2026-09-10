@@ -29,6 +29,68 @@ pub struct AppConfig {
     pub sort_only: SortOnlyConfig,
     #[serde(default)]
     pub error_label: ErrorLabelConfig,
+    #[serde(default)]
+    pub web_access: WebAccessConfig,
+}
+
+/// 網頁版對外存取設定。
+///
+/// 內網來源(現場電腦、工控機、手機)一律免登入;**外網來源要輸入共用密碼**,
+/// 通過後與坐在現場有同等權限。密碼雜湊不放這裡 —— 設定會被 `get_config` 整包
+/// 回給前端,雜湊跟著跑到瀏覽器沒有必要。密碼另存 `app_setting`。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebAccessConfig {
+    /// 對外存取總開關。關閉時非內網來源一律擋掉,連登入頁都不給 ——
+    /// 預設關閉,要對外開放是明確的決定,不該因為裝了新版就自動生效。
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// 視為內網的網段(CIDR)。命中者免登入。
+    ///
+    /// 判斷一律以 TCP 連線的來源位址為準,**不看 X-Forwarded-For** ——
+    /// 這台機器直接對外,標頭是任何人都能偽造的,信了等於整道門形同虛設。
+    #[serde(default = "default_lan_cidrs")]
+    pub lan_cidrs: Vec<String>,
+
+    /// 登入後多久要重新輸入密碼(小時)
+    #[serde(default = "default_session_hours")]
+    pub session_hours: u32,
+
+    /// 同一來源連續失敗幾次就鎖住
+    #[serde(default = "default_max_fails")]
+    pub max_fail_attempts: u32,
+
+    /// 鎖多久(分鐘)
+    #[serde(default = "default_lock_minutes")]
+    pub lock_minutes: u32,
+}
+
+fn default_lan_cidrs() -> Vec<String> {
+    vec![
+        "127.0.0.0/8".into(),
+        "10.0.0.0/8".into(),
+        "172.16.0.0/12".into(),
+        "192.168.0.0/16".into(),
+        "169.254.0.0/16".into(),
+        "::1/128".into(),
+        "fc00::/7".into(),
+        "fe80::/10".into(),
+    ]
+}
+fn default_session_hours() -> u32 { 8 }
+fn default_max_fails() -> u32 { 5 }
+fn default_lock_minutes() -> u32 { 15 }
+
+impl Default for WebAccessConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            lan_cidrs: default_lan_cidrs(),
+            session_hours: default_session_hours(),
+            max_fail_attempts: default_max_fails(),
+            lock_minutes: default_lock_minutes(),
+        }
+    }
 }
 
 /// 錯誤面單總開關 —— 工控機查件遇雲端業務錯誤(門市關轉 / 未確認 / 訂單異常 / 查無訂單 /
@@ -426,6 +488,7 @@ impl Default for AppConfig {
             sync: SyncConfig::default(),
             sort_only: SortOnlyConfig::default(),
             error_label: ErrorLabelConfig::default(),
+            web_access: WebAccessConfig::default(),
         }
     }
 }

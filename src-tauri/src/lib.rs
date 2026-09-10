@@ -8,6 +8,7 @@ mod db;
 mod error;
 pub mod error_label;
 mod fs_atomic;
+pub mod event_bridge;
 pub mod event_log;
 mod health;
 mod log;
@@ -171,6 +172,8 @@ pub fn run() {
             commands::print_stats_commands::work_session_reset,
             commands::bag_check_commands::bag_check_snapshot,
             commands::bag_check_commands::bag_check_clear,
+            commands::web_auth_commands::web_auth_status,
+            commands::web_auth_commands::web_auth_set_password,
         ])
         .run(tauri::generate_context!())
         .expect("執行 Tauri 應用時發生未預期錯誤");
@@ -219,8 +222,8 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         Ok(h) => Some(h),
         Err(e) => {
             tracing::error!(?e, "HTTP server 啟動失敗(port 可能被占用),App 將以 server 未啟動狀態繼續");
-            use tauri::Emitter;
-            let _ = handle.emit("server-bind-failed", e.to_string());
+            
+            let _ = crate::event_bridge::emit(&handle, "server-bind-failed", e.to_string());
             None
         }
     };

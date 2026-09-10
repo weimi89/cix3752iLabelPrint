@@ -394,6 +394,18 @@
     }
   },
   "page": {
+    "login": {
+      "offlineSubtitle": "目前連不上中介機服務",
+      "offlineHint": "中介機的服務可能正在重新啟動,或這台裝置與它之間的網路不通。連上後會自動進入,不需要一直重整。",
+      "retry": "重新嘗試",
+      "logout": "登出",
+      "title": "登入",
+      "subtitle": "這個連線來自外部網路,請輸入存取密碼",
+      "password": "存取密碼",
+      "submit": "登入",
+      "noPassword": "還沒有設定存取密碼。請先在中介機的桌面版設定,才能從外部登入。",
+      "lanHint": "在現場網路內開啟時不需要密碼"
+    },
     "clearanceAdd": {
       "title": "包裹入廠",
       "subtitle": "掃描包裹袋號,新增至清關清單",
@@ -573,6 +585,31 @@
       "selectPrinterPlaceholder": "選擇本機印表機"
     },
     "server": {
+      "webAccess": {
+        "lanOnlyNote": "為了避免有人拿到密碼後把門鎖換掉,這三件事只能在中介機本機或現場網路內做:改這一區的設定、更換密碼、指定要列印的檔案。其他功能從外面連進來後都能正常使用。",
+        "section": "網頁存取",
+        "desc": "讓主管或同仁用瀏覽器開這台機器的畫面。在現場網路內開啟不需要密碼;從公司外面連進來則要輸入下面設定的密碼。",
+        "enable": "開放外部連線",
+        "enableDesc": "關閉時,現場網路以外的人一律連不進來,連登入畫面都看不到。",
+        "noEncryptionWarning": "目前連線沒有加密。從外面連進來時,密碼和面單上的收件人姓名、電話、地址會以未加密的方式在網路上傳送,同一段網路上的人有機會看到。建議只在需要時開啟。",
+        "passwordTitle": "存取密碼",
+        "passwordIsSet": "已設定。從外面連進來的人都用這一組密碼。",
+        "passwordNotSet": "尚未設定。沒有密碼的話,即使開放外部連線也沒有人進得來。",
+        "newPassword": "設定新密碼",
+        "passwordHint": "至少 8 個字。換密碼會讓已經登入的人全部重新輸入。",
+        "savePassword": "儲存密碼",
+        "clearPassword": "清除密碼",
+        "passwordSaved": "密碼已更新,已登入的連線都需要重新輸入",
+        "passwordCleared": "密碼已清除,外部連線將無法登入",
+        "sessionHours": "登入後可用幾小時",
+        "sessionHoursHint": "超過後要重新輸入密碼",
+        "maxFails": "密碼可以錯幾次",
+        "maxFailsHint": "超過就暫時鎖住,防止有人一直猜密碼",
+        "lockMinutes": "鎖住幾分鐘",
+        "lockMinutesHint": "鎖住期間即使密碼正確也進不來",
+        "lanRanges": "不需要密碼的網路範圍",
+        "lanRangesHint": "一行一筆。這些範圍內的電腦視為現場設備,開啟畫面不必輸入密碼。工控機也必須落在這裡面,否則會連不上。"
+      },
       "title": "服務設定",
       "subtitle": "給分揀機工控機呼叫的本地 HTTP API",
       "restart": "重啟服務",
@@ -647,6 +684,7 @@
       }
     },
     "display": {
+      "openTab": "另開分頁顯示",
       "swapped": "{name} 已換到{screen}",
       "occupied": "這台螢幕正在顯示「{name}」,開啟後會蓋住它",
       "here": "在這",

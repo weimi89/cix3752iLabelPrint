@@ -13,6 +13,7 @@ pub mod printer_commands;
 pub mod queue_commands;
 pub mod server_commands;
 pub mod sort_channel_commands;
+pub mod web_auth_commands;
 
 /// 健康檢查 — 給前端確認 IPC 通了
 #[tauri::command]

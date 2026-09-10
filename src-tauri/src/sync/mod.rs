@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -244,7 +244,7 @@ async fn run_once(
                 // 首輪訂閱已送出 → 通知前端重拉基準(清關進度框補洞;tokio interval 首 tick 立即,
                 // 故此點距握手成功僅毫秒級)。emit 成功才標 announced:失敗(視窗重建窗等罕見情況)
                 // 下輪 reconcile 重試,不讓補洞通知靜默消失
-                if !announced && app.emit(SYNC_CONNECTED_EVENT, ()).is_ok() {
+                if !announced && crate::event_bridge::emit(&app, SYNC_CONNECTED_EVENT, ()).is_ok() {
                     announced = true;
                 }
             }
@@ -280,7 +280,8 @@ fn apply_event(text: &str, bag_check: &BagCheckState, app: &AppHandle) {
     if let Some(ev) = parse_parcel_printed(text) {
         if ev.channel.starts_with("clearance-date.") {
             tracing::info!(clearance_date = %ev.clearance_date, shipping_no = %ev.shipping_no, "清關進度:收到 parcel.printed");
-            let _ = app.emit(
+            let _ = crate::event_bridge::emit(
+                &app,
                 CLEARANCE_PROGRESS_PRINTED_EVENT,
                 serde_json::json!({
                     "clearance_date": ev.clearance_date,
@@ -300,11 +301,11 @@ fn apply_event(text: &str, bag_check: &BagCheckState, app: &AppHandle) {
         match event.as_str() {
             "clearance.parcels-added" => {
                 tracing::info!("清關進度:收到 clearance.parcels-added");
-                let _ = app.emit(CLEARANCE_PROGRESS_ADDED_EVENT, data);
+                let _ = crate::event_bridge::emit(&app, CLEARANCE_PROGRESS_ADDED_EVENT, data);
             }
             "clearance.parcels-removed" => {
                 tracing::info!("清關進度:收到 clearance.parcels-removed");
-                let _ = app.emit(CLEARANCE_PROGRESS_REMOVED_EVENT, data);
+                let _ = crate::event_bridge::emit(&app, CLEARANCE_PROGRESS_REMOVED_EVENT, data);
             }
             _ => {}
         }

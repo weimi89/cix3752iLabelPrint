@@ -1,9 +1,10 @@
 <script setup>
-import { getConfig, updateConfig, serverRestart, serverStatus, setAutoStart, getAutoStart } from '@/api/tauri'
+import { getConfig, updateConfig, serverRestart, serverStatus, setAutoStart, getAutoStart, webAuthStatus, webAuthSetPassword } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useLocale } from '@/composables/useLocale'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend, isTauriRuntime } from '@/api/runtime'
 
 const { t } = useI18n()
 const { currentLocale, availableLocales, setLocale } = useLocale()
@@ -23,12 +24,52 @@ const restarting = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+// 網頁存取
+const webPasswordSet = ref(false)
+const newWebPassword = ref('')
+const showWebPassword = ref(false)
+const savingWebPassword = ref(false)
+/** 網段清單在畫面上以一行一筆呈現,比 JSON 陣列好讀好改 */
+const lanCidrText = ref('')
+
+const saveWebPassword = async () => {
+  savingWebPassword.value = true
+  errorMsg.value = ''
+  try {
+    await webAuthSetPassword(newWebPassword.value)
+    webPasswordSet.value = !!newWebPassword.value
+    flashMsg.value = newWebPassword.value
+      ? t('page.server.webAccess.passwordSaved')
+      : t('page.server.webAccess.passwordCleared')
+    newWebPassword.value = ''
+  } catch (e) {
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingWebPassword.value = false
+  }
+}
+
 
 const load = async () => {
   config.value = await getConfig()
-  if (isTauriRuntime) {
+  // 舊設定檔沒有 web_access 區段時先兜底,避免畫面綁在 undefined 上
+  if (!config.value.web_access) {
+    config.value.web_access = {
+      enabled: false,
+      lan_cidrs: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
+      session_hours: 8,
+      max_fail_attempts: 5,
+      lock_minutes: 15,
+    }
+  }
+  lanCidrText.value = (config.value.web_access.lan_cidrs || []).join('\n')
+
+  if (hasBackend) {
     try { status.value = await serverStatus() } catch { /* 後端尚未啟動 */ }
+    try { webPasswordSet.value = (await webAuthStatus()).password_set } catch { webPasswordSet.value = false }
+  }
+  // 開機自動啟動是作業系統層級設定,只有桌面 App 讀得到
+  if (isTauriRuntime) {
     try { osAutoStart.value = await getAutoStart() } catch { osAutoStart.value = false }
   }
 }
@@ -48,9 +89,22 @@ const save = async () => {
   saving.value = true
   // 存檔前再夾一次:使用者可能沒離開欄位就直接按存檔(不會觸發 blur)
   if (config.value?.label_path) normalizeReportDelay()
+  // 網段欄位在畫面上是多行文字,存檔前轉回陣列。
+  // 漏了這步的話畫面會顯示「已儲存」但設定檔一個字都沒進去 —— 而工控機正是靠這份清單
+  // 被認定為內網,存不進去等於改了也沒用。
+  if (config.value?.web_access) {
+    config.value.web_access.lan_cidrs = lanCidrText.value
+      .split('\n')
+      .map(x => x.trim())
+      .filter(Boolean)
+  }
   try {
     const previousAutoStart = osAutoStart.value
     config.value = await updateConfig(JSON.parse(JSON.stringify(config.value)))
+    // 後端回來的才是實際生效的值,重新灌回畫面避免顯示與實際不一致
+    if (config.value?.web_access) {
+      lanCidrText.value = (config.value.web_access.lan_cidrs || []).join('\n')
+    }
     // 同步 OS autostart(只在 toggle 變化時呼叫)
     if (isTauriRuntime && previousAutoStart !== config.value.server.auto_start) {
       try {
@@ -88,7 +142,7 @@ const restart = async () => {
     <AppHeader :title="$t('page.server.title')" :subtitle="$t('page.server.subtitle')" icon="tabler-server-2">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
-          <VBtn :loading="restarting" color="warning" :disabled="!isTauriRuntime" @click="restart">
+          <VBtn :loading="restarting" color="warning" :disabled="!hasBackend" @click="restart">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('page.server.restart') }}
           </VBtn>
         </div>
@@ -96,7 +150,7 @@ const restart = async () => {
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem :disabled="!isTauriRuntime" @click="restart">
+              <VListItem :disabled="!hasBackend" @click="restart">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('page.server.restart') }}</VListItemTitle>
               </VListItem>
@@ -166,6 +220,121 @@ const restart = async () => {
             variant="outlined"
             style="max-inline-size: 220px;"
             @update:model-value="setLocale"
+          />
+        </div>
+      </VCardText>
+    </VCard>
+
+    <VCard v-if="config.web_access" class="mb-4">
+      <VCardItem>
+        <VCardTitle class="text-body-large font-weight-medium">{{ $t('page.server.webAccess.section') }}</VCardTitle>
+        <VCardSubtitle class="text-body-small text-wrap">{{ $t('page.server.webAccess.desc') }}</VCardSubtitle>
+      </VCardItem>
+      <VCardText>
+        <div class="d-flex align-center justify-space-between mb-2">
+          <div>
+            <div class="text-body-large font-weight-medium">{{ $t('page.server.webAccess.enable') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('page.server.webAccess.enableDesc') }}</div>
+          </div>
+          <VSwitch v-model="config.web_access.enabled" hide-details color="primary" inset />
+        </div>
+
+        <VAlert type="warning" variant="tonal" density="compact" class="mb-4" icon="tabler-shield-exclamation">
+          {{ $t('page.server.webAccess.noEncryptionWarning') }}
+        </VAlert>
+
+        <VAlert type="info" variant="tonal" density="compact" class="mb-4" icon="tabler-info-circle">
+          {{ $t('page.server.webAccess.lanOnlyNote') }}
+        </VAlert>
+
+        <VDivider class="mb-4" />
+
+        <div class="text-body-large font-weight-medium mb-1">{{ $t('page.server.webAccess.passwordTitle') }}</div>
+        <div class="text-body-small text-medium-emphasis mb-3">
+          {{ webPasswordSet ? $t('page.server.webAccess.passwordIsSet') : $t('page.server.webAccess.passwordNotSet') }}
+        </div>
+        <div class="d-flex align-end flex-wrap ga-2 mb-4">
+          <div class="flex-grow-1">
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.webAccess.newPassword') }}</VLabel>
+            <VTextField
+              v-model="newWebPassword"
+              :type="showWebPassword ? 'text' : 'password'"
+              :append-inner-icon="showWebPassword ? 'tabler-eye-off' : 'tabler-eye'"
+              :hint="$t('page.server.webAccess.passwordHint')"
+              persistent-hint
+              density="compact"
+              variant="outlined"
+              autocomplete="new-password"
+              @click:append-inner="showWebPassword = !showWebPassword"
+            />
+          </div>
+          <VBtn
+            color="primary"
+            :loading="savingWebPassword"
+            :disabled="!hasBackend || !newWebPassword"
+            @click="saveWebPassword"
+          >
+            {{ $t('page.server.webAccess.savePassword') }}
+          </VBtn>
+          <VBtn
+            v-if="webPasswordSet"
+            variant="tonal"
+            color="error"
+            :loading="savingWebPassword"
+            :disabled="!hasBackend"
+            @click="newWebPassword = ''; saveWebPassword()"
+          >
+            {{ $t('page.server.webAccess.clearPassword') }}
+          </VBtn>
+        </div>
+
+        <VDivider class="mb-4" />
+
+        <VRow>
+          <VCol cols="12" sm="4">
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.webAccess.sessionHours') }}</VLabel>
+            <VNumberInput
+              v-model="config.web_access.session_hours"
+              :min="1"
+              :max="720"
+              density="compact"
+              :hint="$t('page.server.webAccess.sessionHoursHint')"
+              persistent-hint
+            />
+          </VCol>
+          <VCol cols="12" sm="4">
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.webAccess.maxFails') }}</VLabel>
+            <VNumberInput
+              v-model="config.web_access.max_fail_attempts"
+              :min="1"
+              :max="50"
+              density="compact"
+              :hint="$t('page.server.webAccess.maxFailsHint')"
+              persistent-hint
+            />
+          </VCol>
+          <VCol cols="12" sm="4">
+            <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.webAccess.lockMinutes') }}</VLabel>
+            <VNumberInput
+              v-model="config.web_access.lock_minutes"
+              :min="1"
+              :max="1440"
+              density="compact"
+              :hint="$t('page.server.webAccess.lockMinutesHint')"
+              persistent-hint
+            />
+          </VCol>
+        </VRow>
+
+        <div class="mt-4">
+          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.server.webAccess.lanRanges') }}</VLabel>
+          <VTextarea
+            v-model="lanCidrText"
+            :hint="$t('page.server.webAccess.lanRangesHint')"
+            persistent-hint
+            rows="4"
+            density="compact"
+            variant="outlined"
           />
         </div>
       </VCardText>

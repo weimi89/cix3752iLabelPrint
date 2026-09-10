@@ -5,8 +5,8 @@ import TablePagination from '@/components/TablePagination.vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 const route = useRoute()
 
 const eventLevel = ref(null)
@@ -75,7 +75,7 @@ const MOCK_EVENTS = Array.from({ length: 60 }, (_, i) => {
 })
 
 const load = async () => {
-  if (!isTauriRuntime) {
+  if (!hasBackend) {
     let result = MOCK_EVENTS
     if (eventLevel.value) result = result.filter(e => e.level === eventLevel.value)
     if (eventCategory.value) result = result.filter(e => e.category === eventCategory.value)
@@ -120,7 +120,7 @@ onMounted(() => {
   const q = route.query?.category
   if (typeof q === 'string' && CATEGORIES.value.some(c => c.value === q)) eventCategory.value = q
   load()
-  if (isTauriRuntime) _timer = setInterval(load, 10000)
+  if (hasBackend) _timer = setInterval(load, 10000)
 })
 onUnmounted(() => { clearInterval(_timer); _timer = null })
 
@@ -148,7 +148,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     <AppHeader :title="$t('page.eventLog.title')" :subtitle="$t('page.eventLog.subtitle')" icon="tabler-bell-ringing">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
-          <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">
+          <VBtn color="primary" :loading="loading" :disabled="!hasBackend" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
         </div>
@@ -156,7 +156,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem :disabled="!isTauriRuntime" @click="load">
+              <VListItem :disabled="!hasBackend" @click="load">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>
@@ -166,7 +166,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
       </template>
     </AppHeader>
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.eventLog.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
@@ -214,7 +214,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
       <VDivider />
 
-      <VTable hover class="event-table">
+      <VTable hover class="table-cards event-table">
         <thead>
           <tr>
             <th class="text-center" style="width: 170px;">{{ $t('page.eventLog.col.time') }}</th>
@@ -234,11 +234,11 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             </td>
           </tr>
           <tr v-for="ev in events" :key="ev.id">
-            <td class="text-center">{{ formatDate(ev.created_at) }}</td>
-            <td class="text-center"><span class="font-weight-medium" :class="`text-${levelColor(ev.level)}`">{{ levelLabel(ev.level) }}</span></td>
-            <td class="text-center">{{ categoryLabel(ev.category) }}</td>
-            <td class="text-center"><code>{{ ev.action }}</code></td>
-            <td>{{ ev.message }}</td>
+            <td :data-label="$t('page.eventLog.col.time')" class="text-center">{{ formatDate(ev.created_at) }}</td>
+            <td :data-label="$t('page.eventLog.col.level')" class="text-center"><span class="font-weight-medium" :class="`text-${levelColor(ev.level)}`">{{ levelLabel(ev.level) }}</span></td>
+            <td :data-label="$t('page.eventLog.col.category')" class="text-center">{{ categoryLabel(ev.category) }}</td>
+            <td :data-label="$t('page.eventLog.col.action')" class="text-center"><code>{{ ev.action }}</code></td>
+            <td :data-label="$t('page.eventLog.col.message')">{{ ev.message }}</td>
           </tr>
         </tbody>
       </VTable>

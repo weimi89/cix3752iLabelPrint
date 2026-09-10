@@ -1,14 +1,15 @@
 <script setup>
 import { parcelQueryLogList, getConfig } from '@/api/tauri'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
+import { mediaUrl as buildMediaUrl } from '@/api/media'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const searchQueryNo = ref('')
 const searchTrackingNo = ref('')
@@ -20,9 +21,10 @@ const loading = ref(false)
 const errorMsg = ref('')
 
 // 通用圖片檢視器:存證快照與面單原圖共用一套對話框,但走「不同」本機 HTTP 路由 ——
-// 存證走 /captures(獨立存證目錄,與面單快取分離);面單原圖走 /images(面單快取)。server 同機,viewer 用 127.0.0.1。
+// 存證走 /captures(獨立存證目錄,與面單快取分離);面單原圖走 /images(面單快取)。
+// 網址由 buildMediaUrl 依環境決定:桌面指名本機 server,網頁版走相對路徑(見 api/media.js)。
 const serverPort = ref(18080)
-const mediaUrl = (route, key) => (key ? `http://127.0.0.1:${serverPort.value}/${route}/${encodeURI(key)}` : '')
+const mediaUrl = (route, key) => (key ? buildMediaUrl(`/${route}/${encodeURI(key)}`, serverPort.value) : '')
 const viewer = ref({ open: false, title: '', key: '', url: '' })
 // 圖片載入失敗旗標(404 / 檔案已被清理):每次開新圖前歸零,<img> @error 時設 true → 顯示「圖案已遺失」
 const viewerError = ref(false)
@@ -88,7 +90,7 @@ onMounted(async () => {
   load()
   try { const cfg = await getConfig(); if (cfg?.server?.port) serverPort.value = cfg.server.port } catch {}
   // await getConfig 期間可能已切頁;若已卸載則立刻解除,避免 Tauri 監聽殘留(每筆 /api/parcel 都觸發,殘留會放大後端查詢)
-  if (isTauriRuntime) try {
+  if (hasBackend) try {
     const un = await listen('parcel-query-logged', scheduleReload)
     if (_disposed) un(); else _unlisten = un
   } catch {}
@@ -210,7 +212,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
       <VDivider />
 
-      <VTable hover class="parcel-log-table">
+      <VTable hover class="table-cards parcel-log-table">
         <thead>
           <tr>
             <th class="text-center" style="width: 170px;">{{ $t('page.parcelQueryLog.col.createdAt') }}</th>
@@ -237,24 +239,24 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             </td>
           </tr>
           <tr v-for="row in items" :key="row.response_id">
-            <td class="text-center">{{ formatDate(row.created_at) }}</td>
-            <td class="text-center">{{ row.query_no }}</td>
-            <td class="text-center">{{ row.tracking_no }}</td>
-            <td class="text-center">{{ row.shipping_provider || '—' }}</td>
-            <td class="text-center">{{ row.sort_channel || '—' }}</td>
-            <td class="text-center">{{ row.print_profile || '—' }}</td>
-            <td class="text-center text-disabled">{{ row.response_id }}</td>
-            <td class="text-center text-body-small">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
-            <td class="text-center text-body-small">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
-            <td class="text-center text-body-small" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
-            <td class="text-center">
+            <td :data-label="$t('page.parcelQueryLog.col.createdAt')" class="text-center">{{ formatDate(row.created_at) }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.queryNo')" class="text-center">{{ row.query_no }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.trackingNo')" class="text-center">{{ row.tracking_no }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.shippingProvider')" class="text-center">{{ row.shipping_provider || '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.channel')" class="text-center">{{ row.sort_channel || '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.printProfile')" class="text-center">{{ row.print_profile || '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.responseId')" class="text-center text-disabled">{{ row.response_id }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.cloudMs')" class="text-center text-body-small">{{ row.cloud_ms != null ? row.cloud_ms + 'ms' : '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.labelMs')" class="text-center text-body-small">{{ row.label_ms != null ? row.label_ms + 'ms' : '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.totalMs')" class="text-center text-body-small" :class="row.total_ms != null && row.total_ms > 3000 ? 'text-warning' : ''">{{ row.total_ms != null ? row.total_ms + 'ms' : '—' }}</td>
+            <td :data-label="$t('page.parcelQueryLog.col.labelKey')" class="text-center">
               <VBtn v-if="row.label_key" icon variant="text" color="primary" density="comfortable" size="small" @click="openLabel(row)">
                 <VIcon icon="tabler-photo" size="20" />
                 <VTooltip activator="parent" location="top">{{ $t('page.parcelQueryLog.viewLabel') }}</VTooltip>
               </VBtn>
               <span v-else class="text-disabled">—</span>
             </td>
-            <td class="text-center">
+            <td :data-label="$t('page.parcelQueryLog.col.snapshot')" class="text-center">
               <VBtn
                 v-if="row.photo_path"
                 icon

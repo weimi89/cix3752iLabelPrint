@@ -43,8 +43,8 @@ pub async fn restart_server(
     {
         Ok(h) => h,
         Err(e) => {
-            use tauri::Emitter;
-            let _ = app.emit("server-bind-failed", e.to_string());
+            
+            let _ = crate::event_bridge::emit(&app, "server-bind-failed", e.to_string());
             return Err(e);
         }
     };

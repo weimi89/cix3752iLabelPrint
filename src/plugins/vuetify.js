@@ -3,10 +3,18 @@ import { aliases } from 'vuetify/iconsets/mdi'
 import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n'
 import { h } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Icon } from '@iconify/vue'
+import { Icon, addCollection } from '@iconify/vue'
+import offlineIcons from './icons-offline.json'
 
 import { getI18n } from '@/plugins/i18n'
 import defaults from './vuetify-defaults'
+
+// 把專案實際用到的圖示打包進來（見 scripts/build-icon-subset.mjs）。
+// 少了這段,@iconify/vue 找不到本地資料時會去 api.iconify.design 線上抓 ——
+// 外網一斷,畫面上每個圖示都變成空白,連導覽列有哪些按鈕都看不出來。
+// 中介機為了打雲端 API 本來就有外網,所以現場一直沒踩到,但這個 App 的整套
+// 網路偵測設計就是為了撐過斷網,UI 不該在那時候先瞎掉。
+for (const collection of Object.values(offlineIcons)) addCollection(collection)
 
 // 正規化 Materio 的 dash 寫法（tabler-xxx / mdi-xxx）成 iconify 的 prefix:name 格式
 const normalizeIconName = name => {

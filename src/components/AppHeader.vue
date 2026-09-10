@@ -14,11 +14,13 @@ defineProps({
       size="32"
       class="app-header-card__icon"
     />
-    <div class="d-flex flex-column">
+    <div class="app-header-card__text">
       <span class="app-header-card__title">{{ title }}</span>
       <span v-if="subtitle" class="app-header-card__subtitle">{{ subtitle }}</span>
     </div>
     <VSpacer />
-    <slot name="actions" />
+    <div class="app-header-card__actions">
+      <slot name="actions" />
+    </div>
   </div>
 </template>

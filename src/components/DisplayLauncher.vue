@@ -9,12 +9,13 @@ import { useDisplayWindow } from '@/composables/useDisplayWindow'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
 import { localLanIps } from '@/api/tauri'
 import QRCode from 'qrcode'
+import { isTauriRuntime, isWebRuntime } from '@/api/runtime'
 
 const props = defineProps({
   route: { type: String, required: true },       // 如 '/print-stats'
   windowLabel: { type: String, required: true },  // 如 'display-stats'
   title: { type: String, required: true },        // 子視窗標題
-  // 本機也有網頁版時填它的路徑(如 '/board'),選單會多出網址與 QR,
+  // 本機也有網頁版時填它的路徑(如 '/#/sort-board'),選單會多出網址與 QR,
   // 方便用電視或另一台機器開。沒有網頁版的頁面不必傳。
   webPath: { type: String, default: '' },
 })
@@ -22,7 +23,6 @@ const props = defineProps({
 const { t } = useI18n()
 const { getMonitors, open, status, close, allBoards } = useDisplayWindow()
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 若自己就是看板子視窗,隱藏此鈕(避免在看板內再開看板)
 let isDisplayWindow = false
@@ -30,6 +30,12 @@ if (isTauriRuntime) {
   try {
     isDisplayWindow = getCurrentWebviewWindow().label.startsWith('display-')
   } catch { /* 取不到 label 就當作主視窗 */ }
+}
+
+// 網頁版沒有「開在哪一台螢幕」的概念 —— 瀏覽器不給網頁指定顯示器。
+// 改成開新分頁,使用者再自行把分頁拖到要用的螢幕全螢幕,行為對得上實際能做到的事。
+const openInNewTab = () => {
+  window.open(`#${props.route}`, '_blank', 'noopener')
 }
 
 const menu = ref(false)
@@ -151,7 +157,18 @@ const launch = async (mon, { fullscreen, borderless }) => {
 </script>
 
 <template>
-  <VMenu v-if="isTauriRuntime && !isDisplayWindow" v-model="menu" :close-on-content-click="false" @update:model-value="loadMonitors">
+  <!-- 網頁版:瀏覽器無法指定顯示器,只提供開新分頁 -->
+  <VBtn
+    v-if="isWebRuntime"
+    variant="outlined"
+    color="primary"
+    @click="openInNewTab"
+  >
+    <VIcon icon="tabler-external-link" size="16" class="me-1" />
+    {{ $t('page.display.openTab') }}
+  </VBtn>
+
+  <VMenu v-else-if="isTauriRuntime && !isDisplayWindow" v-model="menu" :close-on-content-click="false" @update:model-value="loadMonitors">
     <template #activator="{ props: act }">
       <VBtn v-bind="act" variant="outlined" color="primary">
         <VIcon icon="tabler-device-desktop" size="16" class="me-1" />

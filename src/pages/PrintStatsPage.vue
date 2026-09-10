@@ -24,7 +24,7 @@ import {
   printStatsCompare,
   workSessionReset,
 } from '@/api/tauri'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import AppHeader from '@/components/AppHeader.vue'
 import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
@@ -560,7 +560,7 @@ onUnmounted(() => {
                   hide-details
                   readonly
                   prepend-inner-icon="tabler-calendar"
-                  style="inline-size: 170px;"
+                  class="stats-date-field"
                 />
               </template>
               <VDatePicker
@@ -582,7 +582,7 @@ onUnmounted(() => {
                   hide-details
                   readonly
                   prepend-inner-icon="tabler-calendar"
-                  style="inline-size: 170px;"
+                  class="stats-date-field"
                 />
               </template>
               <VDatePicker
@@ -1005,7 +1005,7 @@ onUnmounted(() => {
           </VCardItem>
           <VDivider />
           <VCardText class="pa-0">
-            <VTable density="comfortable">
+            <VTable density="comfortable" class="table-cards">
               <thead>
                 <tr>
                   <th>{{ $t('page.printStats.colProvider') }}</th>
@@ -1022,11 +1022,11 @@ onUnmounted(() => {
                   </td>
                 </tr>
                 <tr v-for="r in providerSourceTable" :key="r.provider_code">
-                  <td>{{ providerShort(r.provider_code) }}</td>
-                  <td class="text-end">{{ r.scan || '—' }}</td>
-                  <td class="text-end">{{ r.auto || '—' }}</td>
-                  <td class="text-end">{{ r.ipc || '—' }}</td>
-                  <td class="text-end font-weight-bold">{{ r.total }}</td>
+                  <td :data-label="$t('page.printStats.colProvider')">{{ providerShort(r.provider_code) }}</td>
+                  <td :data-label="$t('page.printStats.sourceScan')" class="text-end">{{ r.scan || '—' }}</td>
+                  <td :data-label="$t('page.printStats.sourceAuto')" class="text-end">{{ r.auto || '—' }}</td>
+                  <td :data-label="$t('page.printStats.sourceIpc')" class="text-end">{{ r.ipc || '—' }}</td>
+                  <td :data-label="$t('page.printStats.colTotal')" class="text-end font-weight-bold">{{ r.total }}</td>
                 </tr>
               </tbody>
             </VTable>
@@ -1081,6 +1081,21 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
+// 日期區間的兩個欄位:桌面固定寬度,手機各佔一半。
+// 固定 170px × 2 加上中間的「~」共需 368px,在 390px 螢幕的卡片內(可用約 313px)
+// 會直接溢出、把日期文字截掉半截。
+.stats-date-field {
+  inline-size: 170px;
+}
+
+@media (max-width: 599.98px) {
+  .stats-date-field {
+    flex: 1 1 0;
+    inline-size: auto;
+    min-inline-size: 0;
+  }
+}
+
 // KPI 卡:今日為主視覺(更高 elevation + 主色描邊)
 .kpi-card {
   block-size: 100%;

@@ -9,6 +9,14 @@ const host = process.env.TAURI_DEV_HOST
 
 export default defineConfig(async () => ({
   plugins: [
+    {
+      // 正式版的旗標由後端在 index.html 注入(見 server/assets.rs);dev 由 Vite 提供
+      // 頁面,後端插不到手,這裡補上同一個旗標,讓開發與正式跑在同一條路徑上。
+      name: 'cix-web-runtime-flag',
+      apply: 'serve',
+      transformIndexHtml: html =>
+        html.replace('<head>', '<head><script>window.__CIX_WEB__=true</script>'),
+    },
     vue(),
     vuetify({ autoImport: true }),
     AutoImport({
@@ -56,6 +64,13 @@ export default defineConfig(async () => ({
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+    // 開發時用瀏覽器直接開 http://localhost:11420 就是網頁版(連真後端、有熱更新)。
+    // 沒有這段的話,每改一次網頁版都得先 yarn build 才看得到結果。
+    // Tauri 桌面視窗也載這個位址,但它走 IPC 不打這些路徑,互不影響。
+    proxy: Object.fromEntries(
+      ['/rpc', '/auth', '/events', '/api', '/images', '/captures', '/camera', '/healthz']
+        .map(p => [p, { target: 'http://127.0.0.1:18080', changeOrigin: false }]),
+    ),
   },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
   build: {
@@ -67,6 +82,20 @@ export default defineConfig(async () => ({
     // package.json 的 esbuild devDependency。勿移除該 devDep,CI 也勿改用 --omit=dev / npm ci --production。
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // 打包切分:預設會把 Vuetify 依元件拆成幾十個小檔,在低速高延遲的現場網路下,
+    // 每個檔都要一次來回,請求數本身就成了瓶頸。把框架類合併成少數幾包,
+    // 但**圖表庫維持獨立** —— 它只有統計頁用得到,併進共用包等於每個人都要多載半 MB。
+    rolldownOptions: {
+      output: {
+        advancedChunks: {
+          groups: [
+            { name: 'vendor-charts', test: /node_modules[\\/](echarts|vue-echarts|zrender)/ },
+            { name: 'vendor-vuetify', test: /node_modules[\\/]vuetify/ },
+            { name: 'vendor', test: /node_modules/ },
+          ],
+        },
+      },
+    },
   },
   // vite-plugin-vuetify 的 autoImport 是「按需」解析元件,初次掃描掃不到只在某頁/對話框才用到的元件;
   // 這些元件在 dev 期首次渲染時才被發現 → Vite 觸發整頁硬 reload 重新 optimize。該 reload 撞進

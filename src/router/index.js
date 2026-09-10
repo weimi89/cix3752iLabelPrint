@@ -1,26 +1,33 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
-import DashboardPage from '@/pages/DashboardPage.vue'
-import BagCheckPage from '@/pages/BagCheckPage.vue'
-import ScanPrintPage from '@/pages/ScanPrintPage.vue'
-import AutoPrintPage from '@/pages/AutoPrintPage.vue'
-import PreGeneratePage from '@/pages/PreGeneratePage.vue'
-import PrinterSettingsPage from '@/pages/PrinterSettingsPage.vue'
-import ServerSettingsPage from '@/pages/ServerSettingsPage.vue'
-import CacheSettingsPage from '@/pages/CacheSettingsPage.vue'
-import CloudSettingsPage from '@/pages/CloudSettingsPage.vue'
-import EventLogPage from '@/pages/EventLogPage.vue'
-import QueueLogPage from '@/pages/QueueLogPage.vue'
-import ParcelQueryLogPage from '@/pages/ParcelQueryLogPage.vue'
-import ParcelAlertLogPage from '@/pages/ParcelAlertLogPage.vue'
-import PrintStatsPage from '@/pages/PrintStatsPage.vue'
-import SortChannelsPage from '@/pages/SortChannelsPage.vue'
-import SortBoardPage from '@/pages/SortBoardPage.vue'
-import DispatchProvidersPage from '@/pages/DispatchProvidersPage.vue'
-import ClearanceAddPage from '@/pages/ClearanceAddPage.vue'
-import ClearanceDispatchPage from '@/pages/ClearanceDispatchPage.vue'
-import FieldOperationMonitorPage from '@/pages/FieldOperationMonitorPage.vue'
-import WarehouseScannerPage from '@/pages/WarehouseScannerPage.vue'
+// 頁面元件一律動態載入。
+// 全部靜態匯入時整包 JS 約 1.6 MB,現場手機走 Wi-Fi 首次開要七秒以上;
+// 拆開後開一頁只載那一頁需要的部分。切頁時多一次小請求,但那是有快取的。
+
+const DashboardPage = () => import('@/pages/DashboardPage.vue')
+const BagCheckPage = () => import('@/pages/BagCheckPage.vue')
+const ScanPrintPage = () => import('@/pages/ScanPrintPage.vue')
+const AutoPrintPage = () => import('@/pages/AutoPrintPage.vue')
+const PreGeneratePage = () => import('@/pages/PreGeneratePage.vue')
+const PrinterSettingsPage = () => import('@/pages/PrinterSettingsPage.vue')
+const ServerSettingsPage = () => import('@/pages/ServerSettingsPage.vue')
+const CacheSettingsPage = () => import('@/pages/CacheSettingsPage.vue')
+const CloudSettingsPage = () => import('@/pages/CloudSettingsPage.vue')
+const EventLogPage = () => import('@/pages/EventLogPage.vue')
+const QueueLogPage = () => import('@/pages/QueueLogPage.vue')
+const ParcelQueryLogPage = () => import('@/pages/ParcelQueryLogPage.vue')
+const ParcelAlertLogPage = () => import('@/pages/ParcelAlertLogPage.vue')
+const PrintStatsPage = () => import('@/pages/PrintStatsPage.vue')
+const SortChannelsPage = () => import('@/pages/SortChannelsPage.vue')
+const SortBoardPage = () => import('@/pages/SortBoardPage.vue')
+const DispatchProvidersPage = () => import('@/pages/DispatchProvidersPage.vue')
+const ClearanceAddPage = () => import('@/pages/ClearanceAddPage.vue')
+const ClearanceDispatchPage = () => import('@/pages/ClearanceDispatchPage.vue')
+const FieldOperationMonitorPage = () => import('@/pages/FieldOperationMonitorPage.vue')
+const WarehouseScannerPage = () => import('@/pages/WarehouseScannerPage.vue')
+const LoginPage = () => import('@/pages/LoginPage.vue')
+import { isWebRuntime } from '@/api/runtime'
+import { useWebAuth } from '@/composables/useWebAuth'
 
 const routes = [
   { path: '/', name: 'dashboard', component: DashboardPage,
@@ -65,9 +72,31 @@ const routes = [
     meta: { title: 'nav.alertLog', icon: 'tabler-alert-triangle', group: 'nav.section.logs' } },
   { path: '/print-stats', name: 'print-stats', component: PrintStatsPage,
     meta: { title: 'nav.printStats', icon: 'tabler-chart-bar', group: 'nav.section.logs' } },
+  // 只有網頁版走得到:桌面 App 不經過 HTTP 這道門,內網來源後端也直接放行
+  { path: '/login', name: 'login', component: LoginPage, meta: { public: true } },
 ]
 
-export default createRouter({
+const router = createRouter({
   history: createWebHashHistory(),
   routes,
 })
+
+// 網頁版的登入守衛。
+// 桌面 App 與內網來源都不會停在這裡 —— 桌面不經過 HTTP,內網後端直接放行,
+// refresh() 回報 authenticated 後就照常前往目的地。
+router.beforeEach(async to => {
+  if (!isWebRuntime || to.meta.public) return true
+
+  const { authenticated, checked, refresh } = useWebAuth()
+
+  // 每次開頁都重查一次太浪費,但首次進站一定要問過後端才知道自己算不算內網
+  if (!checked.value) await refresh()
+  if (authenticated.value) return true
+
+  // 再確認一次:session 可能在別的分頁剛登入
+  if (await refresh()) return true
+
+  return { name: 'login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
+})
+
+export default router

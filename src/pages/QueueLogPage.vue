@@ -5,9 +5,9 @@ import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const queueStatus = ref(null)
 const searchKeyword = ref('')
@@ -115,7 +115,7 @@ const sourceInfo = row => {
 }
 
 const load = async () => {
-  if (!isTauriRuntime) {
+  if (!hasBackend) {
     let result = MOCK_QUEUE
     if (queueStatus.value) result = result.filter(r => r.status === queueStatus.value)
     if (unreportedOnly.value) result = result.filter(r => !r.ipc_reported_at)
@@ -178,7 +178,7 @@ watch([queueStatus, searchKeyword, searchTrackingNo, unreportedOnly], () => { pa
 watch(pageSize, () => { page.value = 1; load() })
 watch(page, load)
 let _timer = null
-onMounted(() => { load(); if (isTauriRuntime) _timer = setInterval(load, 5000) })
+onMounted(() => { load(); if (hasBackend) _timer = setInterval(load, 5000) })
 onUnmounted(() => { clearInterval(_timer); _timer = null })
 
 const statusColor = s => ({
@@ -204,13 +204,13 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     <AppHeader :title="$t('page.queue.title')" :subtitle="$t('page.queue.subtitle')" icon="tabler-truck-loading">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
-          <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="load">
+          <VBtn color="primary" :loading="loading" :disabled="!hasBackend" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
-          <VBtn color="warning" :disabled="!isTauriRuntime" @click="handleRetry">
+          <VBtn color="warning" :disabled="!hasBackend" @click="handleRetry">
             <VIcon icon="tabler-rotate" size="16" class="me-1" />{{ $t('page.queue.retryFailed') }}
           </VBtn>
-          <VBtn color="error" :disabled="!isTauriRuntime" @click="handlePurge">
+          <VBtn color="error" :disabled="!hasBackend" @click="handlePurge">
             <VIcon icon="tabler-trash" size="16" class="me-1" />{{ $t('page.queue.purgeOld') }}
           </VBtn>
         </div>
@@ -218,15 +218,15 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem :disabled="!isTauriRuntime" @click="load">
+              <VListItem :disabled="!hasBackend" @click="load">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>
-              <VListItem :disabled="!isTauriRuntime" @click="handleRetry">
+              <VListItem :disabled="!hasBackend" @click="handleRetry">
                 <template #prepend><VIcon icon="tabler-rotate" size="20" /></template>
                 <VListItemTitle>{{ $t('page.queue.retryFailedItems') }}</VListItemTitle>
               </VListItem>
-              <VListItem :disabled="!isTauriRuntime" @click="handlePurge">
+              <VListItem :disabled="!hasBackend" @click="handlePurge">
                 <template #prepend><VIcon icon="tabler-trash" size="20" /></template>
                 <VListItemTitle>{{ $t('page.queue.purgeOld7d') }}</VListItemTitle>
               </VListItem>
@@ -236,7 +236,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
       </template>
     </AppHeader>
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.queue.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
@@ -290,7 +290,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
       <VDivider />
 
-      <VTable hover class="queue-table">
+      <VTable hover class="table-cards queue-table">
         <thead>
           <tr>
             <th class="text-center" style="width: 70px;">#</th>
@@ -315,17 +315,17 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
             </td>
           </tr>
           <tr v-for="row in queueItems" :key="row.id">
-            <td class="text-center">{{ row.id }}</td>
-            <td class="text-center">{{ row.tracking_no }}</td>
-            <td class="text-center">{{ row.sort_channel || '—' }}</td>
-            <td class="text-center">{{ row.job_sticker || '—' }}</td>
-            <td class="text-center">
+            <td data-label="#" class="text-center">{{ row.id }}</td>
+            <td :data-label="$t('page.queue.col.trackingNo')" class="text-center">{{ row.tracking_no }}</td>
+            <td :data-label="$t('page.queue.col.channel')" class="text-center">{{ row.sort_channel || '—' }}</td>
+            <td :data-label="$t('page.queue.col.sticker')" class="text-center">{{ row.job_sticker || '—' }}</td>
+            <td :data-label="$t('page.queue.col.source')" class="text-center">
               <VChip :color="sourceInfo(row).color" size="small" variant="tonal" label>
                 <VIcon :icon="sourceInfo(row).icon" size="14" class="me-1" />{{ sourceInfo(row).text }}
               </VChip>
             </td>
-            <td class="text-center text-disabled">{{ row.response_id ?? '—' }}</td>
-            <td class="text-center">
+            <td :data-label="$t('page.queue.col.responseId')" class="text-center text-disabled">{{ row.response_id ?? '—' }}</td>
+            <td :data-label="$t('page.queue.col.status')" class="text-center">
               <span class="font-weight-medium" :class="`text-${statusColor(row.status)}`">{{ STATUS_LABELS[row.status] || row.status }}</span>
               <!-- 攔截原因 / 推送失敗原因:狀態本身只說「怎麼了」,這裡說「為什麼」 -->
               <VTooltip v-if="row.last_error" activator="parent" location="top" max-width="360">
@@ -333,9 +333,9 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
               </VTooltip>
               <VIcon v-if="row.last_error" icon="tabler-info-circle" size="14" class="ms-1 text-disabled" />
             </td>
-            <td class="text-center">{{ row.retry_count }}</td>
-            <td class="text-center">{{ formatDate(row.created_at) }}</td>
-            <td class="text-center">{{ formatDate(row.sent_at) }}</td>
+            <td :data-label="$t('page.queue.col.retry')" class="text-center">{{ row.retry_count }}</td>
+            <td :data-label="$t('page.queue.col.createdAt')" class="text-center">{{ formatDate(row.created_at) }}</td>
+            <td :data-label="$t('page.queue.col.sentAt')" class="text-center">{{ formatDate(row.sent_at) }}</td>
           </tr>
         </tbody>
       </VTable>

@@ -2,12 +2,12 @@
 import { sortChannelList } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import DisplayLauncher from '@/components/DisplayLauncher.vue'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useI18n } from 'vue-i18n'
+import { hasBackend, isTauriRuntime } from '@/api/runtime'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 開在別的螢幕的看板子視窗:label 以 display- 開頭,此時整頁只留看板本身
 let isDisplayWindow = false
@@ -93,7 +93,7 @@ let disposed = false
 onMounted(async () => {
   await loadChannels()
   pollTimer = setInterval(loadChannels, CHANNEL_POLL_MS)
-  if (!isTauriRuntime) return
+  if (!hasBackend) return
   // 先 await 再掛監聽,期間若已切頁就要立刻解除,否則監聽會永久殘留
   const unBoard = await listen('sort-board', evt => applyEvent(evt.payload))
   if (disposed) unBoard(); else unlistenBoard = unBoard

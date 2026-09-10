@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 
@@ -229,7 +229,7 @@ impl HealthChecker {
 
         *self.inner.snapshot.write() = snapshot.clone();
 
-        if let Err(e) = self.inner.app.emit(NETWORK_STATUS_EVENT, snapshot.clone()) {
+        if let Err(e) = crate::event_bridge::emit(&self.inner.app, NETWORK_STATUS_EVENT, snapshot.clone()) {
             tracing::warn!(?e, "emit network-status 失敗");
         }
 

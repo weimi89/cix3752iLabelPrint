@@ -8,9 +8,9 @@ import {
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const items = ref([])
 const loading = ref(false)
@@ -39,7 +39,7 @@ const load = async () => {
 
 // direct_print 模式下面單不經雲端 print_profile 出單,故該欄非必填(本機印表機設定在「分揀通道」頁)
 const loadMeta = async () => {
-  if (!isTauriRuntime) return
+  if (!hasBackend) return
   try {
     const cfg = await getConfig()
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
@@ -127,14 +127,14 @@ const confirmDelete = async () => {
       </template>
     </AppHeader>
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.sort.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
     <VCard>
-      <VTable hover>
+      <VTable hover class="table-cards">
         <thead>
           <tr>
             <th class="text-center" style="width: 80px;">{{ $t('page.dispatch.col.order') }}</th>
@@ -154,11 +154,11 @@ const confirmDelete = async () => {
             </td>
           </tr>
           <tr v-for="row in items" :key="row.code">
-            <td class="text-center text-disabled">{{ row.sort_order }}</td>
-            <td class="text-center font-weight-medium">{{ row.code }}</td>
-            <td class="text-center">{{ row.name }}</td>
-            <td class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
-            <td class="text-center">
+            <td :data-label="$t('page.dispatch.col.order')" class="text-center text-disabled">{{ row.sort_order }}</td>
+            <td :data-label="$t('page.dispatch.col.code')" class="text-center font-weight-medium">{{ row.code }}</td>
+            <td :data-label="$t('page.dispatch.col.name')" class="text-center">{{ row.name }}</td>
+            <td :data-label="$t('page.dispatch.col.printProfile')" class="text-center text-disabled">{{ row.print_profile || '—' }}</td>
+            <td :data-label="$t('page.dispatch.col.actions')" class="text-center">
               <VBtn icon="tabler-edit" variant="text" color="primary" size="small" @click="openEdit(row)" />
               <VBtn icon="tabler-trash" variant="text" color="error" size="small" @click="askDelete(row)" />
             </td>

@@ -1,8 +1,7 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { networkHealthGet, networkHealthCheck } from '@/api/tauri'
-
-const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
+import { hasBackend } from '@/api/runtime'
 
 // 全域單例:任何元件 useNetworkStatus() 共享同一份狀態
 const osOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
@@ -17,8 +16,8 @@ function attachBrowserListeners() {
   window.addEventListener('offline', () => { osOnline.value = false })
 }
 
-async function attachTauriListener() {
-  if (!isTauri || unlistenEvent) return
+async function attachHealthListener() {
+  if (!hasBackend || unlistenEvent) return
   unlistenEvent = await listen('network-status', evt => {
     snapshot.value = evt.payload
   })
@@ -33,7 +32,7 @@ async function init() {
   } catch {
     // 後端尚未就緒,等 event 進來
   }
-  await attachTauriListener()
+  await attachHealthListener()
 }
 
 export function useNetworkStatus() {

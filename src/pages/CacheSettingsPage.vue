@@ -5,6 +5,8 @@ import { clearProcessed } from '@/composables/usePreGenProcessed'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend, isTauriRuntime } from '@/api/runtime'
+import { mediaUrl } from '@/api/media'
 
 const { t } = useI18n()
 
@@ -15,14 +17,13 @@ const clearing = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 相機預覽對話框:用 MJPEG 串流(<img> 顯示 multipart/x-mixed-replace,順暢 ~10fps、不輪詢)。
 // 只在對話框開啟時給 src → 串流僅在預覽時連線,關閉即斷流不殘留。
 const previewDialog = ref(false)
 const previewUrl = computed(() =>
-  previewDialog.value && isTauriRuntime && config.value?.camera?.enabled && config.value?.server?.port
-    ? `http://127.0.0.1:${config.value.server.port}/camera/preview/stream`
+  previewDialog.value && hasBackend && config.value?.camera?.enabled && config.value?.server?.port
+    ? mediaUrl('/camera/preview/stream', config.value.server.port)
     : '',
 )
 // 對話框裡拖變焦滑桿:即時套用到執行中相機(不存檔,後端下一幀就反映到串流),同時更新表單值供之後儲存持久化
@@ -64,7 +65,7 @@ const load = async () => {
   config.value = await getConfig()
   // 舊設定檔可能尚無 camera 區段(後端 serde default 會補,但 web preview / 舊版需前端兜底)
   if (!config.value.camera) config.value.camera = { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 }
-  if (isTauriRuntime) {
+  if (hasBackend) {
     try {
       stats.value = await cacheStats()
     } catch (e) {
@@ -135,7 +136,7 @@ const handleClear = async () => {
     <AppHeader :title="$t('page.cache.title')" :subtitle="$t('page.cache.subtitle')" icon="tabler-photo">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
-          <VBtn color="error" :loading="clearing" :disabled="!isTauriRuntime" @click="handleClear">
+          <VBtn color="error" :loading="clearing" :disabled="!hasBackend" @click="handleClear">
             <VIcon icon="tabler-trash" size="16" class="me-1" />{{ $t('page.cache.clearCache') }}
           </VBtn>
         </div>
@@ -143,7 +144,7 @@ const handleClear = async () => {
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem :disabled="!isTauriRuntime" @click="handleClear">
+              <VListItem :disabled="!hasBackend" @click="handleClear">
                 <template #prepend><VIcon icon="tabler-trash" size="20" /></template>
                 <VListItemTitle>{{ $t('page.cache.clearCache') }}</VListItemTitle>
               </VListItem>
@@ -254,7 +255,7 @@ const handleClear = async () => {
 
         <!-- 相機預覽 / 對位:開對話框看即時串流並即時調變焦(拖滑桿立即生效、不必存檔) -->
         <div v-if="config.camera.enabled" class="mb-4">
-          <VBtn variant="tonal" color="primary" :disabled="!isTauriRuntime" @click="previewDialog = true; captureMsg = ''">
+          <VBtn variant="tonal" color="primary" :disabled="!hasBackend" @click="previewDialog = true; captureMsg = ''">
             <VIcon icon="tabler-camera-search" size="18" class="me-1" />{{ $t('page.cache.camera.openPreview') }}
           </VBtn>
         </div>

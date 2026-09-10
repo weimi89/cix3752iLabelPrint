@@ -10,6 +10,7 @@ import AppBulkInput from '@/components/AppBulkInput.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useI18n } from 'vue-i18n'
+import { toViewableUrl } from '@/api/media'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -597,7 +598,7 @@ const groupedStatus = computed(() => {
                 class="label-cell"
               >
                 <div class="label-cell__paper">
-                  <img v-if="item.image" :src="item.image" :alt="item.sn" />
+                  <img v-if="item.image" :src="toViewableUrl(item.image)" :alt="item.sn" />
                   <div v-else-if="!item.code" class="label-cell__loading">
                     <VProgressCircular indeterminate size="32" />
                   </div>

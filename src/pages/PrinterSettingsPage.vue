@@ -3,6 +3,7 @@ import { listPrinters } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
 
@@ -26,7 +27,6 @@ const MOCK_PRINTERS = computed(() => [
   { name: t('page.printer.mockPrefix') + ' Zebra GK420t', system_name: 'mock_zebra_gk420', driver_name: 'ZDesigner GK420t', is_default: false, state: 'IDLE' },
 ])
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const printers = ref([])
 const map = reactive(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'))
@@ -34,7 +34,7 @@ const errorMsg = ref('')
 const loading = ref(false)
 
 const refresh = async () => {
-  if (!isTauriRuntime) {
+  if (!hasBackend) {
     printers.value = MOCK_PRINTERS.value
     errorMsg.value = ''
     return
@@ -69,7 +69,7 @@ const reset = () => {
     <AppHeader :title="$t('page.printer.title')" :subtitle="$t('page.printer.subtitle')" icon="tabler-printer">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
-          <VBtn color="primary" :loading="loading" :disabled="!isTauriRuntime" @click="refresh">
+          <VBtn color="primary" :loading="loading" :disabled="!hasBackend" @click="refresh">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
           <VBtn color="error" @click="reset">
@@ -80,7 +80,7 @@ const reset = () => {
           <VIcon icon="tabler-playlist-add" size="22" />
           <VMenu activator="parent">
             <VList>
-              <VListItem :disabled="!isTauriRuntime" @click="refresh">
+              <VListItem :disabled="!hasBackend" @click="refresh">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>
@@ -94,7 +94,7 @@ const reset = () => {
       </template>
     </AppHeader>
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.printer.browserAlert') }}
     </VAlert>
     <VAlert v-else-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>

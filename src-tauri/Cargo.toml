@@ -1,6 +1,6 @@
 [package]
 name = "cix3752i-label-print"
-version = "0.23.0"
+version = "1.0.0"
 description = "本地分揀中介服務與面單列印桌面工具"
 authors = ["豬隊友"]
 edition = "2021"
@@ -32,7 +32,7 @@ tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "fs", "trace", "limit"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "trace", "limit", "compression-gzip", "compression-br"] }
 hyper = "1"
 
 # HTTP client
@@ -72,6 +72,16 @@ futures = "0.3"
 async-trait = "0.1"
 url = "2"
 mime_guess = "2"
+# 網頁版前端:編譯期把 dist/ 嵌進 binary,安裝後不需另外部署靜態檔
+rust-embed = "8"
+
+# 網頁版存取控制
+# argon2:共用密碼的雜湊(慢雜湊,擋離線暴力破解)
+# sha2:session token 的雜湊(token 本身是高熵亂數,不需要慢雜湊,每次請求都要驗)
+# ipnet:內網網段比對
+argon2 = { version = "0.5", features = ["std"] }
+sha2 = "0.10"
+ipnet = "2"
 # v4 的 default(= v1 feature)本來就含三個平台的原生 store
 # (macOS keychain / Windows / Linux secret-service),不必再逐一指定 ——
 # 但也不能改成 default-features = false,那會退回沒有任何 store 可用。

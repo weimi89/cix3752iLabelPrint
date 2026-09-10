@@ -12,6 +12,7 @@ import AppDatePicker from '@/components/AppDatePicker.vue'
 import { localTodayStr } from '@/utils/localDate'
 import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
+import { toViewableUrl } from '@/api/media'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -743,7 +744,7 @@ const saveSchedule = async () => {
               <div class="label-grid">
                 <div v-for="item in downloadList" :key="item.sn" class="cell">
                   <div class="cell__paper">
-                    <img v-if="item.image" :src="item.image" :alt="item.sn" loading="lazy" />
+                    <img v-if="item.image" :src="toViewableUrl(item.image)" :alt="item.sn" loading="lazy" />
                     <div v-else-if="!item.code" class="cell__loading"><VProgressCircular indeterminate size="32" /></div>
                     <div v-else-if="item.code === 'SKIPPED'" class="cell__skipped">
                       <VIcon icon="tabler-circle-check" size="40" class="cell__skipped-icon" />

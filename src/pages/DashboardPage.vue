@@ -6,6 +6,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
 import { workSessionReset, localLanIps } from '@/api/tauri'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -34,7 +35,6 @@ const {
   overall, isChecking, checkNow,
 } = useNetworkStatus()
 
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 本機 LAN IP(工控機連線位址);IP 不常變,進頁抓一次即可
 const lanInfo = ref({ ips: [], port: 18080 })
@@ -80,7 +80,7 @@ const formatBytes = bytes => {
   <div>
     <AppHeader :title="$t('page.dashboard.title')" :subtitle="$t('page.dashboard.subtitle')" icon="tabler-layout-dashboard" />
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.dashboard.previewModeAlert') }}
     </VAlert>
 
@@ -385,7 +385,7 @@ const formatBytes = bytes => {
       </div>
     </VCard>
 
-    <VAlert v-if="!status.cloud.logged_in && isTauriRuntime" type="warning" variant="tonal" class="mt-2" icon="tabler-alert-triangle">
+    <VAlert v-if="!status.cloud.logged_in && hasBackend" type="warning" variant="tonal" class="mt-2" icon="tabler-alert-triangle">
       {{ $t('page.dashboard.cloudNotLoggedInAlert') }}
     </VAlert>
 

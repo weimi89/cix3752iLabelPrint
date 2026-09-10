@@ -9,6 +9,8 @@ import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend, isWebRuntime } from '@/api/runtime'
+import { useWebAuth } from '@/composables/useWebAuth'
 
 defineProps({
   toggleVerticalOverlayNavActive: {
@@ -22,8 +24,14 @@ const { t } = useI18n()
 const router = useRouter()
 const status = useStatusStore()
 const clearanceProgress = useClearanceProgress()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 const { zoom, zoomIn, zoomOut, zoomReset } = useZoom()
+// 網頁版的登出:只有從外網登入進來的人看得到(內網免登入,按了也沒有意義)
+const { isLan, logout } = useWebAuth()
+const canLogout = computed(() => isWebRuntime && !isLan.value)
+const doLogout = async () => {
+  await logout()
+  router.replace({ name: 'login' })
+}
 const {
   updateAvailable, updateInfo, isDownloading, downloadProgress, lastError,
   checkForUpdates, downloadAndInstall, dismissUpdate,
@@ -46,7 +54,9 @@ const openRemoteDialog = async () => {
   try {
     const { ips, port } = await localLanIps()
     // addr: 給人看 / 填進只能輸入 IP 的 app(IP:port);url: 完整網址,只給 QR 讓手機瀏覽器開遙控頁
-    remoteUrls.value = (ips || []).map(i => ({ name: i.name, addr: `${i.ip}:${port}`, url: `http://${i.ip}:${port}/control` }))
+    // 整套網頁版都能在手機上操作,QR 直接給首頁 —— 舊的 /control 網址仍會導向,
+    // 貼在現場的舊 QR 不會失效
+    remoteUrls.value = (ips || []).map(i => ({ name: i.name, addr: `${i.ip}:${port}`, url: `http://${i.ip}:${port}/` }))
     const primary = remoteUrls.value[0]
     if (primary) {
       qrDataUrl.value = await QRCode.toDataURL(primary.url, { width: 240, margin: 1 })
@@ -78,16 +88,21 @@ const copyAddr = async addr => {
     >
       <VIcon size="26" icon="tabler-menu-2" />
     </VBtn>
+    <!-- 印單統計:手機寬度只留數字。
+         導覽列在 390px 下擠了七八個項目,這顆若跟著被壓縮會縮到剩二十來 px、
+         連數字都看不見(實測 188px 的內容被壓成 20px),等於整條資訊消失。 -->
     <VChip
-      class="cursor-pointer"
+      class="cursor-pointer flex-shrink-0"
       color="primary"
       variant="tonal"
       size="small"
       @click="goPrintStats"
     >
       <VIcon icon="tabler-chart-bar" size="16" start />
-      <span class="font-weight-medium">{{ $t('page.printStats.sinceReset') }} {{ status.printStats.since_reset }}</span>
-      <span class="text-medium-emphasis ms-2">{{ $t('page.printStats.past24h') }} {{ status.printStats.past_24h }}</span>
+      <span class="font-weight-medium">
+        <span class="d-none d-sm-inline">{{ $t('page.printStats.sinceReset') }} </span>{{ status.printStats.since_reset }}</span>
+      <span class="text-medium-emphasis ms-2">
+        <span class="d-none d-sm-inline">{{ $t('page.printStats.past24h') }} </span>{{ status.printStats.past_24h }}</span>
       <VTooltip activator="parent" location="bottom">
         {{ $t('page.dashboard.printStatsTitle') }}
       </VTooltip>
@@ -103,9 +118,23 @@ const copyAddr = async addr => {
       <VIcon icon="tabler-clipboard-check" size="22" />
       <VTooltip activator="parent" location="bottom">{{ $t('page.clearanceProgress.title') }}</VTooltip>
     </VBtn>
+    <VBtn
+      v-if="canLogout"
+      icon
+      size="small"
+      variant="text"
+      color="default"
+      @click="doLogout"
+    >
+      <VIcon icon="tabler-logout" size="22" />
+      <VTooltip activator="parent" location="bottom">{{ $t('page.login.logout') }}</VTooltip>
+    </VBtn>
+    <!-- 縮放與手機遙控 QR 在手機上都不顯示:導覽列在 390px 只放得下四五個項目,
+         而這兩項在手機上本來就沒有意義(瀏覽器自己有縮放;人已經在手機上了,
+         不需要再掃 QR 連自己)。桌面寬度照常顯示。 -->
     <VMenu :close-on-content-click="false" offset="8" location="bottom end">
       <template #activator="{ props: menuProps }">
-        <VBtn icon size="small" variant="text" color="default" v-bind="menuProps">
+        <VBtn icon size="small" variant="text" color="default" class="d-none d-sm-inline-flex" v-bind="menuProps">
           <VIcon icon="tabler-zoom-in-area" size="22" />
         </VBtn>
       </template>
@@ -127,11 +156,12 @@ const copyAddr = async addr => {
       </VSheet>
     </VMenu>
     <VBtn
-      v-if="isTauriRuntime"
+      v-if="hasBackend"
       icon
       size="small"
       variant="text"
       color="default"
+      class="d-none d-sm-inline-flex"
       @click="openRemoteDialog"
     >
       <VIcon icon="tabler-device-mobile" size="22" />

@@ -3,12 +3,12 @@ import { bagCheckSnapshot, bagCheckClear } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
 import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import { useI18n } from 'vue-i18n'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import Masonry from 'masonry-layout'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const bags = ref([])
 const loading = ref(false)
@@ -180,7 +180,7 @@ onMounted(async () => {
   await initMasonry()
   // 即時:後端每次更新袋件清單就 emit,前端直接套用快照(不輪詢、不重查雲端)。
   // await 期間可能已切頁,已卸載則立刻解除避免 Tauri 監聽殘留
-  if (isTauriRuntime) {
+  if (hasBackend) {
     const un = await listen('bag-check-updated', evt => {
       bags.value = evt.payload || []
     })

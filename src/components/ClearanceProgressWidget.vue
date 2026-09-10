@@ -4,13 +4,13 @@
 // 日期區間預設當日,有需要時點齒輪開對話框另設(上限 3 天)。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { useClearanceProgress } from '@/stores/clearanceProgress'
 import AppDatePicker from '@/components/AppDatePicker.vue'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
 const store = useClearanceProgress()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 // 即時更新全走雲端廣播(無輪詢):已印 → 遞減剩餘;新增 → 累加總數
 let unlistenPrinted = null
@@ -18,7 +18,7 @@ let unlistenAdded = null
 let unlistenRemoved = null
 let unlistenReconnected = null
 onMounted(async () => {
-  if (!isTauriRuntime) return
+  if (!hasBackend) return
   unlistenPrinted = await listen('clearance-progress-printed', evt => {
     store.applyPrinted(evt?.payload?.shipping_no, evt?.payload?.package_sn)
   })

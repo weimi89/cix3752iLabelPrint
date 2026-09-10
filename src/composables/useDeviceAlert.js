@@ -15,7 +15,7 @@
 //
 // 與 useParcelAlert(查件失敗音效)的差異:device-alert 是「機台/硬體出狀況,人要到場排除」,
 // 用完整語音喊話;parcel-alert 只是「這件包裹有問題」,放一次提示音即可。
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 import { speak, cancelSpeech, speechLangOf, isSpeechSupported } from '@/composables/useSpeech'

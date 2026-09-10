@@ -16,11 +16,11 @@ import PersonnelCombobox from '@/components/PersonnelCombobox.vue'
 import { useStickerHistory } from '@/composables/useStickerHistory'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
-import { listen } from '@tauri-apps/api/event'
+import { listen } from '@/api/events'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
+import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
-const isTauriRuntime = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 
 const channels = ref([]) // 後端回來的 10 筆,position L1..L5 / R1..R5
 const dispatchOptions = ref([])
@@ -101,7 +101,7 @@ const load = async () => {
 // 那段空窗內手機遙控的暫停狀態會漏接,桌面畫面持續顯示「已啟用」而後端實際已暫停。
 // 清單晚到不影響操作(VSelect items 是響應式);失敗只 warn,不擋頁面。
 const loadPrinters = async () => {
-  if (!isTauriRuntime) return
+  if (!hasBackend) return
   try {
     const ps = await listPrinters()
     printerList.value = (ps || []).map(p => ({ title: p.name, value: p.name }))
@@ -440,7 +440,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             route="/sort-board"
             window-label="display-sort-board"
             :title="$t('page.board.title')"
-            web-path="/board"
+            web-path="/#/sort-board"
           />
           <VBtn variant="outlined" :loading="loading" @click="load">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
@@ -458,7 +458,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
       </template>
     </AppHeader>
 
-    <VAlert v-if="!isTauriRuntime" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
+    <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.sort.browserAlert') }}
     </VAlert>
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>

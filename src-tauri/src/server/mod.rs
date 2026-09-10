@@ -6,10 +6,14 @@ use std::sync::Arc;
 
 use crate::event_log;
 
+mod assets;
+pub(crate) mod auth;
+mod events;
+mod rpc;
+
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
-    response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -20,7 +24,7 @@ use sqlx::Row;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tower_http::cors::CorsLayer;
+use tower_http::compression::{predicate::{NotForContentType, Predicate, SizeAbove}, CompressionLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -186,8 +190,9 @@ struct ServerState {
     /// 讀碼站存證目錄(獨立於面單快取,server 啟動時由 config 解析定版;存檔與 /captures 服務共用)
     captures_dir: PathBuf,
     app: tauri::AppHandle,
-    /// 分揀看板的即時推播來源:網頁看板(SSE)訂閱它,桌面看板走 Tauri 事件。
-    board_tx: broadcast::Sender<BoardEvent>,
+    /// server 即將關閉的通知:長連線(SSE / MJPEG)訂閱它主動收線,
+    /// 否則 graceful shutdown 會等不到它們結束(見 ServerHandle::shutdown)
+    close_tx: broadcast::Sender<()>,
     /// DirectPrint 模式有序列印佇列:get_parcel 把工作丟進來,由單一 worker 逐筆 FIFO 處理。
     /// 保證列印順序 = 請求順序,且同時只有一筆在送印(不並發打 spooler)。
     direct_print_tx: mpsc::UnboundedSender<DirectPrintJob>,
@@ -220,19 +225,74 @@ pub struct ServerHandle {
     pub bind_addr: String,
     handle: JoinHandle<()>,
     shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    /// 通知長連線(事件 SSE、相機 MJPEG 預覽)主動收線
+    close_tx: broadcast::Sender<()>,
 }
 
 impl ServerHandle {
-    /// 主動關閉 HTTP server
+    /// 主動關閉 HTTP server。
+    ///
+    /// axum 的 graceful shutdown 會等到**所有連線結束**才返回,而事件 SSE 與相機預覽
+    /// 是永遠不會自己結束的長連線 —— 只要有人開著網頁看板或設定頁的相機預覽,
+    /// 「重啟伺服器」就會一直等下去。更糟的是觸發重啟的那個請求往往正好跑在這台
+    /// server 上(網頁版按重啟、或存下改了 port 的設定),等於自己等自己結束。
+    ///
+    /// 因此先請長連線離場,再等 graceful shutdown,最後用逾時強制收工。
     pub async fn shutdown(self) {
+        // 沒有任何長連線時 send 會回 Err,屬正常狀態
+        let _ = self.close_tx.send(());
         let _ = self.shutdown_tx.send(());
-        let _ = self.handle.await;
+
+        let mut handle = self.handle;
+        if tokio::time::timeout(std::time::Duration::from_secs(3), &mut handle)
+            .await
+            .is_err()
+        {
+            // 保底:仍有連線賴著不走(例如卡住的上傳)。不強制中止的話 port 不會釋放,
+            // 接著要綁同一個 port 的新 server 會失敗,整台服務起不來。
+            tracing::warn!("HTTP server 未在 3 秒內收工,強制中止以釋放 port");
+            handle.abort();
+        }
     }
 }
 
 /// 啟動 axum HTTP server,回傳一個可以關閉它的 handle
-pub async fn start(
+/// 啟動本地 HTTP server。
+///
+/// 回傳刻意 box 成 trait object 而非 `async fn` 的 `impl Future`:router 裡的 `/rpc`
+/// 能呼叫到 `server_restart`,而它又會回頭呼叫本函式,形成型別上的自我遞迴。
+/// `async fn` 的 `Send` 推導無法收斂這種循環(編譯器報 "cannot satisfy impl Future: Send"),
+/// box 成 `dyn Future + Send` 等於由 trait bound 直接斷言,推導就此打住。
+pub fn start(
     config: &AppConfig,
+    db: DbPool,
+    cloud: CloudClient,
+    cache: CacheManager,
+    queue: QueueManager,
+    label_resolver: LabelPathResolver,
+    watermark: WatermarkRenderer,
+    bag_check: BagCheckState,
+    camera: CameraManager,
+    app: tauri::AppHandle,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = AppResult<ServerHandle>> + Send>> {
+    let config = config.clone();
+    Box::pin(start_inner(
+        config,
+        db,
+        cloud,
+        cache,
+        queue,
+        label_resolver,
+        watermark,
+        bag_check,
+        camera,
+        app,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn start_inner(
+    config: AppConfig,
     db: DbPool,
     cloud: CloudClient,
     cache: CacheManager,
@@ -273,7 +333,10 @@ pub async fn start(
     // **不可**各自 resolved_cache_dir —— 壞設定(legacy ~/Pictures / 拔除的磁碟)下會 split-brain:
     // 下載寫 fallback、/images 供壞目錄 → 面單全 404,甚至把使用者資料夾以 HTTP 曝露給整個區網。
     // 由 config(而非 cache.base_dir() 當下值)解析,讓「改快取目錄 → 重啟 server」直接供新目錄。
-    let images_dir = CacheManager::resolve_safe_dir(&app, config)?;
+    let images_dir = CacheManager::resolve_safe_dir(&app, &config)?;
+
+    // 長連線(事件 SSE、相機 MJPEG 預覽)的收線通知,關閉 server 時廣播(見 ServerHandle::shutdown)
+    let (close_tx, _) = broadcast::channel::<()>(1);
 
     let state = ServerState {
         db,
@@ -281,14 +344,13 @@ pub async fn start(
         cache: cache.clone(),
         queue,
         routing: Arc::new(tokio::sync::Mutex::new(SortRouting::default())),
-        // 容量 16:看板只在意最新一件,訂閱端落後時寧可丟舊事件也不要卡住分揀
-        board_tx: broadcast::channel(16).0,
         label_resolver,
         watermark,
         bag_check,
         camera,
         captures_dir: captures_dir.clone(),
         app,
+        close_tx: close_tx.clone(),
         direct_print_tx,
     };
 
@@ -304,7 +366,9 @@ pub async fn start(
         .route("/control", get(control_page))
         // 分揀看板:/board 是網頁版(大螢幕開網址),/board/stream 是它的即時推播
         .route("/board", get(board_page))
-        .route("/board/stream", get(board_stream))
+        .route("/board/stream", get(events::board_stream))
+        // 網頁版事件通道:桌面 listen() 在這裡有一條同名對應
+        .route("/events/stream", get(events::events_stream))
         .route("/api/alerts", get(list_alerts))
         .route("/api/channels", get(list_channels))
         .route("/api/channels/{position}", post(set_channel_enabled))
@@ -313,12 +377,44 @@ pub async fn start(
         .route("/api/channels/{position}/assign", post(assign_channel))
         .route("/api/dispatch-providers", get(list_dispatch_providers))
         .route("/api/sticker-history", get(list_sticker_history))
+        // 網頁版資料通道:桌面的 invoke 在這裡有一支同名對應
+        .route("/rpc/{command}", post(rpc::rpc_handler))
         .route("/camera/preview", get(camera_preview))
         .route("/camera/preview/stream", get(camera_preview_stream))
         .nest_service("/images", images_service)
         .nest_service("/captures", captures_service)
+        // 登入相關:自身不能被登入中介層擋住,否則外網永遠登不進來
+        .route("/auth/status", get(auth::status))
+        .route("/auth/login", post(auth::login))
+        .route("/auth/logout", post(auth::logout))
+        // 網頁版前端:以上都沒中的路徑交給它,含前端路由的 SPA fallback
+        .fallback(assets::serve)
+        // 存取控制:內網放行、外網要密碼、工控機端點只認內網(見 auth.rs)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::guard,
+        ))
+        // 壓縮回應:網頁版前端未壓縮約 5 MB,現場手機走 Wi-Fi 開起來很慢。
+        //
+        // 刻意排除兩種長連線:事件 SSE 與相機 MJPEG 預覽。壓縮器要累積到一定量才吐資料,
+        // 套在串流上會讓事件延遲送達、預覽畫面一頓一頓 —— 兩者都是「即時」才有意義的東西。
+        //(SizeAbove 之外還要自己排 multipart:內建的 DefaultPredicate 只排掉 SSE。)
+        .layer(
+            CompressionLayer::new().compress_when(
+                SizeAbove::new(512)
+                    .and(NotForContentType::SSE)
+                    .and(NotForContentType::IMAGES)
+                    .and(NotForContentType::new("multipart/"))
+                    // 音檔(設備異常的預錄語音)本身就是壓縮格式,再壓一次省不到什麼,
+                    // 只是多花 CPU 又延後送達 —— 而這些是要立刻播給現場人員聽的
+                    .and(NotForContentType::new("audio/"))
+                    .and(NotForContentType::new("video/")),
+            ),
+        )
         .with_state(state)
-        .layer(CorsLayer::permissive())
+        // 不設 CORS:網頁版與後端同源,工控機是機器對機器(不受瀏覽器同源政策約束),
+        // 桌面端的圖片走 <img> 也不需要。先前的 permissive 等於允許任何網站的 JS
+        // 對這台機器發請求,對外開放後風險不成比例。
         .layer(TraceLayer::new_for_http());
 
     let listener = TcpListener::bind(addr)
@@ -327,7 +423,12 @@ pub async fn start(
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-    let server_future = axum::serve(listener, app)
+    // into_make_service_with_connect_info:讓中介層取得 TCP 對端位址。
+    // 內外網的判斷完全依賴它 —— 少了這行,ConnectInfo 抽取失敗會讓所有請求被擋。
+    let server_future = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
         .with_graceful_shutdown(async move {
             let _ = shutdown_rx.await;
         });
@@ -346,6 +447,7 @@ pub async fn start(
         bind_addr: addr.to_string(),
         handle,
         shutdown_tx,
+        close_tx,
     })
 }
 
@@ -511,7 +613,7 @@ async fn set_channel_enabled(
     Json(body): Json<SetEnabledBody>,
 ) -> impl IntoResponse {
     use crate::commands::sort_channel_commands::POSITIONS;
-    use tauri::Emitter;
+    
 
     if !POSITIONS.contains(&position.as_str()) {
         return (
@@ -538,7 +640,8 @@ async fn set_channel_enabled(
     }
 
     // 廣播給桌面分揀通道頁即時同步開關狀態
-    let _ = state.app.emit(
+    let _ = crate::event_bridge::emit(
+        &state.app,
         "sort-channel-updated",
         serde_json::json!({ "position": position, "enabled": body.enabled }),
     );
@@ -660,7 +763,7 @@ async fn assign_channel(
     Json(body): Json<AssignBody>,
 ) -> impl IntoResponse {
     use crate::commands::sort_channel_commands::{upsert_sticker_history, POSITIONS};
-    use tauri::Emitter;
+    
 
     if !POSITIONS.contains(&position.as_str()) {
         return assign_err(
@@ -821,7 +924,8 @@ async fn assign_channel(
     }
 
     // 廣播給桌面分揀通道頁即時同步(payload 帶哪幾項,桌面就只套用哪幾項)
-    let _ = state.app.emit(
+    let _ = crate::event_bridge::emit(
+        &state.app,
         "sort-channel-updated",
         serde_json::json!({
             "position": position,
@@ -966,9 +1070,17 @@ async fn camera_preview(State(state): State<ServerState>) -> impl IntoResponse {
 /// 前端關掉 `<img>`(離開設定頁)時連線中斷,stream 自動結束,不殘留。
 async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoResponse {
     let camera = state.camera.clone();
-    let stream = futures::stream::unfold(camera, |camera| async move {
+    // 這條和事件 SSE 一樣是永不自己結束的長連線,同樣要訂閱收線通知。
+    // 少了它,設定頁開著預覽時去重啟 server(改 port、改存證目錄都會),
+    // graceful shutdown 等不到這條連線,每次都得撐滿逾時走強制中止 ——
+    // 那條路徑是設計來當保底的,不該變成常態。
+    let close_rx = state.close_tx.subscribe();
+    let stream = futures::stream::unfold((camera, close_rx), |(camera, mut close_rx)| async move {
         // ~10fps:對位用足夠順;與擷取迴圈同速率,不額外吃 CPU
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::select! {
+            _ = close_rx.recv() => return None,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+        }
         let chunk = match camera.latest_jpeg() {
             Some(jpeg) if !jpeg.is_empty() => {
                 let mut c = Vec::with_capacity(jpeg.len() + 80);
@@ -981,7 +1093,7 @@ async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoRes
             }
             _ => Vec::new(), // 尚無幀:本輪不送內容,下輪再試
         };
-        Some((Ok::<Vec<u8>, std::io::Error>(chunk), camera))
+        Some((Ok::<Vec<u8>, std::io::Error>(chunk), (camera, close_rx)))
     });
     (
         [(
@@ -993,36 +1105,17 @@ async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoRes
         .into_response()
 }
 
-/// GET /board — 分揀看板網頁版(大螢幕 / 電視用網址開,不佔中介機畫面)
+/// GET /board — 導向網頁版的分揀看板。
+///
+/// 舊版是一份獨立手刻的 HTML;功能併入網頁版之後改為導向,讓貼在電視上的舊網址、
+/// 掃過的 QR 仍然指得到東西 —— 現場不必為了改版重貼一輪。
 async fn board_page() -> impl IntoResponse {
-    axum::response::Html(include_str!("board_page.html"))
+    axum::response::Redirect::to("/#/sort-board")
 }
 
-/// GET /board/stream — 看板的即時推播(SSE)。
-/// 用長連線而非輪詢:看板是整天開著的頁面,每秒問一次既慢半拍又白費電;
-/// 斷線由瀏覽器 EventSource 自動重連,不需前端自己補。
-async fn board_stream(State(state): State<ServerState>) -> impl IntoResponse {
-    let rx = state.board_tx.subscribe();
-    let stream = futures::stream::unfold(rx, |mut rx| async move {
-        loop {
-            match rx.recv().await {
-                Ok(ev) => {
-                    let event = Event::default()
-                        .json_data(&ev)
-                        .unwrap_or_else(|_| Event::default().data("{}"));
-                    return Some((Ok::<_, std::convert::Infallible>(event), rx));
-                }
-                // 看板落後時只補最新的,舊事件直接丟 —— 現場要看的是「現在這件」
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => return None,
-            }
-        }
-    });
-    Sse::new(stream).keep_alive(KeepAlive::default())
-}
-
+/// GET /control — 導向網頁版的分揀通道頁(原手機遙控頁的功能所在)
 async fn control_page() -> impl IntoResponse {
-    axum::response::Html(include_str!("control_page.html"))
+    axum::response::Redirect::to("/#/sort-channels")
 }
 
 fn classify_parcel_alert(code: &str) -> &'static str {
@@ -1335,9 +1428,9 @@ fn spawn_print_error_label_bytes(
 
 /// emit `error-label-print-failed` 給桌面前端（reason: "no_printer" / "print_failed" / "cache_write_failed"）。
 fn emit_error_label_failed(app: &tauri::AppHandle, query_no: &str, reason: &str) {
-    use tauri::Emitter;
+    
     let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
-    if let Err(e) = app.emit("error-label-print-failed", payload) {
+    if let Err(e) = crate::event_bridge::emit(app, "error-label-print-failed", payload) {
         tracing::warn!(?e, "emit error-label-print-failed 失敗");
     }
 }
@@ -1407,10 +1500,9 @@ fn board_now() -> String {
 }
 
 fn publish_board(state: &ServerState, ev: BoardEvent) {
-    use tauri::Emitter;
-    let _ = state.app.emit("sort-board", &ev);
-    // 沒有任何網頁看板開著時 send 會回 Err,屬正常狀態,不必記錄
-    let _ = state.board_tx.send(ev);
+    // 桌面與網頁看板共用同一條匯流排 —— 網頁端沒人開著時內部 send 會回 Err,
+    // 屬正常狀態(見 event_bridge),不必在這裡處理
+    let _ = crate::event_bridge::emit(&state.app, "sort-board", &ev);
 }
 
 /// 依通道代碼反查它掛在哪個位置(L1..R5)。看板亮燈看的是位置,不是代碼。
@@ -1441,13 +1533,13 @@ async fn fetch_provider_name(db: &DbPool, code: &str) -> Option<String> {
 }
 
 fn emit_parcel_alert(app: &tauri::AppHandle, kind: &str, message: &str, query_no: &str) {
-    use tauri::Emitter;
+    
     let payload = ParcelAlert {
         kind,
         message: message.to_string(),
         query_no: query_no.to_string(),
     };
-    if let Err(e) = app.emit("parcel-alert", payload) {
+    if let Err(e) = crate::event_bridge::emit(app, "parcel-alert", payload) {
         tracing::warn!(?e, "emit parcel-alert 失敗");
     }
 }
@@ -1472,12 +1564,12 @@ struct DeviceAlert {
 
 /// emit `device-alert` 給前端;失敗只記 warn,不影響回應工控機
 fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str) {
-    use tauri::Emitter;
+    
     let payload = DeviceAlert {
         alert_type: alert_type.to_string(),
         message: message.to_string(),
     };
-    if let Err(e) = app.emit("device-alert", payload) {
+    if let Err(e) = crate::event_bridge::emit(app, "device-alert", payload) {
         tracing::warn!(?e, "emit device-alert 失敗");
     }
 }
@@ -1539,9 +1631,9 @@ fn report_direct_print_failed(
     response_id: Option<i64>,
     tracking_no: Option<&str>,
 ) {
-    use tauri::Emitter;
+    
     let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
-    if let Err(e) = app.emit("direct-print-failed", payload) {
+    if let Err(e) = crate::event_bridge::emit(app, "direct-print-failed", payload) {
         tracing::warn!(?e, "emit direct-print-failed 失敗");
     }
     event_log::log_bg(db.clone(), "error", "printer", "直印失敗",
@@ -1801,8 +1893,8 @@ async fn handle_noread(
                 .bind(&pseudo_bg)
                 .execute(&db)
                 .await;
-                use tauri::Emitter;
-                let _ = app.emit("parcel-query-logged", ());
+                
+                let _ = crate::event_bridge::emit(&app, "parcel-query-logged", ());
             }
         });
     }
@@ -1815,8 +1907,8 @@ async fn handle_noread(
     //    不附上 pseudo(那是內部存證檔名,操作員看不懂也無從處理,只會製造雜訊)。存證編號在請求記錄頁可查。
     emit_parcel_alert(&state.app, "noread", "", "");
     {
-        use tauri::Emitter;
-        let _ = state.app.emit("parcel-query-logged", ());
+        
+        let _ = crate::event_bridge::emit(&state.app, "parcel-query-logged", ());
     }
 
     // 5. event_log 記一筆供診斷(NoRead 屬需人工處理的異常件)
@@ -2074,8 +2166,8 @@ async fn get_parcel(
             };
 
             if let Some(rid) = logged_rid {
-                use tauri::Emitter;
-                let _ = state.app.emit("parcel-query-logged", ());
+                
+                let _ = crate::event_bridge::emit(&state.app, "parcel-query-logged", ());
 
                 // 讀碼站存證:把開頭釘住的那一幀丟背景寫檔 + 回寫 photo_path。
                 // 此時 parcel_query_log 該列已 INSERT 完成(上面已 await),UPDATE by response_id 不會 race。
@@ -2100,7 +2192,7 @@ async fn get_parcel(
                             .bind(rid)
                             .execute(&db)
                             .await;
-                            let _ = app.emit("parcel-query-logged", ());
+                            let _ = crate::event_bridge::emit(&app, "parcel-query-logged", ());
                         }
                     });
                 }
@@ -2377,8 +2469,8 @@ async fn get_parcel(
             .await
             {
                 Ok(rid) => {
-                    use tauri::Emitter;
-                    let _ = state.app.emit("parcel-query-logged", ());
+                    
+                    let _ = crate::event_bridge::emit(&state.app, "parcel-query-logged", ());
                     Some(rid)
                 }
                 Err(e) => {

@@ -8,6 +8,8 @@ import toastify from './plugins/toastify'
 import i18n from './plugins/i18n'
 import { createLayouts } from '@layouts'
 import { themeConfig } from '@themeConfig'
+import { setUnauthorizedHandler } from '@/api/rpc'
+import { useWebAuth } from '@/composables/useWebAuth'
 
 // Vuetify 4 layer 順序 + 選擇性 CSS reset,必須排在 vuetify/styles 之前
 import './styles/vuetify-layers.css'
@@ -18,6 +20,17 @@ import 'overlayscrollbars/overlayscrollbars.css'
 // 對齊 Materio:整套 Materio @core template SCSS(v-field/v-card/v-list/v-table 細節覆寫)
 import '@core-scss/template/index.scss'
 import './styles/main.scss'
+
+// 資料請求收到 401(session 逾期、或後端重啟清掉了 session)時,把人帶回登入頁。
+// 少了這段,逾期後畫面會停在原地一直跳「尚未登入」的錯誤,使用者不知道要去哪重新登入。
+setUnauthorizedHandler(() => {
+  const { markUnauthenticated } = useWebAuth()
+  markUnauthenticated()
+  if (router.currentRoute.value.name !== 'login') {
+    const from = router.currentRoute.value.fullPath
+    router.replace({ name: 'login', query: from === '/' ? {} : { redirect: from } })
+  }
+})
 
 const app = createApp(App)
 

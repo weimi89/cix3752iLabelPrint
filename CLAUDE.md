@@ -55,7 +55,12 @@ lib.rs                    AppState + bootstrap(initial migration / server start 
 ├── config/               TOML 設定檔(熱套用機制)
 ├── db/                   sqlx Pool + 編譯期 migrations
 ├── models/               共用資料結構(ParcelData / envelopes …)
-├── server/               axum HTTP server(工控機 + 手機遙控)+ LabelPathResolver(local/share/http/direct_print 四模式)
+├── server/               axum HTTP server + LabelPathResolver(local/share/http/direct_print 四模式)
+│   ├── rpc.rs            網頁版資料通道:POST /rpc/{cmd} → 既有 Tauri command(分派表)
+│   ├── events.rs         網頁版事件通道:GET /events/stream(SSE)
+│   ├── auth.rs           存取控制:內網免登入 / 外網共用密碼 / 工控機端點只認內網
+│   └── assets.rs         網頁版前端(編譯期嵌入 dist)+ SPA fallback
+├── event_bridge.rs       事件雙軌出口:同一則事件同時送桌面(Tauri)與網頁(SSE)
 ├── cloud/                雲端 API client + LabelFetchMode(download/cloud_print/web_print)
 ├── cache/                面單快取(LRU 清理 + hit/miss 統計)
 ├── camera/               讀碼站相機(nokhwa 擷取 + MJPEG 預覽 + 快照存證 captures)
@@ -76,20 +81,25 @@ lib.rs                    AppState + bootstrap(initial migration / server start 
 ### 前端(Vue 3)— `src/`
 
 ```
-pages/                    19 個功能頁(Dashboard / ScanPrint / AutoPrint / PreGenerate / BagCheck / SortChannels / ClearanceAdd / ClearanceDispatch / WarehouseScanner / PrintStats / ParcelQueryLog / ParcelAlertLog …)
+pages/                    22 個功能頁(Dashboard / ScanPrint / AutoPrint / PreGenerate / BagCheck / SortChannels / ClearanceAdd / ClearanceDispatch / WarehouseScanner / PrintStats / ParcelQueryLog / ParcelAlertLog …)
 components/               共用元件(AppNavbar / NetworkStatusIndicator / LocaleSwitcher …)
 composables/              組合式邏輯(useNetworkStatus / useLabelStatus …)
 stores/                   Pinia(status.js 集中管理 server/cloud/queue/cache/today/printStats)
 config/navConfig.js       Sidebar 結構(主要 / 列印 / 日誌 / 設定 四群)
 plugins/i18n/locales/     zh-Hant.json + vi-VN.json(雙語介面熱切換)
-api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支援純瀏覽器 preview)
+api/tauri.js              資料 API 單一出入口(桌面走 IPC / 網頁走 RPC / 預覽走 mock)
+api/runtime.js            三種執行環境的判斷(桌面 / 網頁 / 純瀏覽器預覽)
+api/rpc.js                網頁版的 HTTP 通道 + 401 導向掛勾
+api/events.js             事件訂閱抽象,介面與 Tauri listen 相同(網頁走共用 EventSource)
+api/media.js              面單圖 / 存證照 / 相機串流的網址(桌面絕對、網頁相對)
 @core/ @layouts/          Materio Vuetify Admin 樣板基礎
 ```
 
 ### Rust ↔ Vue 通訊兩條路
 
 1. **Request/Response** — 前端 `invoke('command_name', args)` 呼叫 Rust `#[tauri::command]`,await 結果
-2. **Server Push (事件)** — Rust `app.emit('event-name', payload)` → 前端 `listen('event-name', cb)`。目前事件:
+2. **Server Push (事件)** — Rust `event_bridge::emit(&app, 'event-name', payload)` → 前端 `listen('event-name', cb)`。
+   **一律走 `event_bridge`,不要直接 `app.emit()`** —— 後者只送得到桌面,網頁端會靜默漏收。目前事件:
    - `print-stats-updated`(三個寫入點 emit,前端 `DefaultLayout` listen,Navbar chip + 儀表板毫秒級同步)
    - `network-status`(`HealthChecker` worker 每輪檢查結束 emit)
    - `parcel-alert`(`GET /api/parcel` 失敗 / NoRead 時 emit,前端 `useParcelAlert` 依 kind 播提示音 + toast;`noread` kind 只 toast 不出聲)
@@ -100,11 +110,58 @@ api/tauri.js              Tauri command wrapper + 非 Tauri 環境的 mock(支�
 
 **「不夠即時就 WebSocket」是錯方向** — 桌面 App 後端與前端在同一進程,Tauri IPC event 走進程內通道、毫秒級、不用 socket server。WebSocket 適合「跨網路、跨機器」,在這裡反而繞遠路。
 
-### `non-Tauri` runtime guard
+### 三種執行環境(`api/runtime.js`)
 
-前端用 `typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__` 判斷是否為 Tauri runtime。若為純瀏覽器預覽(`npm run preview`),`api/tauri.js` 的 wrapper 會回傳 mock 資料,讓設計 / 排版可在瀏覽器迭代。新增 command 時記得同步補 mock 路徑,否則 web preview 會壞。
+同一份前端跑在三個地方,靠**明確旗標**分辨,不用「試打後端失敗就退 mock」—— 後者會把真正的連線錯誤吞成假資料,讓壞掉的頁面看起來像正常的。
+
+| 環境 | 判斷依據 | 資料來源 |
+|---|---|---|
+| 桌面 App | `window.__TAURI_INTERNALS__` | Tauri IPC |
+| 網頁版 | `window.__CIX_WEB__`(後端 / dev plugin 注入) | HTTP RPC |
+| 純瀏覽器預覽(`npm run preview`) | 兩者皆無 | `api/tauri.js` 內建 mock |
+
+判斷式用 `hasBackend`(有後端可呼叫)或 `isTauriRuntime`(真的需要桌面能力,如開機自動啟動、選資料夾對話框、多螢幕開窗)。
+兩者混用會出兩種錯:該用 `hasBackend` 卻寫 `isTauriRuntime` → 網頁版整頁空白;反過來 → 網頁版出現按了沒反應的開關。
+
+新增 command 時要同步補三處:`generate_handler!`、`server/rpc.rs` 的分派表、`api/tauri.js` 的 wrapper(含 mock)。
+**分派表漏補會讓桌面正常、網頁 404** —— `rpc.rs` 的 `registry_sync` 測試會直接擋下來。
+
+開發網頁版:`yarn dev` 後用瀏覽器開 `http://localhost:11420`(Vite 已代理 `/rpc`、`/events` 等到 18080,有熱更新)。
 
 ## 重要設計細節
+
+### 網頁版與對外存取(`server/auth.rs`、`config.web_access`)
+
+桌面版的所有頁面都能在瀏覽器跑,用的是同一份 Vue 前端與同一批 Rust 業務邏輯 —— **不存在第二套 UI 或第二份業務邏輯**。
+
+存取控制只有一道門,判斷**只認 TCP 連線的對端位址**:
+
+| 來源 | 待遇 |
+|---|---|
+| 內網網段(`web_access.lan_cidrs`) | 免登入,完整權限 |
+| 非內網 | 要輸入共用密碼(argon2 存 `app_setting`),通過後同等權限 |
+| 非內網打工控機端點 | 一律 403,即使已登入 |
+| 未設密碼 | 外網一律拒絕 |
+
+**絕不採信 `X-Forwarded-For`** —— 這台機器直接對外、前面沒有反向代理,該標頭任何人都能自己填,
+一旦拿來判斷內外網,外部送一行標頭就能繞過整道門。日後若真的擺代理在前面,要先確認代理會覆寫該標頭再改。
+
+**目前沒有 TLS**:對外開放時密碼、session cookie、面單上的收件人資料都是明文傳輸。
+接點已預留在 `server/mod.rs` 建立 listener 那段(換 `axum-server` + rustls),啟用後要把 `auth.rs` 的 cookie 補上 `Secure`。
+
+`/board`、`/control` 兩個舊網址改為導向 Vue 對應頁,現場貼的 QR 與書籤不會失效;舊的手刻 HTML 在 `backups/`。
+
+**手機版**:記錄類表格在窄螢幕會變成卡片式(`.table-cards`,樣式在 `styles/main.scss`),
+欄名取自各 `<td>` 的 `data-label` —— **加新欄位時要一併補上**,否則手機上那格會沒有名稱。
+畫面驗證用 `npx playwright@1.49.0 screenshot --channel=chrome`(用系統 Chrome,可開 localhost)。
+
+**圖示離線化**:圖示資料打包在 `src/plugins/icons-offline.json`(只含實際用到的 176 個)。
+沒有它,`@iconify/vue` 會去 `api.iconify.design` 線上抓 —— 外網一斷畫面上每個圖示都變空白。
+**新增圖示後要跑 `yarn icons` 重產**,忘了會被 `tests/maintenance-guards.test.mjs` 擋下。
+
+**跨檔案對應的守門**:`tests/maintenance-guards.test.mjs` 守著三件容易漏的事 ——
+前端呼叫的 command 後端要有、表格欄名要對得上表頭、圖示要打包進來。
+這類東西寫在註解裡遲早會被漏掉,而漏掉的症狀都不好聯想(網頁 404、手機某格沒名稱、圖示空白)。
 
 ### 面單路徑四模式(`label_path.mode`)
 
