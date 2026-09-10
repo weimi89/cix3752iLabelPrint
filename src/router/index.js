@@ -35,9 +35,9 @@ const routes = [
   { path: '/bag-check', name: 'bag-check', component: BagCheckPage,
     meta: { title: 'nav.bagCheck', icon: 'tabler-packages', group: 'nav.section.main' } },
   { path: '/scan-print', name: 'scan-print', component: ScanPrintPage,
-    meta: { title: 'nav.scanPrint', icon: 'tabler-browser', group: 'nav.section.print' } },
+    meta: { title: 'nav.scanPrint', icon: 'tabler-browser', group: 'nav.section.print', desktopOnly: true } },
   { path: '/auto-print', name: 'auto-print', component: AutoPrintPage,
-    meta: { title: 'nav.autoPrint', icon: 'tabler-cloud-cog', group: 'nav.section.print' } },
+    meta: { title: 'nav.autoPrint', icon: 'tabler-cloud-cog', group: 'nav.section.print', desktopOnly: true } },
   { path: '/pre-generate', name: 'pre-generate', component: PreGeneratePage,
     meta: { title: 'nav.preGenerate', icon: 'tabler-photo-down', group: 'nav.section.print' } },
   { path: '/sort-channels', name: 'sort-channels', component: SortChannelsPage,
@@ -51,7 +51,7 @@ const routes = [
   { path: '/field-operation-monitor', name: 'field-operation-monitor', component: FieldOperationMonitorPage,
     meta: { title: 'nav.fieldOperationMonitor', icon: 'tabler-user-check', group: 'nav.section.main' } },
   { path: '/warehouse-scanner', name: 'warehouse-scanner', component: WarehouseScannerPage,
-    meta: { title: 'nav.warehouseScanner', icon: 'tabler-package-import', group: 'nav.section.clearance' } },
+    meta: { title: 'nav.warehouseScanner', icon: 'tabler-package-import', group: 'nav.section.clearance', desktopOnly: true } },
   { path: '/dispatch-providers', name: 'dispatch-providers', component: DispatchProvidersPage,
     meta: { title: 'nav.dispatchProviders', icon: 'tabler-truck-delivery', group: 'nav.section.settings' } },
   { path: '/printer-settings', name: 'printer-settings', component: PrinterSettingsPage,
@@ -86,6 +86,10 @@ const router = createRouter({
 // refresh() 回報 authenticated 後就照常前往目的地。
 router.beforeEach(async to => {
   if (!isWebRuntime || to.meta.public) return true
+
+  // 現場作業頁(接掃描槍、用這台機器出單)網頁版不提供;導覽列不列之外,
+  // 直接輸入網址或舊書籤進來也要擋,帶回首頁
+  if (to.meta.desktopOnly) return { name: 'dashboard' }
 
   const { authenticated, checked, refresh } = useWebAuth()
 

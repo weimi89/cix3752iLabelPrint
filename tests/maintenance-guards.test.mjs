@@ -144,6 +144,23 @@ describe('離線圖示集', () => {
   })
 })
 
+describe('網頁版不提供的現場作業頁', () => {
+  /**
+   * `desktopOnly` 要同時標在導覽列(navConfig)與路由(router)。只標一邊的後果:
+   * 只標導覽列 → 網址打得進去;只標路由 → 導覽列上看得到、點了卻被踢回首頁。
+   */
+  const flagged = (text, re) => new Set([...text.matchAll(re)].map(m => m[1]))
+
+  test('導覽列與路由的標記一致', () => {
+    const nav = flagged(read('src/config/navConfig.js'),
+      /name: '([a-z-]+)' \}, desktopOnly: true/g)
+    const route = flagged(read('src/router/index.js'),
+      /name: '([a-z-]+)', component: \w+,\s*meta: \{[^}]*desktopOnly: true/g)
+    assert.ok(nav.size > 0, '一個都沒解析到，解析邏輯可能失效')
+    assert.deepEqual([...nav].sort(), [...route].sort())
+  })
+})
+
 describe('雙語文案', () => {
   const zh = JSON.parse(read('src/plugins/i18n/locales/zh-Hant.json'))
   const vi = JSON.parse(read('src/plugins/i18n/locales/vi-VN.json'))

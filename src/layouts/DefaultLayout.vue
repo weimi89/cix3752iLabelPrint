@@ -9,7 +9,7 @@ import { useLayoutConfigStore } from '@layouts/stores/config'
 import AppNavbar from '@/components/AppNavbar.vue'
 import AppLogo from '@/components/AppLogo.vue'
 import ClearanceProgressWidget from '@/components/ClearanceProgressWidget.vue'
-import { navItems } from '@/config/navConfig'
+import { visibleNavItems } from '@/config/navConfig'
 import { useSkins } from '@core/composable/useSkins'
 import { useStatusStore } from '@/stores/status'
 import { useParcelAlert } from '@/composables/useParcelAlert'
@@ -102,7 +102,7 @@ onBeforeUnmount(() => {
 <template>
   <VerticalNavLayout
     :home-url="'/'"
-    :nav-items="navItems"
+    :nav-items="visibleNavItems"
     :vertical-nav-attrs="layoutAttrs.verticalNavAttrs"
   >
     <!-- 👉 Sidebar header (logo + 標題 + version + 收合按鈕) -->
