@@ -94,7 +94,11 @@ jobs:
 
           echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
 
-  # macOS arm64 / macOS x64 / Windows — tauri-action 標準流程
+  # Windows — tauri-action 標準流程
+  #
+  # 2026-09-11 起**只出 Windows**:現場機器全是 Windows,macOS / Linux 每次都要等 30 分鐘到數小時
+  # 才能發版。macOS 與 Linux 的 job 都保留、只是不跑;要恢復時照下面註解把 matrix 加回來,
+  # 並同步改 verify-assets 的清單(那裡有一模一樣的註解標記)。
   release-desktop:
     # workflow_dispatch 指定 only=linux 時跳過(避免重 build 撞 assets already_exists)
     # push tag 觸發時 inputs.only 為空字串,!= 'linux' 為 true,正常跑
@@ -104,9 +108,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
+          # 【暫停 macOS】要恢復就取消下面三行註解
+          # - platform: macos-latest
+          #   target: aarch64-apple-darwin
+          #   args: --target aarch64-apple-darwin
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: --bundles nsis
@@ -193,7 +198,9 @@ jobs:
   # 20.04:focal 無 webkit2gtk-4.1,自編 glib 2.78 + libsoup3 + webkit2gtk-4.1 整套
   # 22.04 / 24.04:系統有 libwebkit2gtk-4.1-0,直接 link 系統 .so,install.sh 跑 apt
   release-linux:
-    if: github.event.inputs.only != 'desktop'
+    # 【暫停 Linux】push tag 不跑;臨時要補 Linux 產物時到 Actions 手動觸發 Release,
+    # tag 填既有 tag、only 選 linux。要恢復成每次都跑,把條件改回 `github.event.inputs.only != 'desktop'`
+    if: github.event.inputs.only == 'linux'
     needs: create-release
     runs-on: ubuntu-22.04
     continue-on-error: true  # source build / 新 distro 試錯中,fail 不阻其他 matrix
@@ -573,6 +580,8 @@ jobs:
           RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
           TAG_NAME: ${{ github.event.inputs.tag || github.ref_name }}
           ONLY: ${{ github.event.inputs.only || 'all' }}
+          # Linux job 暫停時是 skipped:沒跑就不驗 Linux 產物,免得每次發版都紅燈
+          LINUX_RESULT: ${{ needs.release-linux.result }}
         run: |
           set -euo pipefail
           # comm 要求兩份清單同一套排序規則,固定 C locale 避免 runner locale 影響比對
@@ -587,16 +596,17 @@ jobs:
             # 不是本 workflow 自己組的字串,無法從 matrix 機械推導,只能寫明。
             # 動 release-desktop 的 matrix 或 assetNamePattern 時要同步改這裡。
             {
-              echo "cix3752iLabelPrint_${VERSION}_aarch64.dmg"
-              echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz"
-              echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz.sig"
+              # 【暫停 macOS】恢復 macOS 打包時把下面三行一起加回來
+              # echo "cix3752iLabelPrint_${VERSION}_aarch64.dmg"
+              # echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz"
+              # echo "cix3752iLabelPrint_${VERSION}_aarch64.app.tar.gz.sig"
               echo "cix3752iLabelPrint_${VERSION}_x64_setup.exe"
               echo "cix3752iLabelPrint_${VERSION}_x64_setup.exe.sig"
               echo "latest.json"
             } >> /tmp/expected.txt
           fi
 
-          if [ "$ONLY" != "desktop" ]; then
+          if [ "$ONLY" != "desktop" ] && [ "$LINUX_RESULT" != "skipped" ]; then
             # Linux tarball 名稱是本 workflow 自己組的(cix3752iLabelPrint-{版本}-{distro}.tar.gz);
             # distro 由腳本從 release-linux 的 matrix 解析,不在這裡另抄一份清單 ——
             # 日後增減 distro 驗收會自動跟上,不會兩邊漂移。解析失敗時腳本以非 0 退出,

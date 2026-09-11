@@ -286,7 +286,10 @@ api/media.js              面單圖 / 存證照 / 相機串流的網址(桌面�
 5. **已發佈版本要補 changelog** — 若 release 已 publish 才發現 notes 漏了變更:`latest.json` 的 `notes` 已烤死,直接下載該 asset、改 `notes` 欄(平台 `signature` 不要動,簽的是 binary)、`gh release upload --clobber` 重傳,再 `gh release edit --notes-file` 更新頁面 body。
 
 - **Tag `v*` 觸發** `.github/workflows/release.yml` GitHub Actions
-- 三平台 runner:`macos-latest` (arm64) / `windows-latest` (NSIS) / `ubuntu:20.04|22.04|24.04` container(三條獨立 tarball)
+- **2026-09-11 起只打 Windows**(現場機器全是 Windows,macOS / Linux 每次要等 30 分鐘到數小時)。
+  macOS 與 Linux 的 job 都還在 workflow 裡、只是暫停:macOS 是 matrix 註解掉(`【暫停 macOS】` 標記,verify-assets 也有一份),
+  Linux 改成只在手動觸發 `only=linux` 時跑。要恢復照標記改回來即可,不必重寫。
+- 原三平台 runner:`macos-latest` (arm64) / `windows-latest` (NSIS) / `ubuntu:20.04|22.04|24.04` container(三條獨立 tarball)
 - **macOS Intel 不再 native build** — v0.2.0 起 `macos-13` runner 移除(queue 3h+ 是常態),Intel Mac 啟用 Rosetta 2 跑 ARM64 dmg
 - **Linux 跨 distro tarball 不能互通** — 20.04 自編 glib 2.78 + webkit 2.42 與系統 2.36 ABI 衝突,認對 distro。20.04 是 self-contained 離線可裝;22.04 / 24.04 走系統 `libwebkit2gtk-4.1-0`,需網路 apt
 - **Windows MSI 跳過** — WiX `light.exe` 對中文路徑有 bug,只出 NSIS
