@@ -1,0 +1,249 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>分揀看板</title>
+<style>
+  /* 顏色取自 App 主題(src/plugins/vuetify-materio/theme.js),這頁沒有 Vuetify 只能寫死值;
+     主題改色時這裡要一起改,兩邊看板才會長一樣。
+     字級用 vw/vh 隨螢幕縮放,現場隔幾公尺也看得清楚。 */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #F8F7FA; color: #2F2B3D;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  /* 沒有標題列:看板是掛在牆上遠看的,整個畫面都要留給燈號與單號。
+     語系切換與全螢幕做成右上角兩顆半透明小鈕,平常不搶眼、要用時摸得到 */
+  .tools {
+    position: absolute; top: 1.2vh; right: 1.2vw; z-index: 5;
+    display: flex; gap: .6vw; font-size: clamp(12px, 1.2vw, 18px);
+  }
+  .tools button {
+    cursor: pointer; color: rgba(47, 43, 61, .45); background: rgba(255, 255, 255, .6);
+    border: 1px solid rgba(47, 43, 61, .14); border-radius: 999px; padding: .4vh .9vw;
+    font: inherit; line-height: 1.4; -webkit-appearance: none;
+  }
+  .tools button:hover { color: #2F2B3D; background: #fff; }
+  /* 連線狀態只在斷線時出現:看板整天開著,活著不必說,斷了要一眼看到 */
+  .offline {
+    position: absolute; top: 1.2vh; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: none; align-items: center; gap: .5vw;
+    padding: .5vh 1.2vw; border-radius: 999px; background: #FF4C51; color: #fff;
+    font-size: clamp(13px, 1.4vw, 20px); font-weight: 700;
+  }
+  .offline.show { display: flex; }
+  .offline .dot { width: .9vw; height: .9vw; min-width: 10px; min-height: 10px; border-radius: 50%; background: #fff; }
+
+  /* 側欄用固定寬(燈 6.5vw + 間距 + 位置名約 12.7vw,取 15vw 有餘裕):
+     用 auto 的話中欄寬度會隨內容浮動,字級公式只能用猜的,長單號就可能貼到燈號上 */
+    main { position: relative; flex: 1; display: grid; grid-template-columns: 6.5vw 1fr 6.5vw; gap: 1.5vw; padding: 2vh 2vw; min-height: 0; }
+
+  .col { display: flex; flex-direction: column; gap: 1vh; min-height: 0; }
+  /* 燈號容器要自己撐滿並均分,否則五盞燈只佔內容高度、被擠在欄位下半部 */
+  /* gap 讓燈與燈之間留出明顯間距:現場隔幾公尺在看,擠在一起會分不出亮的是哪一格 */
+  .col .lamps { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; gap: 2.5vh; }
+
+  /* 一格 = 一盞燈 + 位置名。灰=還沒輪到、綠=剛分到、黃=暫停中 */
+  .slot { display: flex; align-items: center; gap: 1vw; }
+  .slot .lamp {
+    width: 5.5vw; height: 5.5vw; min-width: 48px; min-height: 48px;
+    /* 底色是淡灰,灰燈太淺會糊在背景裡,壓深到看得出「這格還沒輪到」 */
+    border-radius: 50%; background: rgba(47, 43, 61, .2); border: .35vw solid rgba(47, 43, 61, .3);
+    /* 位置標示放進燈裡:掛在燈旁邊會吃掉中欄的寬度,單號就放不大 */
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(47, 43, 61, .55); font-size: 2vw; font-weight: 800; letter-spacing: -.02em;
+    transition: background .25s ease, box-shadow .25s ease, border-color .25s ease;
+    flex: none;
+  }
+  .col-right .slot { flex-direction: row-reverse; }
+
+  .slot.active .lamp { color: #fff; background: #28C76F; border-color: rgba(40,199,111,.45); box-shadow: 0 0 2.5vw rgba(40,199,111,.5); }
+  .slot.paused .lamp { color: #fff; background: #FF9F43; border-color: rgba(255,159,67,.45); box-shadow: 0 0 1.6vw rgba(255,159,67,.45); }
+
+  /* 中央:單號特大字,後四碼再加大 —— 現場核對就是看後幾碼 */
+  /* 單號偏上、下面留大一點的空間:異常訊息字大又長短不一,
+     若把單號放在正中央,訊息一長就會把版面往下擠出去。 */
+  /* 中欄兩側再留一點安全邊距,單號不會貼著燈號 */
+  .center { display: grid; grid-template-rows: 0.55fr auto 1.45fr; justify-items: center; min-width: 0; padding-inline: 1.5vw; }
+  .center .no { grid-row: 2; }
+  .center .sub { grid-row: 3; align-self: start; padding-top: 2.5vh; display: flex; flex-direction: column; gap: 1.2vh; }
+  .no {
+    font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em;
+    line-height: 1; white-space: nowrap; display: flex; align-items: baseline; justify-content: center;
+    max-width: 100%;
+  }
+  /* 字級隨單號長度自適應:--len 由 JS 帶入。
+     固定字級遇到 15 碼的順豐單號會撐破中欄、蓋到兩側燈號;
+     除以長度才能讓短單號放到最大、長單號自動縮到塞得下。 */
+  .no { --len: 12; }
+  .no .head { font-size: min(14vw, calc(132vw / (var(--len) + 2))); color: inherit; }
+  .no .tail { font-size: min(20.6vw, calc(194vw / (var(--len) + 2))); color: inherit; margin-left: .06em; }
+  .provider { font-size: clamp(22px, 4.6vw, 90px); font-weight: 700; color: #2F2B3D; text-align: center; }
+  /* 分揀時刻貼在單號正上方,只佔中欄(不跨到左右燈號那兩欄,也不另外吃一整列高度)。
+     藍色是刻意寫死的:主題色盤裡沒有藍(info 偏青綠),這裡要的是跟紅色單號、
+     黑色訊息都分得開的第三個顏色 */
+  /* 貼在看板最上緣正中央。用絕對定位是刻意的:它不佔版面高度,
+     單號、物流名、訊息與兩側燈號都留在原本的位置 */
+  main > .time { position: absolute; top: 2vh; left: 0; right: 0; line-height: 1; font-size: clamp(24px, 6.2vw, 120px); font-weight: 700; color: #0D47A1; font-variant-numeric: tabular-nums; text-align: center; }
+  /* 異常原因是現場要據以處理的資訊,不是附註 —— 用正文色與接近物流名的字級,遠處才看得清楚 */
+  .note { font-size: min(5.6vw, calc(62vw / var(--nlen, 12))); font-weight: 700; line-height: 1.25; color: #2F2B3D; text-align: center; }
+
+  /* 三種狀態的字色:正常白、查件異常紅、沒有指派通道黃 */
+  .center.ok .no { color: #2F2B3D; }
+  /* 監視器會反光,狀態色一律用深一階的版本(主題色太亮) */
+  .center.error .no, .center.error .provider { color: #C62828; }
+  .center.unassigned .no, .center.unassigned .provider { color: #E65100; }
+  .center.idle .no { color: rgba(47, 43, 61, .2); }
+  .center.idle .provider { color: rgba(47, 43, 61, .2); }
+</style>
+
+<div class="tools">
+  <button type="button" id="lang" onclick="toggleLang()" title="中文 / Tiếng Việt">中 · VI</button>
+  <button type="button" id="fs" onclick="toggleFullscreen()">⛶</button>
+</div>
+<div class="offline" id="offline"><span class="dot"></span><span id="offlineText">連線中斷</span></div>
+
+<main>
+  <div class="time" id="time"></div>
+
+  <div class="col col-left">
+    <div class="lamps" id="left"></div>
+  </div>
+
+  <div class="center idle" id="center">
+    <div class="no" id="no"><span class="head"></span><span class="tail" id="tailIdle">—</span></div>
+    <div class="sub">
+      <div class="provider" id="provider"></div>
+      <div class="note" id="note"></div>
+    </div>
+  </div>
+
+  <div class="col col-right">
+    <div class="lamps" id="right"></div>
+  </div>
+</main>
+
+<script>
+// 通道啟用/暫停是慢速變動的設定,不必跟著每件包裹重抓
+const CHANNEL_POLL_MS = 10000;
+
+const I18N = {
+  zh: { title: '分揀看板', offline: '連線中斷', fullscreen: '全螢幕',
+        waiting: '等待包裹', unassigned: '未指派通道' },
+  vi: { title: 'Bảng phân loại', offline: 'Mất kết nối', fullscreen: 'Toàn màn hình',
+        waiting: 'Đang chờ kiện hàng', unassigned: 'Chưa gán kênh' },
+};
+let lang = localStorage.getItem('board_lang') || 'zh';
+const tr = k => (I18N[lang] || I18N.zh)[k];
+
+let channels = [];        // /api/channels 的快照(位置 + 啟用狀態)
+let activePos = null;     // 目前亮綠燈的位置
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderSlots() {
+  for (const side of ['L', 'R']) {
+    const box = document.getElementById(side === 'L' ? 'left' : 'right');
+    const list = channels.filter(c => c.position[0] === side);
+    box.innerHTML = list.map(c => {
+      const cls = c.position === activePos ? 'active' : (c.enabled ? '' : 'paused');
+      return '<div class="slot ' + cls + '"><span class="lamp">' + esc(c.position) + '</span></div>';
+    }).join('');
+  }
+}
+
+// 單號拆成「前段 + 後四碼」,後四碼用更大的字級
+function renderNo(no) {
+  const s = String(no || '');
+  document.getElementById('no').style.setProperty('--len', Math.max(6, s.length));
+  const cut = Math.max(0, s.length - 4);
+  document.querySelector('#no .head').textContent = s.slice(0, cut);
+  document.querySelector('#no .tail').textContent = s.slice(cut) || '—';
+}
+
+function applyEvent(ev) {
+  const center = document.getElementById('center');
+  center.className = 'center ' + (ev.status || 'ok');
+  renderNo(ev.no);
+  document.getElementById('provider').textContent =
+    ev.status === 'unassigned' && !ev.provider ? tr('unassigned') : (ev.provider || '');
+  document.getElementById('time').textContent = ev.at || '';
+  const note = ev.status === 'error' ? (ev.message || '') : (ev.status === 'unassigned' ? tr('unassigned') : '');
+  const noteEl = document.getElementById('note');
+  // 逗號處斷行:「無法列印,訂單當前狀態異常」拆兩行比擠成一長條好讀,行短了字也能更大
+  const lines = note.split(/[\uFF0C,、]/).map(t => t.trim()).filter(Boolean);
+  noteEl.innerHTML = lines.map(l => '<div>' + esc(l) + '</div>').join('');
+  // 字級除以「最長那一行」的字數,才不會換行蓋到兩側燈號
+  noteEl.style.setProperty('--nlen', Math.max(8, ...lines.map(l => l.length), 0));
+
+  // 綠燈一直亮到下一件進來 —— 現場隨時看得出「最後一件去了哪一格」,
+  // 停機時也還看得到上一件的去向
+  activePos = ev.position || null;
+  renderSlots();
+}
+
+async function loadChannels() {
+  try {
+    const res = await fetch('/api/channels', { cache: 'no-store' });
+    if (!res.ok) return;
+    channels = await res.json();
+    renderSlots();
+  } catch (e) { /* 區網瞬斷:保留上一份快照,下一輪再試 */ }
+}
+
+function setLink(on) {
+  document.getElementById('offline').classList.toggle('show', !on);
+}
+
+function applyLang() {
+  document.title = tr('title');
+  document.getElementById('offlineText').textContent = tr('offline');
+  document.getElementById('fs').title = tr('fullscreen');
+  // 還沒收到第一件時中欄顯示的是「等待包裹」,切語系時要跟著換
+  if (document.getElementById('center').classList.contains('idle')) {
+    document.getElementById('provider').textContent = tr('waiting');
+  }
+  renderSlots();
+}
+
+// 全螢幕:用瀏覽器直接開看板時把網址列收掉。iOS Safari 不給網頁整頁全螢幕,
+// 那邊沒有這個 API 就把按鈕藏起來,改靠「加入主畫面」(head 的 meta)開成無網址列
+function toggleFullscreen() {
+  const root = document.documentElement;
+  const inFs = document.fullscreenElement || document.webkitFullscreenElement;
+  if (inFs) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+}
+if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
+  document.getElementById('fs').style.display = 'none';
+}
+function toggleLang() {
+  lang = lang === 'zh' ? 'vi' : 'zh';
+  localStorage.setItem('board_lang', lang);
+  applyLang();
+}
+
+// SSE:分配一件推一則。斷線由 EventSource 自己重連,這裡只負責把燈號改回「斷線」。
+function connect() {
+  const src = new EventSource('/board/stream');
+  src.onopen = () => setLink(true);
+  src.onmessage = e => {
+    setLink(true);
+    try { applyEvent(JSON.parse(e.data)); } catch (err) { /* 壞掉的一則就跳過,不能讓看板整個停住 */ }
+  };
+  src.onerror = () => setLink(false);
+}
+
+applyLang();
+document.getElementById('provider').textContent = tr('waiting');
+loadChannels();
+setInterval(loadChannels, CHANNEL_POLL_MS);
+connect();
+</script>

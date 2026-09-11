@@ -365,7 +365,7 @@ async fn start_inner(
         // 手機遙控分揀通道暫停(換紙等臨時暫停某通道,不影響其他通道)
         // 手機遙控:現場人員用的簡單頁(獨立 HTML),與網頁版完整後台並存
         .route("/control", get(control_page))
-        // 分揀看板:/board 是網頁版(大螢幕開網址),/board/stream 是它的即時推播
+        // 分揀看板:/board 是給電視的獨立看板頁,/board/stream 是它的即時推播
         .route("/board", get(board_page))
         .route("/board/stream", get(events::board_stream))
         // 網頁版事件通道:桌面 listen() 在這裡有一條同名對應
@@ -1106,12 +1106,12 @@ async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoRes
         .into_response()
 }
 
-/// GET /board — 導向網頁版的分揀看板。
+/// GET /board — 電視 / 現場電腦用的獨立分揀看板(自帶 CSS/JS,整頁只有看板)。
 ///
-/// 舊版是一份獨立手刻的 HTML;功能併入網頁版之後改為導向,讓貼在電視上的舊網址、
-/// 掃過的 QR 仍然指得到東西 —— 現場不必為了改版重貼一輪。
+/// 網頁版也有分揀看板頁,但它包在完整後台的側欄與導覽列裡,掛在電視上多出一圈選單、
+/// 也讓現場人員摸得到設定頁。這頁與 `/control` 一樣是給現場的簡單版,與完整網頁版並存。
 async fn board_page() -> impl IntoResponse {
-    axum::response::Redirect::to("/#/sort-board")
+    axum::response::Html(include_str!("board_page.html"))
 }
 
 /// GET /control — 現場貼單人員用的簡單版手機遙控頁(自帶 CSS/JS,離線可用)。
