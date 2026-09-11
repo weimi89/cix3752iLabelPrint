@@ -5,7 +5,20 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-11（v1.1.0 已公開發佈）**　目前版本：**v1.1.0（2026-09-11 10:17 UTC 公開;macOS / Windows 產物 + `latest.json` 生效;Linux 22.04 / 24.04 跑完會自動補上,20.04 待重跑）**
+最後更新：**2026-09-11（v1.1.1 已公開發佈）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+
+---
+
+## 2026-09-11：v1.1.1（已公開;第一次走「只打 Windows」流程)
+
+commit `8040862`、tag `v1.1.1`。CI run `34590932679` **18 分鐘**跑完(create-release → Windows → verify-assets 全綠,
+Linux 顯示 skipped、verify 正確略過 Linux 清單),對照 v1.1.0 三平台要等一小時以上。
+
+- 手機導覽列:語系切換只留圖示(`LocaleSwitcher.vue`,要用 `.v-btn.v-btn.locale-btn` 才蓋得過全域按鈕的 20px `!important` 內距)、
+  導覽列卡片內距 22.5→12px、圖示鈕 40→36px、統計數字間距縮小;360px + 五位數 + 登出鈕實測 291px 剛好放進卡片。
+- `.table-cards` 欄名改可縮可折、數值固定靠右不拆(作業監控「依物流細分」大數字撐破卡片的根因);
+  三個欄名去掉空白與間隔點(中越)。
+- v1.1.0 的 Ubuntu 20.04 補跑腳本仍在背景等該 run 結束;22.04 / 24.04 跑完會自動上傳到 v1.1.0 release。
 
 ---
 
