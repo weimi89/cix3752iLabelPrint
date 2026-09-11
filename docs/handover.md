@@ -11,7 +11,17 @@
 
 ## 2026-09-11：v1.1.0 手機版全面整理（已提交推送，CI 打包中）
 
-commit `ab95774`、tag `v1.1.0`。這一版全是前端版面,Rust 端沒動(`cargo check` 過、版本號同步)。
+commit `7675140`(tag `v1.1.0`,第二次打;第一次打在 `ab95774` 的 tag / 草稿 release / CI 已取消刪除,
+因為使用者接著要求把現場人員的簡單版遙控頁接回,一起進這版)。
+
+### 兩套網頁介面並存(使用者明確要求)
+
+- `/control` 改回輸出獨立的簡單版遙控頁(`server/control_page.html`,從 `backups/20260910104322` 接回,
+  用的 `/api/channels*`、`/api/alerts`、`/api/sticker-history`、`/api/dispatch-providers` 都還在),
+  給現場貼單人員:通道狀態、暫停 / 恢復 / 跳過、指派貼標與物流。iPhone 模擬實測列表與詳情頁可用、無 4xx。
+- 桌面 App「手機遙控」QR 與顯示網址改回 `ip:port/control`(v1.0.0 曾改成首頁 —— 完整後台對現場人員太複雜、權限太大)。
+- 使用者決定**權限不動**:完整網頁版在同區網仍免密碼(知道網址仍進得去);要鎖再另案。
+- `CLAUDE.md` 已寫明「不要把 /control 改成導向完整網頁版」。
 
 ### 做了什麼(全部以 iPhone 390 / 360 寬度、中文 + 越南文實機模擬驗過)
 
@@ -32,7 +42,7 @@ commit `ab95774`、tag `v1.1.0`。這一版全是前端版面,Rust 端沒動(`ca
 ### 發版狀態
 
 - CHANGELOG `## v1.1.0` 已寫;三處版本號 1.1.0;`Cargo.lock` 同步。
-- CI run `34582332038` 進行中。完成後要:`gh release edit v1.1.0 --draft=false`,再確認 `latest.json` 匿名可取。
+- CI run `34583565633` 進行中(第一次的 `34582332038` 已取消)。完成後要:`gh release edit v1.1.0 --draft=false`,再確認 `latest.json` 匿名可取。
 
 ### 沒做 / 已知
 
