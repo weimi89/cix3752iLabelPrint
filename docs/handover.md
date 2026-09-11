@@ -5,7 +5,40 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-10（v1.0.1 已公開發佈）**　目前版本：**v1.0.1（已發佈，九項產物齊全，`latest.json` 生效）**
+最後更新：**2026-09-11（v1.1.0 已提交推送，CI 打包中）**　目前版本：**v1.1.0（tag 已推，等 CI 完成後手動 `gh release edit v1.1.0 --draft=false` 公開）**
+
+---
+
+## 2026-09-11：v1.1.0 手機版全面整理（已提交推送，CI 打包中）
+
+commit `ab95774`、tag `v1.1.0`。這一版全是前端版面,Rust 端沒動(`cargo check` 過、版本號同步)。
+
+### 做了什麼(全部以 iPhone 390 / 360 寬度、中文 + 越南文實機模擬驗過)
+
+- **頁首共用元件**:圖示左、標題說明右、動作收成右上角一顆選單鈕(對齊 cix3752iWeb);新增 `subtitle-short`,
+  15 頁的說明在手機改用短句(語系檔 `subtitleShort`)。文字區改「拿剩餘寬度」,桌面長說明也不再把按鈕擠到下一列。
+- **分頁列 `TablePagination`**:對齊 Web 版型 —— 桌面雙區、手機頁首只放翻頁、頁尾只放筆數;<400px 收掉首尾鍵;
+  四個記錄頁頁首的 `d-flex + VSpacer` 包裝拿掉。
+- **日曆 `AppDatePicker`**:手機改開置中 VDialog(貼著輸入框的 VMenu 在 iOS 上會出界、整頁橫捲,CSS 硬拉不可靠);
+  新增 `min`;印單統計頁自己複製的日曆程式碼改用共用元件。**根因**:全站 `.v-btn--size-default` 的 38px/20px `!important`
+  也套到日曆按鈕,把日曆從 328px 撐到 364px,`main.scss` 已排除。
+- **清關進度浮動框**:Pointer Events(觸控可拖)、`clampPos` 開啟/縮放/拖曳都夾回視窗、z-index 2400→1010(低於對話框)。
+- **卡片式表格 `.table-cards`**:tbody 加內距、空狀態列(單格 colspan)不畫成卡、多顆操作鈕一起靠右。
+- 其他:面單預產頁籤四個平分(書籤列 `flex: 1 1 0` + 高度放開)、件數核對精簡列表卡片化(補 `data-label`)、
+  設定頁 5 處開關 `flex-shrink-0`、38 個 `VLabel` 加 `text-wrap`、combobox 空值改 `null`、密碼欄提示移到列外。
+- **稽核工具** `tests/mobile-layout-audit.mjs`:全頁面截圖 + 列出超出/被切元素;`CLAUDE.md` 已記用法與
+  「Vuetify 字級 class 鎖在 layer !important,元件媒體查詢蓋不過」的坑。
+
+### 發版狀態
+
+- CHANGELOG `## v1.1.0` 已寫;三處版本號 1.1.0;`Cargo.lock` 同步。
+- CI run `34582332038` 進行中。完成後要:`gh release edit v1.1.0 --draft=false`,再確認 `latest.json` 匿名可取。
+
+### 沒做 / 已知
+
+- 未在真機 Safari 用 WebKit 引擎驗(Playwright WebKit 下載卡住),iOS 的判定靠使用者實機回報:
+  日曆改 VDialog 後使用者尚未回報。
+- 越南文頁籤「Chuyển tiếp xuất hàng」在 84px 寬會折成 3 行(可讀,未再縮)。
 
 ---
 
