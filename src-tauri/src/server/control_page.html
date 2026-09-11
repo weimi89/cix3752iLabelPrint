@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#EAF3FB" />
+<title>分揀通道遙控</title>
+<style>
+  /* SortPause 明亮玻璃擬態 + 科技藍配色(對齊 Flutter App theme.dart) */
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #EFF3F8;
+    --primary: #0EA5E9;   /* 天藍 主色 */
+    --cyan: #2563EB;      /* 漸層末(藍) */
+    --warn: #F59E0B;
+    --warn-deep: #EA7A00;
+    --danger: #F43F5E;
+    --success: #0EA5E9;
+    --text: #11253A;
+    --muted: #5E7283;
+    --border: #E2E8F0;
+    --card: #FFFFFF;
+    --paused: #FFF6E8;
+    --chip: #EDF3FB;
+    --hint: #EAF1FB;
+  }
+  html, body { margin: 0; color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+  /* 淺色科技背景:清淡藍漸層 + 兩團柔光 + 極淡網格 */
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 86% 4%, rgba(14,165,233,.06), transparent 42%),
+      radial-gradient(circle at 6% 96%, rgba(37,99,235,.05), transparent 48%),
+      linear-gradient(135deg, #EAF3FB 0%, #EDF1FA 55%, #F4F6FA 100%);
+    background-attachment: fixed;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(17,37,58,.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(17,37,58,.015) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+  svg.ico { width: 20px; height: 20px; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; flex: 0 0 auto; }
+  svg.ico.fill { fill: currentColor; stroke: none; }
+
+  /* ── 頂列 App Bar ── */
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(240,244,248,.88); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  header .back {
+    width: 38px; height: 38px; border: none; background: transparent; color: var(--text);
+    border-radius: 12px; display: none; align-items: center; justify-content: center; padding: 0;
+  }
+  header .back:active { background: rgba(17,37,58,.06); }
+  header h1 { font-size: 18px; font-weight: 800; letter-spacing: .3px; margin: 0; flex: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .demo-badge { display: none; }
+  .conn-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger);
+    box-shadow: 0 0 8px 1px rgba(244,63,94,.7); margin: 0 4px; flex: 0 0 auto; }
+  .conn-dot.hide { display: none; }
+  .bell { position: relative; width: 40px; height: 40px; border: none; background: transparent;
+    color: var(--text); border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .bell:active { background: rgba(17,37,58,.06); }
+  .bell .badge { position: absolute; top: 5px; right: 4px; min-width: 16px; height: 16px;
+    padding: 0 4px; border-radius: 999px; background: var(--danger); color: #fff;
+    font-size: 10px; font-weight: 800; line-height: 16px; text-align: center; display: none; }
+  .lang { min-width: 52px; height: 34px; padding: 0 10px; border-radius: 10px;
+    border: none; background: transparent; color: var(--muted); font-weight: 800; font-size: 13px; }
+  .lang:active { background: rgba(17,37,58,.06); }
+
+  main { position: relative; z-index: 1; max-width: 640px; margin: 0 auto;
+    padding: 12px 14px calc(28px + env(safe-area-inset-bottom)); }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── 清單頁 ── */
+  .hint-card {
+    background: var(--hint); border: 1px solid rgba(14,165,233,.22); border-radius: 18px;
+    padding: 12px 14px; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 12px;
+  }
+  .hint-card svg.ico { color: var(--primary); }
+
+  .ch-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    overflow: hidden; margin-bottom: 12px; display: flex; align-items: stretch;
+    transition: transform .06s;
+  }
+  .ch-card:active { transform: scale(.985); }
+  .ch-card.paused { background: var(--paused); border-color: rgba(245,158,11,.45); }
+  .ch-card .accent { width: 5px; flex: 0 0 auto;
+    background: linear-gradient(to bottom, var(--primary), var(--cyan)); }
+  .ch-card.paused .accent { background: linear-gradient(to bottom, var(--warn), var(--warn-deep)); }
+  .ch-card .body { flex: 1; min-width: 0; padding: 12px 12px 12px 14px; }
+  .ch-top { display: flex; align-items: center; gap: 8px; }
+  .ch-pos { font-size: 20px; font-weight: 900; letter-spacing: .5px; color: var(--text); }
+  .ch-unset { color: var(--muted); font-size: 12.5px; }
+  .ch-top .spacer { flex: 1; }
+  .skip-badge { display: inline-flex; align-items: center; gap: 1px; color: var(--warn-deep);
+    font-size: 13px; font-weight: 800; }
+  .skip-badge svg.ico { width: 15px; height: 15px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 800; }
+  .pill.on { color: var(--success); background: rgba(14,165,233,.12); border: 1px solid rgba(14,165,233,.3); }
+  .pill.off { color: var(--warn-deep); background: rgba(234,122,0,.12); border: 1px solid rgba(234,122,0,.3); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+    box-shadow: 0 0 6px 1px currentColor; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 12.5px; font-weight: 700; color: var(--text);
+    background: var(--chip); border: 1px solid rgba(14,165,233,.22);
+    border-radius: 999px; padding: 4px 10px; }
+  .no-disp { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  .sticker { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .sticker svg.ico { width: 15px; height: 15px; }
+
+  /* ── 詳情頁 ── */
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    padding: 16px; margin-bottom: 16px; }
+  .track-head { height: 28px; display: flex; align-items: center; }
+  .track-head .label { color: var(--muted); font-size: 14px; font-weight: 600; }
+  .track-head .spacer { flex: 1; }
+  .err-pill { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px;
+    color: var(--warn-deep); background: rgba(245,158,11,.14); border: 1px solid rgba(245,158,11,.45);
+    font-size: 13px; font-weight: 800; }
+  .err-pill svg.ico { width: 15px; height: 15px; }
+  .track-num { height: 72px; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; text-align: center; }
+  .track-num .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .track-num .head { font-size: 28px; font-weight: 700; color: var(--muted); }
+  .track-num .tail { font-size: 52px; font-weight: 900; letter-spacing: 1px; color: var(--primary); }
+  .track-num.err .head { color: var(--warn-deep); }
+  .track-num.err .tail { color: var(--warn-deep); }
+  .track-num .empty { font-size: 34px; font-weight: 300; color: var(--muted); }
+  .panel .divider { height: 1px; background: rgba(17,37,58,.06); margin: 6px 0 4px; }
+  .hist { min-height: 64px; }
+  .hist-row { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
+  .hist-row svg.ico { width: 15px; height: 15px; }
+  .hist-row .num { flex: 1; min-width: 0; font-size: 14px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-row .kind { font-size: 12px; color: var(--warn-deep); }
+  .hist-row .time { font-size: 11px; color: var(--muted); }
+  .hist-row.err .num { color: var(--warn-deep); }
+  .hist-row.ok .num { color: var(--text); }
+  .hist-row.err { color: var(--warn-deep); }
+  .hist-row.ok { color: var(--muted); }
+
+  .info-row { display: flex; align-items: flex-start; gap: 12px; padding: 13px 0; }
+  .info-row svg.ico { color: var(--muted); margin-top: 1px; }
+  .info-row .val { flex: 1; text-align: right; font-size: 16px; font-weight: 700; }
+  .info-row .chips { justify-content: flex-end; margin-top: 0; }
+  .info-row + .info-row { border-top: 1px solid rgba(17,37,58,.06); }
+
+  .skip-pending { display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    padding: 8px 8px 8px 14px; border-radius: 14px;
+    background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.4); }
+  .skip-pending svg.ico { color: var(--warn-deep); width: 20px; height: 20px; }
+  .skip-pending .txt { flex: 1; color: var(--warn-deep); font-weight: 800; }
+  .skip-pending .cancel { border: none; background: transparent; color: var(--warn-deep);
+    font-weight: 700; font-size: 14px; padding: 8px 10px; border-radius: 10px; }
+  .skip-pending .cancel:active { background: rgba(234,122,0,.1); }
+
+  .btn-skip { width: 100%; height: 52px; border-radius: 14px;
+    background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.55); color: var(--warn-deep);
+    font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-skip:active { background: rgba(245,158,11,.14); }
+  .btn-skip:disabled { opacity: .5; }
+  .skip-hint { text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0 14px; }
+
+  .btn-toggle { width: 100%; height: 66px; border-radius: 16px; border: none; color: #fff;
+    font-size: 20px; font-weight: 900; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-toggle.pause { background: var(--warn-deep); }
+  .btn-toggle.enable { background: var(--primary); }
+  .btn-toggle:active { filter: brightness(.94); }
+  .btn-toggle:disabled { opacity: .6; }
+  .btn-toggle svg.ico { width: 28px; height: 28px; }
+
+  /* ── 指派設定頁(貼標人員 / 指派物流)── */
+  .btn-edit { width: 100%; height: 46px; margin: 4px 0 14px; border-radius: 14px;
+    background: rgba(14,165,233,.07); border: 1px solid rgba(14,165,233,.5); color: var(--primary);
+    font-size: 15px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-edit:active { background: rgba(14,165,233,.15); }
+  .field { margin-bottom: 14px; }
+  .field > label { display: block; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .field input {
+    width: 100%; height: 50px; padding: 0 14px; border-radius: 14px; font-size: 17px; font-weight: 700;
+    color: var(--text); background: #F7FAFD; border: 1px solid var(--border); outline: none;
+    font-family: inherit;
+  }
+  .field input:focus { border-color: var(--primary); background: #fff; }
+  .sub-label { color: var(--muted); font-size: 12px; font-weight: 700; margin: 10px 0 6px; }
+  .pick { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pick .chip { border: 1px solid rgba(14,165,233,.22); background: var(--chip); color: var(--text);
+    padding: 8px 14px; font-size: 14px; font-weight: 700; border-radius: 999px; }
+  .pick .chip:active { transform: scale(.97); }
+  .pick .chip.sel { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .pick .chip.sel::before { content: "✓ "; font-weight: 900; }
+  .pick-empty { color: var(--muted); font-size: 13px; }
+  .btn-save { width: 100%; height: 60px; border-radius: 16px; border: none; background: var(--primary);
+    color: #fff; font-size: 18px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-save:active { filter: brightness(.94); }
+  .btn-save:disabled { opacity: .6; }
+  .btn-save svg.ico { width: 22px; height: 22px; }
+
+  /* ── 異常清單頁 ── */
+  .alert-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    padding: 14px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px; }
+  .alert-card svg.ico { margin-top: 1px; }
+  .alert-body { flex: 1; min-width: 0; }
+  .alert-top { display: flex; align-items: center; gap: 8px; }
+  .alert-kind { font-size: 16px; font-weight: 800; }
+  .alert-top .time { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .alert-line { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+  .alert-line svg.ico { width: 15px; height: 15px; color: var(--muted); }
+  .alert-line .strong { font-size: 15px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert-line .sub { font-size: 14px; color: var(--muted); }
+  .alert-msg { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .empty svg { width: 56px; height: 56px; color: rgba(14,165,233,.6); fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .empty p { margin: 10px 0 0; }
+  .loading { text-align: center; color: var(--muted); padding: 60px 20px; }
+</style>
+</head>
+<body>
+<header>
+  <button class="back" id="backBtn" aria-label="back"></button>
+  <h1 id="title">分揀通道遙控</h1>
+  <span class="conn-dot hide" id="connDot"></span>
+  <button class="bell" id="bellBtn" aria-label="alerts"><span class="badge" id="bellBadge"></span></button>
+  <button class="lang" id="langBtn" onclick="toggleLang()">中 · VI</button>
+</header>
+<main>
+  <section class="view active" id="view-list"></section>
+  <section class="view" id="view-detail"></section>
+  <section class="view" id="view-assign"></section>
+  <section class="view" id="view-alerts"></section>
+</main>
+
+<script>
+// ===== i18n(對齊 SortPause strings.dart)=====
+const I18N = {
+  zh: {
+    title: '分揀通道遙控', on: '分揀中', off: '已暫停', unset: '未設定通道代碼',
+    noDispatch: '未指派物流', sticker: '貼標', tracking: '物流單號',
+    tapManage: '點通道進入單一管理', doPause: '暫停此通道', doEnable: '啟用此通道',
+    skipNext: '跳過下一次輪流', skipPending: '待跳過 {n} 次', skipCancel: '取消跳過',
+    skipHint: '卡關時用:輪到此通道時跳過,改派下一個通道',
+    alertsTitle: '雲端查件異常', alertsEmpty: '目前沒有異常記錄',
+    toggleFail: '操作失敗',
+    assign: '設定貼標與物流', assignTitle: '設定',
+    stickerLabel: '貼標人員', stickerPlaceholder: '輸入姓名(可留空)', stickerRecent: '最近使用',
+    noSticker: '未指派', dispatchLabel: '指派物流',
+    dispatchEmpty: '尚未建立物流商,請先到桌面「指派物流」頁新增',
+    save: '儲存', saving: '儲存中…', saveFail: '儲存失敗',
+    errPrinterRequired: '此通道尚未設定本機印表機,請先到桌面「分揀通道」頁設定後再指派物流',
+    errUnknownProvider: '物流清單已變動,請重新整理後再試',
+    errNoChannel: '找不到此通道', errBadPosition: '無效的通道位置',
+  },
+  vi: {
+    title: 'Điều khiển kênh phân loại', on: 'Đang phân loại', off: 'Đã tạm dừng',
+    unset: 'Chưa đặt mã kênh', noDispatch: 'Chưa gán vận chuyển', sticker: 'Dán nhãn',
+    tracking: 'Mã vận đơn', tapManage: 'Chạm vào kênh để quản lý riêng',
+    doPause: 'Tạm dừng kênh này', doEnable: 'Kích hoạt kênh này',
+    skipNext: 'Bỏ qua lượt kế tiếp', skipPending: 'Chờ bỏ qua {n} lần', skipCancel: 'Hủy bỏ qua',
+    skipHint: 'Khi kẹt: đến lượt kênh này sẽ bỏ qua, chuyển kênh kế tiếp',
+    alertsTitle: 'Cảnh báo tra cứu đám mây', alertsEmpty: 'Hiện chưa có cảnh báo',
+    toggleFail: 'Thao tác thất bại',
+    assign: 'Đặt người dán nhãn & vận chuyển', assignTitle: 'Cài đặt',
+    stickerLabel: 'Người dán nhãn', stickerPlaceholder: 'Nhập tên (có thể bỏ trống)',
+    stickerRecent: 'Dùng gần đây', noSticker: 'Chưa gán', dispatchLabel: 'Gán vận chuyển',
+    dispatchEmpty: 'Chưa có hãng vận chuyển, hãy thêm ở trang "Gán vận chuyển" trên máy tính',
+    save: 'Lưu', saving: 'Đang lưu…', saveFail: 'Lưu thất bại',
+    errPrinterRequired: 'Kênh này chưa đặt máy in, hãy đặt ở trang "Kênh phân loại" trên máy tính trước khi gán vận chuyển',
+    errUnknownProvider: 'Danh sách vận chuyển đã thay đổi, hãy tải lại rồi thử lại',
+    errNoChannel: 'Không tìm thấy kênh này', errBadPosition: 'Vị trí kênh không hợp lệ',
+  },
+};
+const ALERT_KINDS = {
+  zh: { store_closed: '門市關轉', unconfirmed: '未確認', not_found: '查無此件',
+    not_proxy: '非代寄件', not_forward: '非轉寄件', unauthorized: '雲端未登入', error: '查件異常' },
+  vi: { store_closed: 'Cửa hàng đóng/chuyển', unconfirmed: 'Chưa xác nhận', not_found: 'Không tìm thấy',
+    not_proxy: 'Không phải hàng ủy thác', not_forward: 'Không phải hàng chuyển tiếp',
+    unauthorized: 'Chưa đăng nhập đám mây', error: 'Lỗi tra cứu' },
+};
+
+let lang = localStorage.getItem('ctrl_lang') || 'zh';
+function tr(k) { return (I18N[lang] || I18N.zh)[k] || (I18N.zh[k] || k); }
+function alertKindLabel(kind) {
+  return (ALERT_KINDS[lang] || ALERT_KINDS.zh)[kind] || (ALERT_KINDS.zh[kind] || kind);
+}
+// 通道位置代碼轉顯示:L1→左1 / Trái 1,R1→右1 / Phải 1
+function posLabel(pos) {
+  if (!pos) return pos;
+  const side = pos[0], n = pos.slice(1);
+  if (lang === 'vi') { if (side === 'L') return 'Trái ' + n; if (side === 'R') return 'Phải ' + n; }
+  else { if (side === 'L') return '左' + n; if (side === 'R') return '右' + n; }
+  return pos;
+}
+
+// ===== 內嵌 SVG 圖示(離線可用,不依賴外部字型/CDN)=====
+const ICONS = {
+  back: '<polyline points="15 18 9 12 15 6"/>',
+  chevronRight: '<polyline points="9 18 15 12 9 6"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  skip: '<polygon points="5 4 15 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="19" y1="5" x2="19" y2="19"/>',
+  pause: '<rect x="6" y="4" width="4" height="16" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" fill="currentColor" stroke="none"/>',
+  play: '<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  truck: '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  tap: '<path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" fill="currentColor" stroke="none"/>',
+  tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+};
+function icon(name, cls) {
+  return '<svg class="ico ' + (cls || '') + '" viewBox="0 0 24 24">' + (ICONS[name] || '') + '</svg>';
+}
+
+// HTML escape:channel_code / job_sticker / 單號 / dispatch_names 皆為外部輸入
+//(工控機掃的條碼、桌面端輸入的人員名),不跳脫直接進 innerHTML 會被當標記解析
+//(版面錯亂,甚至 stored XSS 在所有開此頁的手機上執行)。
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+}
+
+// ===== 狀態 =====
+let channels = [];
+let alerts = [];
+let recent = [];
+let providers = [];         // 物流商清單(指派設定頁的選項來源)
+let stickerNames = [];      // 人員歷史名單(貼標人員快選)
+let draft = null;           // 指派設定頁的編輯草稿 { sticker, codes[] }
+let view = 'list';          // list | detail | assign | alerts
+let currentPos = null;
+let online = false;
+let busy = {};              // position -> true 時暫停輪詢覆蓋(操作中)
+let seenAlertId = parseInt(localStorage.getItem('ctrl_seen_alert') || '0', 10) || 0;
+let pollTimer = null;
+
+function unreadCount() { return alerts.filter(a => (a.id || 0) > seenAlertId).length; }
+
+// 把目前已載入的警示全部標記為已讀(取最大 id 並持久化)
+function markAlertsSeen() {
+  let maxId = seenAlertId;
+  for (const a of alerts) if ((a.id || 0) > maxId) maxId = a.id;
+  if (maxId !== seenAlertId) {
+    seenAlertId = maxId;
+    localStorage.setItem('ctrl_seen_alert', String(maxId));
+  }
+}
+
+async function errMsg(res) {
+  try { const j = await res.json(); if (j && j.error) return j.error; } catch (_) {}
+  return 'HTTP ' + res.status;
+}
+
+// ===== 資料抓取 =====
+async function fetchChannels() {
+  const res = await fetch('/api/channels', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  const data = await res.json();
+  // 不覆蓋使用者正在操作中的那一筆
+  channels = data.map(c => busy[c.position]
+    ? (channels.find(x => x.position === c.position) || c) : c);
+}
+async function fetchAlerts() {
+  const res = await fetch('/api/alerts', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  alerts = await res.json();
+}
+async function fetchRecent(pos) {
+  const res = await fetch('/api/channels/' + encodeURIComponent(pos) + '/recent', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  recent = await res.json();
+}
+async function fetchProviders() {
+  const res = await fetch('/api/dispatch-providers', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  providers = await res.json();
+}
+async function fetchStickerNames() {
+  const res = await fetch('/api/sticker-history', { cache: 'no-store' });
+  if (!res.ok) throw new Error('http ' + res.status);
+  stickerNames = await res.json();
+}
+
+// 依目前頁面刷新對應資料
+async function refresh() {
+  try {
+    if (view === 'list') {
+      await fetchChannels();
+      try { await fetchAlerts(); } catch (_) {}   // 鈴鐺未讀數,失敗不影響清單
+    } else if (view === 'detail') {
+      await fetchChannels();
+      try { await fetchRecent(currentPos); } catch (_) { recent = []; }
+    } else if (view === 'alerts') {
+      await fetchAlerts();
+      markAlertsSeen(); // 停在異常頁時,輪詢新到的警示也即時標為已讀(離開後徽章不誤亮)
+    } else if (view === 'assign') {
+      // 指派設定頁只更新連線狀態,不重繪 —— 重繪會把使用者正在輸入的姓名與
+      // 尚未儲存的物流勾選一起沖掉(輪詢每 3 秒一次,等於根本打不完字)
+      await fetchChannels();
+      setOnline(true);
+      return;
+    }
+    setOnline(true);
+    render();
+  } catch (e) {
+    setOnline(false);
+    // 同上:設定頁一律不重繪。現場 Wi-Fi 斷續時輪詢每 3 秒失敗一次,
+    // 走到這裡重繪就等於每 3 秒把輸入框砍掉重建,名字永遠打不完。
+    if (view === 'assign') return;
+    render();
+  }
+}
+
+function setOnline(ok) {
+  online = ok;
+  document.getElementById('connDot').classList.toggle('hide', ok);
+}
+
+// ===== 操作 =====
+async function toggle(pos) {
+  const ch = channels.find(c => c.position === pos);
+  if (!ch || busy[pos]) return;
+  const next = !ch.enabled;
+  ch.enabled = next; busy[pos] = true; render();
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    });
+    if (!res.ok) throw new Error(await errMsg(res));
+  } catch (e) {
+    ch.enabled = !next;
+    alert(tr('toggleFail') + '\n' + e.message);
+  } finally {
+    setTimeout(() => { delete busy[pos]; }, 600);
+    render();
+  }
+}
+
+async function skip(pos, clear) {
+  const ch = channels.find(c => c.position === pos);
+  if (!ch) return;
+  const prev = ch.skip_count || 0; // 失敗時還原(對齊 toggle 的樂觀回退)
+  busy[pos] = true;
+  ch.skip_count = clear ? 0 : Math.min(prev + 1, 20); // 樂觀
+  render();
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos) + '/skip', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear: !!clear }),
+    });
+    if (!res.ok) throw new Error(await errMsg(res));
+    const data = await res.json();
+    ch.skip_count = data.skip_count;
+  } catch (e) {
+    ch.skip_count = prev; // 樂觀值還原,避免畫面與失敗訊息矛盾
+    alert(tr('toggleFail') + '\n' + e.message);
+  } finally {
+    setTimeout(() => { delete busy[pos]; }, 400);
+    render();
+  }
+}
+
+// ===== 導覽(用 history 讓手機返回手勢/返回鍵可用)=====
+function go(v, pos) {
+  view = v; currentPos = pos || null;
+  history.pushState({ view: v, pos: currentPos }, '');
+  applyView();
+}
+function back() { history.back(); }
+window.addEventListener('popstate', (e) => {
+  const st = e.state || { view: 'list' };
+  view = st.view || 'list'; currentPos = st.pos || null;
+  applyView();
+});
+
+// 切頁後立即針對新頁面拉一次資料(不等下一輪輪詢)
+function applyView() {
+  if (view === 'alerts') markAlertsSeen(); // 進異常清單即標記已讀(即時,徽章不閃)
+  if (view === 'detail') recent = [];
+  if (view === 'assign') {
+    // 以進入當下的通道值開草稿(離開此頁即丟棄,不會被輪詢覆蓋)
+    const ch = channels.find(c => c.position === currentPos);
+    draft = { sticker: (ch && ch.job_sticker) || '', codes: ((ch && ch.dispatch_codes) || []).slice() };
+    // 選項清單背景載入,晚到就重繪一次;失敗不擋頁面(仍可只改貼標人員)
+    Promise.all([
+      fetchProviders().catch(e => console.warn('載入物流清單失敗', e)),
+      fetchStickerNames().catch(e => console.warn('載入人員名單失敗', e)),
+    ]).then(() => { if (view === 'assign') renderAssign(); });
+  } else {
+    draft = null;
+  }
+  updateHeader();
+  render();
+  refresh();
+}
+
+function updateHeader() {
+  const backBtn = document.getElementById('backBtn');
+  const bell = document.getElementById('bellBtn');
+  const title = document.getElementById('title');
+  backBtn.style.display = (view === 'list') ? 'none' : 'flex';
+  bell.style.display = (view === 'list') ? 'flex' : 'none';
+  if (view === 'list') title.textContent = tr('title');
+  else if (view === 'detail') title.textContent = posLabel(currentPos);
+  else if (view === 'assign') title.textContent = posLabel(currentPos) + ' · ' + tr('assignTitle');
+  else if (view === 'alerts') title.textContent = tr('alertsTitle');
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+}
+
+// ===== 語言 =====
+function toggleLang() {
+  lang = lang === 'zh' ? 'vi' : 'zh';
+  localStorage.setItem('ctrl_lang', lang);
+  document.documentElement.lang = lang === 'vi' ? 'vi' : 'zh-Hant';
+  document.getElementById('langBtn').textContent = lang === 'zh' ? '中 · VI' : 'VI · 中';
+  document.title = tr('title');
+  updateHeader();
+  render();
+}
+
+// ===== 渲染 =====
+function statusPill(enabled) {
+  return '<span class="pill ' + (enabled ? 'on' : 'off') + '">' +
+    '<span class="dot"></span>' + (enabled ? tr('on') : tr('off')) + '</span>';
+}
+function dispatchChips(names) {
+  if (names && names.length) return names.map(n => '<span class="chip">' + esc(n) + '</span>').join('');
+  return '';
+}
+// 物流單號:整段一行,後四碼超大
+function trackingNumberHtml(num, isErr) {
+  const t = String(num).trim();
+  const head = t.length > 4 ? t.slice(0, -4) : '';
+  const tail = t.length > 4 ? t.slice(-4) : t;
+  return '<span class="num">' +
+    (head ? '<span class="head">' + esc(head) + '</span>' : '') +
+    '<span class="tail">' + esc(tail) + '</span></span>';
+}
+
+function render() {
+  document.getElementById('bellBadge').style.display = unreadCount() > 0 ? 'block' : 'none';
+  document.getElementById('bellBadge').textContent = unreadCount() > 99 ? '99+' : String(unreadCount());
+  if (view === 'list') renderList();
+  else if (view === 'detail') renderDetail();
+  else if (view === 'assign') renderAssign();
+  else if (view === 'alerts') renderAlerts();
+}
+
+function renderList() {
+  const el = document.getElementById('view-list');
+  let html = '<div class="hint-card">' + icon('tap') + '<span>' + tr('tapManage') + '</span></div>';
+  for (const c of channels) {
+    const configured = !!(c.channel_code && c.channel_code.trim());
+    const paused = configured && !c.enabled;
+    const names = c.dispatch_names || [];
+    html += '<div class="ch-card' + (paused ? ' paused' : '') + '" onclick="go(\'detail\',\'' +
+      esc(c.position) + '\')">';
+    html += '<div class="accent"></div><div class="body">';
+    html += '<div class="ch-top"><span class="ch-pos">' + esc(posLabel(c.position)) + '</span>';
+    if (!configured) html += '<span class="ch-unset">' + tr('unset') + '</span>';
+    html += '<span class="spacer"></span>';
+    if (c.skip_count > 0) html += '<span class="skip-badge">' + icon('skip') + c.skip_count + '</span>';
+    html += statusPill(c.enabled); // 一律顯示分揀中/已暫停(對齊 SortPause,含未設定通道)
+    html += '</div>';
+    if (names.length) html += '<div class="chips">' + dispatchChips(names) + '</div>';
+    else html += '<div class="no-disp">' + tr('noDispatch') + '</div>';
+    if (c.job_sticker && c.job_sticker.trim())
+      html += '<div class="sticker">' + icon('user') + esc(c.job_sticker) + '</div>';
+    html += '</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderDetail() {
+  const el = document.getElementById('view-detail');
+  const ch = channels.find(c => c.position === currentPos);
+  if (!ch) { el.innerHTML = '<div class="loading">…</div>'; return; }
+  const firstErr = recent.length && recent[0].kind && recent[0].kind.trim();
+  let html = '';
+
+  // 物流單號大卡
+  html += '<div class="panel">';
+  html += '<div class="track-head"><span class="label">' + tr('tracking') + '</span><span class="spacer"></span>';
+  if (firstErr) html += '<span class="err-pill">' + icon('alert') + esc(alertKindLabel(recent[0].kind)) + '</span>';
+  html += '</div>';
+  const firstNum = recent.length ? recent[0].num : null;
+  html += '<div class="track-num' + (firstErr ? ' err' : '') + '">';
+  if (firstNum == null || String(firstNum).trim() === '') html += '<span class="empty">—</span>';
+  else html += trackingNumberHtml(firstNum, firstErr);
+  html += '</div>';
+  html += '<div class="divider"></div><div class="hist">';
+  for (const h of recent.slice(1, 3)) {
+    const err = h.kind && h.kind.trim();
+    const time = String(h.created_at || '').includes(' ')
+      ? String(h.created_at).split(' ').pop() : (h.created_at || '');
+    html += '<div class="hist-row ' + (err ? 'err' : 'ok') + '">' +
+      icon(err ? 'alert' : 'tag') +
+      '<span class="num">' + esc(h.num) + '</span>' +
+      (err ? '<span class="kind">' + esc(alertKindLabel(h.kind)) + '</span>' : '') +
+      '<span class="time">' + esc(time) + '</span></div>';
+  }
+  html += '</div></div>';
+
+  // 資訊卡:貼標 + 物流(兩項皆可在此進入設定頁修改)
+  const names = ch.dispatch_names || [];
+  const sticker = (ch.job_sticker || '').trim();
+  html += '<div class="panel" style="padding:0 16px">';
+  html += '<div class="info-row">' + icon('user') +
+    '<span style="color:var(--muted);font-size:15px">' + tr('sticker') + '</span>' +
+    (sticker ? '<span class="val">' + esc(sticker) + '</span>'
+             : '<span class="val" style="color:var(--muted);font-weight:400">' + tr('noSticker') + '</span>') +
+    '</div>';
+  html += '<div class="info-row">' + icon('truck') +
+    (names.length ? '<span class="val chips">' + dispatchChips(names) + '</span>'
+                  : '<span class="val" style="color:var(--muted);font-weight:400">' + tr('noDispatch') + '</span>') +
+    '</div>';
+  html += '</div>';
+  html += '<button class="btn-edit" onclick="go(\'assign\',\'' + esc(currentPos) + '\')">' +
+    icon('edit') + tr('assign') + '</button>';
+
+  // 跳過本輪
+  if (ch.skip_count > 0) {
+    html += '<div class="skip-pending">' + icon('skip') +
+      '<span class="txt">' + tr('skipPending').replace('{n}', ch.skip_count) + '</span>' +
+      '<button class="cancel" onclick="skip(\'' + esc(currentPos) + '\',true)">' + tr('skipCancel') + '</button></div>';
+  }
+  html += '<button class="btn-skip" onclick="skip(\'' + esc(currentPos) + '\',false)">' +
+    icon('skip') + tr('skipNext') + '</button>';
+  html += '<div class="skip-hint">' + tr('skipHint') + '</div>';
+
+  // 大暫停 / 啟用
+  html += '<button class="btn-toggle ' + (ch.enabled ? 'pause' : 'enable') + '"' +
+    (busy[currentPos] ? ' disabled' : '') + ' onclick="toggle(\'' + esc(currentPos) + '\')">' +
+    icon(ch.enabled ? 'pause' : 'play') +
+    (ch.enabled ? tr('doPause') : tr('doEnable')) + '</button>';
+
+  el.innerHTML = html;
+}
+
+// 後端錯誤碼 → 使用者語言的說明(對不到才退回顯示後端中文原文)
+function assignErrText(code, fallback) {
+  const map = { PRINTER_REQUIRED: 'errPrinterRequired', UNKNOWN_PROVIDER: 'errUnknownProvider',
+    NO_CHANNEL: 'errNoChannel', BAD_POSITION: 'errBadPosition' };
+  return map[code] ? tr(map[code]) : fallback;
+}
+
+function renderAssign() {
+  const el = document.getElementById('view-assign');
+  if (!draft) { el.innerHTML = '<div class="loading">…</div>'; return; }
+  let html = '<div class="panel">';
+
+  // 貼標人員:自由輸入 + 歷史名單快選(名單與桌面共用同一份)
+  html += '<div class="field"><label>' + tr('stickerLabel') + '</label>' +
+    '<input id="stickerInput" type="text" maxlength="32" autocomplete="off" ' +
+    'placeholder="' + esc(tr('stickerPlaceholder')) + '" value="' + esc(draft.sticker) + '" ' +
+    'oninput="setDraftSticker(this.value)" /></div>';
+  if (stickerNames.length) {
+    html += '<div class="sub-label">' + tr('stickerRecent') + '</div><div class="pick">';
+    for (const n of stickerNames.slice(0, 12)) {
+      html += '<button class="chip' + (n === draft.sticker ? ' sel' : '') +
+        '" onclick="pickSticker(' + JSON.stringify(n).replace(/"/g, '&quot;') + ')">' + esc(n) + '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // 指派物流:多選(可全不選 = 此通道不接件)
+  html += '<div class="panel"><div class="field" style="margin:0"><label>' + tr('dispatchLabel') + '</label>';
+  if (!providers.length) html += '<div class="pick-empty">' + tr('dispatchEmpty') + '</div>';
+  else {
+    html += '<div class="pick">';
+    for (const p of providers) {
+      const on = draft.codes.indexOf(p.code) >= 0;
+      html += '<button class="chip' + (on ? ' sel' : '') +
+        '" onclick="toggleProvider(' + JSON.stringify(p.code).replace(/"/g, '&quot;') + ')">' +
+        esc(p.name || p.code) + '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</div></div>';
+
+  html += '<button class="btn-save" id="saveBtn" onclick="saveAssign()">' + icon('save') + tr('save') + '</button>';
+  el.innerHTML = html;
+}
+
+// 內嵌 oninput 只看得到 window 上的東西 —— 草稿是模組內的 let,
+// 直接在屬性裡寫 draft.xxx 會 ReferenceError(且不會有任何畫面徵兆),故經由函式寫入。
+function setDraftSticker(v) { if (draft) draft.sticker = v; }
+
+// 重繪與存檔前都要先把輸入框現值收回草稿 —— 中文 / 越南文輸入法組字中
+// oninput 還沒觸發,少了這步,還沒上字的名字會在重繪時整段消失。
+function flushStickerInput() {
+  const el = document.getElementById('stickerInput');
+  if (el && draft) draft.sticker = el.value;
+}
+
+// 點歷史名單:同一個名字再點一次視為取消(現場常換人,清空比重打一次快)
+function pickSticker(name) {
+  flushStickerInput();
+  draft.sticker = (draft.sticker === name) ? '' : name;
+  renderAssign();
+}
+
+function toggleProvider(code) {
+  flushStickerInput();
+  const i = draft.codes.indexOf(code);
+  if (i >= 0) draft.codes.splice(i, 1); else draft.codes.push(code);
+  renderAssign();
+}
+
+async function saveAssign() {
+  const pos = currentPos;
+  if (!draft || !pos) return;
+  flushStickerInput();
+  const btn = document.getElementById('saveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = tr('saving'); }
+  try {
+    const res = await fetch('/api/channels/' + encodeURIComponent(pos) + '/assign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_sticker: draft.sticker.trim() || null, dispatch_codes: draft.codes }),
+    });
+    if (!res.ok) {
+      let code = '', msg = 'HTTP ' + res.status;
+      try { const j = await res.json(); if (j) { code = j.code || ''; msg = j.error || msg; } } catch (_) {}
+      throw new Error(assignErrText(code, msg));
+    }
+    // 後端已寫入並廣播,這裡起都只是把新值抓回來顯示 —— 抓失敗不能報成「儲存失敗」,
+    // 那會讓操作員以為沒存到而重存一次,訊息與實際結果矛盾。
+    await fetchChannels().catch(() => {});
+    fetchStickerNames().catch(() => {});
+    back();
+    return;
+  } catch (e) {
+    alert(tr('saveFail') + '\n' + e.message);
+    renderAssign();
+  }
+}
+
+function renderAlerts() {
+  const el = document.getElementById('view-alerts');
+  if (!alerts.length) {
+    el.innerHTML = '<div class="empty">' +
+      '<svg viewBox="0 0 24 24">' + ICONS.check + '</svg>' +
+      '<p>' + tr('alertsEmpty') + '</p></div>';
+    return;
+  }
+  let html = '';
+  for (const a of alerts) {
+    const kind = a.kind || 'error';
+    const c = (kind === 'store_closed' || kind === 'unconfirmed') ? 'var(--warn-deep)'
+      : (kind === 'not_found' ? 'var(--muted)' : 'var(--danger)');
+    html += '<div class="alert-card">' +
+      '<span style="color:' + c + '">' + icon('alert') + '</span>' +
+      '<div class="alert-body">' +
+      '<div class="alert-top"><span class="alert-kind" style="color:' + c + '">' +
+        esc(alertKindLabel(kind)) + '</span>' +
+      '<span class="time">' + esc(a.created_at || '') + '</span></div>';
+    if (a.query_no) {
+      html += '<div class="alert-line">' + icon('tag') +
+        '<span class="strong">' + esc(a.query_no) + '</span>';
+      if (a.channel_code) html += icon('route') + '<span class="sub">' + esc(posLabel(a.channel_code)) + '</span>';
+      html += '</div>';
+    }
+    if (a.shipping_no && a.shipping_no !== a.query_no) {
+      html += '<div class="alert-line">' + icon('truck') +
+        '<span class="strong">' + esc(a.shipping_no) + '</span></div>';
+    }
+    if (a.message && a.message.trim()) html += '<div class="alert-msg">' + esc(a.message) + '</div>';
+    html += '</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+// ===== 啟動 =====
+document.getElementById('backBtn').innerHTML = icon('back');
+document.getElementById('backBtn').onclick = back;
+document.getElementById('bellBtn').insertAdjacentHTML('afterbegin', icon('bell'));
+document.getElementById('bellBtn').onclick = () => go('alerts');
+document.documentElement.lang = lang === 'vi' ? 'vi' : 'zh-Hant';
+document.getElementById('langBtn').textContent = lang === 'zh' ? '中 · VI' : 'VI · 中';
+history.replaceState({ view: 'list', pos: null }, '');
+updateHeader();
+render();
+refresh();
+pollTimer = setInterval(refresh, 3000);
+</script>
+</body>
+</html>

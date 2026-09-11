@@ -53,10 +53,10 @@ const openRemoteDialog = async () => {
   qrDataUrl.value = ''
   try {
     const { ips, port } = await localLanIps()
-    // addr: 給人看 / 填進只能輸入 IP 的 app(IP:port);url: 完整網址,只給 QR 讓手機瀏覽器開遙控頁
-    // 整套網頁版都能在手機上操作,QR 直接給首頁 —— 舊的 /control 網址仍會導向,
-    // 貼在現場的舊 QR 不會失效
-    remoteUrls.value = (ips || []).map(i => ({ name: i.name, addr: `${i.ip}:${port}`, url: `http://${i.ip}:${port}/` }))
+    // 這個 QR 是給現場貼單人員的,指向簡單版遙控頁 /control(只有通道狀態與暫停 / 恢復 / 跳過),
+    // 不是給主管的完整網頁版(那個是首頁,功能多、什麼都能改,現場人員看不懂也不該碰)。
+    // addr 給人看與複製,要連路徑一起,少了 /control 手動輸入就會進到完整後台
+    remoteUrls.value = (ips || []).map(i => ({ name: i.name, addr: `${i.ip}:${port}/control`, url: `http://${i.ip}:${port}/control` }))
     const primary = remoteUrls.value[0]
     if (primary) {
       qrDataUrl.value = await QRCode.toDataURL(primary.url, { width: 240, margin: 1 })

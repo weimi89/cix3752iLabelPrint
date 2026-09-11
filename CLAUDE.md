@@ -153,7 +153,10 @@ api/media.js              面單圖 / 存證照 / 相機串流的網址(桌面�
 **目前沒有 TLS**:對外開放時密碼、session cookie、面單上的收件人資料都是明文傳輸。
 接點已預留在 `server/mod.rs` 建立 listener 那段(換 `axum-server` + rustls),啟用後要把 `auth.rs` 的 cookie 補上 `Secure`。
 
-`/board`、`/control` 兩個舊網址改為導向 Vue 對應頁,現場貼的 QR 與書籤不會失效;舊的手刻 HTML 在 `backups/`。
+**兩套網頁介面並存,對象不同**:`/`(完整網頁版)是給主管的後台,功能多、什麼都能改;
+`/control` 是給**現場貼單人員**的簡單版手機遙控頁(獨立 HTML `server/control_page.html`,只有通道狀態與暫停 / 恢復 / 跳過),
+桌面 App 的「手機遙控」QR 與網址指的是 `/control`。**不要把 /control 改成導向完整網頁版** —— 現場人員看不懂完整後台,也不該碰到設定頁。
+`/board` 舊網址導向 Vue 分揀看板頁。
 
 **手機版**:記錄類表格在窄螢幕會變成卡片式(`.table-cards`,樣式在 `styles/main.scss`),
 欄名取自各 `<td>` 的 `data-label` —— **加新欄位時要一併補上**,否則手機上那格會沒有名稱。

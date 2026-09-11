@@ -363,6 +363,7 @@ async fn start_inner(
         .route("/api/report", post(post_report))
         .route("/api/device-alert", post(post_device_alert))
         // 手機遙控分揀通道暫停(換紙等臨時暫停某通道,不影響其他通道)
+        // 手機遙控:現場人員用的簡單頁(獨立 HTML),與網頁版完整後台並存
         .route("/control", get(control_page))
         // 分揀看板:/board 是網頁版(大螢幕開網址),/board/stream 是它的即時推播
         .route("/board", get(board_page))
@@ -1113,9 +1114,13 @@ async fn board_page() -> impl IntoResponse {
     axum::response::Redirect::to("/#/sort-board")
 }
 
-/// GET /control — 導向網頁版的分揀通道頁(原手機遙控頁的功能所在)
+/// GET /control — 現場貼單人員用的簡單版手機遙控頁(自帶 CSS/JS,離線可用)。
+///
+/// 網頁版雖然也做得到同樣的事,但它是給主管看的完整後台:功能多、什麼都能改。
+/// 現場人員只需要「看通道狀態、暫停 / 恢復 / 跳過、認自己負責的通道」,
+/// 給他們一頁就夠,也不必讓他們碰到設定頁。桌面 App 的手機遙控 QR 指的是這頁。
 async fn control_page() -> impl IntoResponse {
-    axum::response::Redirect::to("/#/sort-channels")
+    axum::response::Html(include_str!("control_page.html"))
 }
 
 fn classify_parcel_alert(code: &str) -> &'static str {
