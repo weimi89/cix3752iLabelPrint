@@ -18,7 +18,9 @@ Linux 顯示 skipped、verify 正確略過 Linux 清單),對照 v1.1.0 三平台
   導覽列卡片內距 22.5→12px、圖示鈕 40→36px、統計數字間距縮小;360px + 五位數 + 登出鈕實測 291px 剛好放進卡片。
 - `.table-cards` 欄名改可縮可折、數值固定靠右不拆(作業監控「依物流細分」大數字撐破卡片的根因);
   三個欄名去掉空白與間隔點(中越)。
-- v1.1.0 的 Ubuntu 20.04 補跑腳本仍在背景等該 run 結束;22.04 / 24.04 跑完會自動上傳到 v1.1.0 release。
+- v1.1.0 的 Linux:22.04 / 24.04 已上傳到 release;**20.04 兩次都失敗、沒有產物**,兩次都是 GitHub runner
+  連 Ubuntu 套件伺服器斷線(第一次 `security.ubuntu.com`、重跑 `archive.ubuntu.com`,光 apt 就跑了 35 分鐘才斷),
+  與程式碼無關。既然日後 Linux 已暫停,不再重試;真有 20.04 機器要裝時到 Actions 手動觸發 Release、tag 填 `v1.1.0`、only 選 `linux`。
 
 ---
 
