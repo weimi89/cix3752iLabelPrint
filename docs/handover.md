@@ -5,7 +5,7 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-11（v1.1.0 已提交推送，CI 打包中）**　目前版本：**v1.1.0（tag 已推，等 CI 完成後手動 `gh release edit v1.1.0 --draft=false` 公開）**
+最後更新：**2026-09-11（v1.1.0 已公開發佈）**　目前版本：**v1.1.0（2026-09-11 10:17 UTC 公開;macOS / Windows 產物 + `latest.json` 生效;Linux 22.04 / 24.04 跑完會自動補上,20.04 待重跑）**
 
 ---
 
@@ -47,7 +47,11 @@ commit 見 git log(tag `v1.1.0` 第三次打:第二次 `7675140` 之後又補了
 ### 發版狀態
 
 - CHANGELOG `## v1.1.0` 已寫;三處版本號 1.1.0;`Cargo.lock` 同步。
-- 第一、二次 CI(`34582332038`、`34583565633`)已取消;第三次 run 見 `gh run list`。完成後要:`gh release edit v1.1.0 --draft=false`,再確認 `latest.json` 匿名可取。
+- 第一、二次 CI(`34582332038`、`34583565633`)已取消;第三次 run `34584753260`:macOS / Windows 綠,
+  **依使用者指示在 Linux 跑完前先公開**(2026-09-11 10:17 UTC),`latest.json` 匿名可取、含 darwin + windows。
+  Ubuntu 20.04 因 runner 連不到 `security.ubuntu.com`(抓 libsoup2.4 斷線)失敗,run 結束後 `gh run rerun 34584753260 --failed` 補跑。
+- **日後發版只打 Windows**(使用者 2026-09-11 指示):`release.yml` 已改(commit `5b57a2a`),macOS matrix 註解、Linux 只在手動 `only=linux` 才跑,
+  verify-assets 對應調整。恢復方式見 workflow 內 `【暫停 macOS】` / `【暫停 Linux】` 標記與 `CLAUDE.md`。
 
 ### 沒做 / 已知
 
