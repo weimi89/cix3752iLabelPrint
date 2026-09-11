@@ -93,10 +93,23 @@ const empty = computed(() => !loading.value && items.value.length === 0)
 
 <template>
   <div>
-    <AppHeader :title="$t('page.alertLog.title')" :subtitle="$t('page.alertLog.subtitle')" icon="tabler-alert-triangle">
+    <AppHeader :title="$t('page.alertLog.title')" :subtitle="$t('page.alertLog.subtitle')" :subtitle-short="$t('page.alertLog.subtitleShort')" icon="tabler-alert-triangle">
       <template #actions>
-        <VBtn color="primary" :loading="loading" @click="load">
-          <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
+        <div class="d-none d-md-flex ga-2">
+          <VBtn color="primary" :loading="loading" @click="load">
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
+          </VBtn>
+        </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem :disabled="loading" @click="load">
+                <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
+                <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
         </VBtn>
       </template>
     </AppHeader>
@@ -161,10 +174,7 @@ const empty = computed(() => !loading.value && items.value.length === 0)
     </VExpansionPanels>
 
     <VCard>
-      <div class="d-flex align-center ga-3 px-4 py-1">
-        <VSpacer />
-        <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="total" header />
-      </div>
+      <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="total" header />
 
       <VDivider />
 

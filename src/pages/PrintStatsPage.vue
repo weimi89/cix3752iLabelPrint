@@ -1,8 +1,7 @@
 <script setup>
-import { provide, onUnmounted } from 'vue'
+import { onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useTheme, useLocale } from 'vuetify'
-import { VuetifyDateAdapter } from 'vuetify/date/adapters/vuetify'
+import { useTheme } from 'vuetify'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, HeatmapChart } from 'echarts/charts'
@@ -26,6 +25,7 @@ import {
 } from '@/api/tauri'
 import { listen } from '@/api/events'
 import AppHeader from '@/components/AppHeader.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import DisplayLauncher from '@/components/DisplayLauncher.vue'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
 
@@ -36,37 +36,7 @@ const theme = useTheme()
 const primaryColor = computed(() => theme.current.value.colors.primary)
 const onSurfaceColor = computed(() => theme.current.value.colors['on-surface'])
 
-const { t, locale } = useI18n()
-
-// i18n locale → date adapter locale (Intl BCP-47)
-const I18N_TO_DATE_LOCALE = { 'zh-Hant': 'zh-TW', 'vi-VN': 'vi-VN', en: 'en-US' }
-const dateLocale = computed(() => I18N_TO_DATE_LOCALE[locale.value] || 'en-US')
-
-// VDatePicker 內部用 useDate() → inject(DateOptionsSymbol) 重新建 instance,
-// 所以這裡 provide 的必須是 DateOptions(含 i18n locale → Intl locale 的對照)。
-const DateOptionsSymbol = Symbol.for('vuetify:date-options')
-const customDateOptions = {
-  adapter: VuetifyDateAdapter,
-  locale: {
-    'zh-Hant': 'zh-TW',
-    'vi-VN': 'vi-VN',
-    en: 'en-US',
-  },
-  formats: {},
-}
-provide(DateOptionsSymbol, customDateOptions)
-
-// createVueI18nAdapter 拿的 i18n.global.locale ref 與 useI18n().locale 不同步,vuetify
-// locale.current.value 會停在 'en',createInstance 因而用 options.locale['en'] = 'en-US'
-// 而非 zh-TW(日曆月份/星期顯示成英文)。**必須手動 watch i18n locale 強制同步到
-// vuetify locale.current**,配合上面 customDateOptions 的 mapping,VDatePicker 重建
-// instance 時才拿得到正確的 Intl locale。
-const vuetifyLocale = useLocale()
-watchEffect(() => {
-  if (vuetifyLocale?.current && vuetifyLocale.current.value !== locale.value) {
-    vuetifyLocale.current.value = locale.value
-  }
-})
+const { t } = useI18n()
 
 // 物流商代碼 → 顯示字串(對齊 ScanPrintPage / AutoPrintPage)
 const PROVIDER_LABEL_KEY = {
@@ -112,32 +82,6 @@ const dateOffsetStr = days => {
 
 const startDate = ref(todayStr())
 const endDate = ref(todayStr())
-
-// 日期彈窗開關
-const startMenu = ref(false)
-const endMenu = ref(false)
-
-// 字串 yyyy-mm-dd ↔ Date 互轉(VDatePicker 內部用 Date 物件)
-const strToDate = s => {
-  if (!s) return null
-  const [y, m, d] = s.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-const dateToStr = d => {
-  if (!d) return ''
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${dd}`
-}
-const startDateObj = computed({
-  get: () => strToDate(startDate.value),
-  set: v => { startDate.value = dateToStr(v); startMenu.value = false },
-})
-const endDateObj = computed({
-  get: () => strToDate(endDate.value),
-  set: v => { endDate.value = dateToStr(v); endMenu.value = false },
-})
 
 const summary = ref(null)
 const daily = ref([])
@@ -430,6 +374,7 @@ onUnmounted(() => {
     <AppHeader
       :title="$t('page.printStats.title')"
       :subtitle="$t('page.printStats.subtitle')"
+      :subtitle-short="$t('page.printStats.subtitleShort')"
       icon="tabler-chart-bar"
     >
       <template #actions>
@@ -481,9 +426,9 @@ onUnmounted(() => {
             <VAvatar color="primary" variant="flat" size="44">
               <VIcon icon="tabler-restore" />
             </VAvatar>
-            <div class="flex-grow-1">
+            <div class="flex-grow-1" style="min-width: 0;">
               <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
-              <div class="text-display-medium font-weight-bold text-primary">{{ summary?.since_reset ?? 0 }}</div>
+              <div class="kpi-card__count font-weight-bold text-primary">{{ summary?.since_reset ?? 0 }}</div>
               <div class="text-body-small text-medium-emphasis mt-1">
                 <VIcon icon="tabler-package" size="12" class="me-1" />{{ summary?.packages_since_reset ?? 0 }} {{ $t('page.printStats.packagesUnit') }}
               </div>
@@ -549,50 +494,14 @@ onUnmounted(() => {
       <VCardText>
         <!-- 第一行:日期區 / 快選按鈕 / 區間總數 各自不換行,整體允許 wrap 到下一行 -->
         <div class="d-flex flex-wrap align-center gap-x-4 gap-y-3">
-          <div class="d-flex align-center gap-2 flex-nowrap">
-            <VMenu v-model="startMenu" :close-on-content-click="false" location="bottom start">
-              <template #activator="{ props: act }">
-                <VTextField
-                  v-bind="act"
-                  :model-value="startDate"
-                  :label="$t('page.printStats.startDate')"
-                  density="compact"
-                  hide-details
-                  readonly
-                  prepend-inner-icon="tabler-calendar"
-                  class="stats-date-field"
-                />
-              </template>
-              <VDatePicker
-                v-model="startDateObj"
-                :max="endDateObj"
-                :locale="dateLocale"
-                show-adjacent-months
-                hide-header
-              />
-            </VMenu>
+          <div class="stats-date-row d-flex align-center gap-2 flex-nowrap">
+            <div class="stats-date-field">
+              <AppDatePicker v-model="startDate" :label="$t('page.printStats.startDate')" :max="endDate" />
+            </div>
             <span class="text-medium-emphasis">~</span>
-            <VMenu v-model="endMenu" :close-on-content-click="false" location="bottom start">
-              <template #activator="{ props: act }">
-                <VTextField
-                  v-bind="act"
-                  :model-value="endDate"
-                  :label="$t('page.printStats.endDate')"
-                  density="compact"
-                  hide-details
-                  readonly
-                  prepend-inner-icon="tabler-calendar"
-                  class="stats-date-field"
-                />
-              </template>
-              <VDatePicker
-                v-model="endDateObj"
-                :min="startDateObj"
-                :locale="dateLocale"
-                show-adjacent-months
-                hide-header
-              />
-            </VMenu>
+            <div class="stats-date-field">
+              <AppDatePicker v-model="endDate" :label="$t('page.printStats.endDate')" :min="startDate" />
+            </div>
           </div>
           <div class="d-flex gap-2 flex-nowrap">
             <VBtn
@@ -675,7 +584,7 @@ onUnmounted(() => {
               </VAvatar>
             </template>
             <VCardTitle>{{ $t('page.printStats.byChannel') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.byChannelHint') }}</VCardSubtitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.printStats.byChannelHint') }}</span><span class="d-sm-none">{{ $t('page.printStats.byChannelHintShort') }}</span></VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
@@ -774,7 +683,7 @@ onUnmounted(() => {
               </VAvatar>
             </template>
             <VCardTitle>{{ $t('page.printStats.bySticker') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.byStickerHint') }}</VCardSubtitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.printStats.byStickerHint') }}</span><span class="d-sm-none">{{ $t('page.printStats.byStickerHintShort') }}</span></VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
@@ -836,7 +745,7 @@ onUnmounted(() => {
               </VAvatar>
             </template>
             <VCardTitle>{{ $t('page.printStats.byScanner') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.byScannerHint') }}</VCardSubtitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.printStats.byScannerHint') }}</span><span class="d-sm-none">{{ $t('page.printStats.byScannerHintShort') }}</span></VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
@@ -869,7 +778,7 @@ onUnmounted(() => {
               </VAvatar>
             </template>
             <VCardTitle>{{ $t('page.printStats.compareTitle') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.printStats.compareHint') }}</VCardSubtitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.printStats.compareHint') }}</span><span class="d-sm-none">{{ $t('page.printStats.compareHintShort') }}</span></VCardSubtitle>
           </VCardItem>
           <VDivider />
           <VCardText>
@@ -1089,10 +998,22 @@ onUnmounted(() => {
 }
 
 @media (max-width: 599.98px) {
+  // 外層列要先撐滿整行,兩個欄位才有東西可以平分;
+  // 沒撐滿時列寬會縮成內容寬,欄位跟著縮到只剩「2(」兩個字
+  .stats-date-row {
+    flex: 1 1 100%;
+  }
+
   .stats-date-field {
     flex: 1 1 0;
     inline-size: auto;
     min-inline-size: 0;
+
+    // 390px 螢幕上每個欄位只分到約 110px,日曆圖示加預設 16px 右內距後
+    // 「2026-09-11」剛好差 4px 被切掉最後一碼;把右內距縮到 4px 讓整串日期看得完整
+    :deep(.v-field__input) {
+      padding-inline-end: 4px;
+    }
   }
 }
 
@@ -1102,6 +1023,23 @@ onUnmounted(() => {
 
   &--primary {
     border-block-start: 3px solid rgb(var(--v-theme-primary));
+  }
+
+  // 本場累計件數:整數不可折行。字級寫在這裡而不掛 Vuetify 字級 class,
+  // 那些 class 鎖在 !important 分層,元件內的媒體查詢蓋不過去
+  &__count {
+    font-size: 3rem;
+    line-height: 3.125rem;
+    white-space: nowrap;
+  }
+
+  // 手機上這張卡只有半個螢幕寬(扣掉圖示後文字區約 85px),
+  // 3rem 的四位數會被卡片邊緣切掉;1.75rem 五位數才放得下
+  @media (max-width: 599.98px) {
+    &__count {
+      font-size: 1.75rem;
+      line-height: 2rem;
+    }
   }
 }
 

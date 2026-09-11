@@ -119,10 +119,23 @@ const confirmDelete = async () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.dispatch.title')" :subtitle="$t('page.dispatch.subtitle')" icon="tabler-truck-delivery">
+    <AppHeader :title="$t('page.dispatch.title')" :subtitle="$t('page.dispatch.subtitle')" :subtitle-short="$t('page.dispatch.subtitleShort')" icon="tabler-truck-delivery">
       <template #actions>
-        <VBtn color="primary" @click="openCreate">
-          <VIcon icon="tabler-plus" size="16" class="me-1" />{{ $t('page.dispatch.create') }}
+        <div class="d-none d-md-flex ga-2">
+          <VBtn color="primary" @click="openCreate">
+            <VIcon icon="tabler-plus" size="16" class="me-1" />{{ $t('page.dispatch.create') }}
+          </VBtn>
+        </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem @click="openCreate">
+                <template #prepend><VIcon icon="tabler-plus" size="20" color="primary" /></template>
+                <VListItemTitle>{{ $t('page.dispatch.create') }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
         </VBtn>
       </template>
     </AppHeader>

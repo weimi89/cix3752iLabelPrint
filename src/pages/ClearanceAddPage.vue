@@ -90,7 +90,7 @@ const handleSubmit = async () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.clearanceAdd.title')" :subtitle="$t('page.clearanceAdd.subtitle')" icon="tabler-scan" />
+    <AppHeader :title="$t('page.clearanceAdd.title')" :subtitle="$t('page.clearanceAdd.subtitle')" :subtitle-short="$t('page.clearanceAdd.subtitleShort')" icon="tabler-scan" />
 
     <VRow>
       <VCol cols="12" md="4">
@@ -106,8 +106,10 @@ const handleSubmit = async () => {
             </div>
 
             <div class="text-body-medium text-medium-emphasis mb-1">{{ $t('page.clearanceAdd.clearanceCompany') }}</div>
+            <!-- 空字串對 VCombobox 來說算「有值」,欄位還沒填就先冒出清除鈕;進出都用 null 表示空 -->
             <VCombobox
-              v-model="clearanceCompany"
+              :model-value="clearanceCompany || null"
+              @update:model-value="v => (clearanceCompany = v ?? '')"
               :items="options.clearance_companies"
               :placeholder="$t('page.clearanceAdd.clearanceCompanyPlaceholder')"
               variant="outlined"

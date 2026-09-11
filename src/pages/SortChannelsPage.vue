@@ -433,9 +433,9 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('ши
 
 <template>
   <div>
-    <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle')" icon="tabler-route">
+    <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle')" :subtitle-short="$t('page.sort.subtitleShort')" icon="tabler-route">
       <template #actions>
-        <div class="d-flex ga-2">
+        <div class="d-none d-md-flex ga-2">
           <DisplayLauncher
             route="/sort-board"
             window-label="display-sort-board"
@@ -455,6 +455,21 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('ши
             {{ $t('page.sort.saveAll', { n: dirty.size }) }}
           </VBtn>
         </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem :disabled="loading" @click="load">
+                <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
+                <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
+              </VListItem>
+              <VListItem :disabled="!dirty.size || savingAll" @click="saveAll">
+                <template #prepend><VIcon icon="tabler-device-floppy" size="20" color="primary" /></template>
+                <VListItemTitle>{{ $t('page.sort.saveAll', { n: dirty.size }) }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
+        </VBtn>
       </template>
     </AppHeader>
 

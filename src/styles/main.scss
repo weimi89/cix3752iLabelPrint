@@ -191,6 +191,19 @@ body {
   }
 }
 
+// 日曆裡的按鈕(月份／年份切換、日期格)維持 Vuetify 自己的尺寸:
+// 套上上面那組 38px 高、左右 20px 內距,月份列會撐到 364px,整份日曆跟著從 328px 變寬、
+// 手機放不下、最右一欄被切
+.v-date-picker .v-btn.v-btn--size-default {
+  min-block-size: 0;
+  padding: 0 12px !important;
+
+  &.v-btn--icon,
+  &.v-date-picker-month__day-btn {
+    padding: 0 !important;
+  }
+}
+
 // =============================================================================
 // VField 對齊 Materio：高度 38px、6px 圓角、input font-size 15px
 // =============================================================================
@@ -263,10 +276,17 @@ body {
   &__text {
     display: flex;
     flex-direction: column;
-    flex: 1 1 auto;
+    // 基準 0:文字區只拿「放完按鈕後剩下的寬度」,說明太長就在自己格子裡折行;
+    // 基準若是內容寬,長說明(越南文)會先把整排按鈕擠到下一列、頁首變成兩層
+    flex: 1 1 0;
     // flex 子項預設 min-inline-size:auto,文字不會縮到比最長的詞還窄 ——
     // 歸零才允許它換行,否則寧可撐破容器也不折行
     min-inline-size: 0;
+  }
+
+  // 文字區自己會撐滿中間,撐開器留著反而跟它平分寬度
+  > .v-spacer {
+    display: none;
   }
 
   &__actions {
@@ -289,26 +309,16 @@ body {
     margin-block-start: 2px;
   }
 
-  // 手機:標題與按鈕各佔一整列,按鈕才有足夠寬度顯示文字、也才好按
+  // 手機:對齊 cix3752iWeb 的頁首 —— 圖示靠左、標題與說明在右、動作收成右上角一顆選單鈕。
+  // 各頁的 actions 插槽照同一套寫:桌面按鈕列 `d-none d-md-flex`,手機 `d-md-none` 的 34px 圖示鈕開 VMenu。
   @media (max-width: 599.98px) {
     padding: 0.75rem;
     gap: 0.5rem;
 
-    &__text {
-      flex: 1 1 100%;
-    }
-
+    // 選單鈕保持自己的寬度靠右;若某頁在手機仍放整排按鈕,容器的 flex-wrap 會讓它們折到下一列
     &__actions {
-      flex: 1 1 100%;
+      flex: 0 0 auto;
 
-      // 只允許收縮、不強制伸展:強制伸展會把只有圖示的按鈕拉成一整條橫槓,
-      // 看起來像壞掉的版面
-      > * {
-        flex: 0 1 auto;
-      }
-
-      // 各頁常在 slot 裡再包一層 d-flex 放好幾顆按鈕,那一層在手機上也要能折行,
-      // 否則它會以「所有按鈕排成一列」的寬度撐開整個版面(分揀通道有四顆,實測 442px)
       .d-flex {
         flex-wrap: wrap;
       }
@@ -588,6 +598,42 @@ body {
 .bookmark-tabs .v-tab.v-btn:last-child {
   margin-inline-end: 0;
 }
+// 手機:四個書籤要一次全部露出,不能靠橫向捲動(使用者看不出還有第四個);
+// Vuetify 預設每個頁籤最小 90px 加左右 16px 內距,四個放不進 390px 的卡片
+@media (max-width: 599.98px) {
+  // 頁籤列的內容層預設可以比容器寬(那是給可橫捲的頁籤用的),這裡鎖成容器寬,
+  // 四個頁籤才會被迫平分而不是各自撐到內容寬
+  .bookmark-tabs .v-slide-group__content {
+    flex: 1 1 0;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  // 頁籤列與頁籤本身的高度都是 Vuetify 用變數鎖死的,要放開才容得下折成兩行的字
+  .bookmark-tabs.v-tabs,
+  .bookmark-tabs .v-slide-group__container,
+  .bookmark-tabs .v-slide-group__content {
+    block-size: auto !important;
+  }
+
+  .bookmark-tabs .v-tab.v-btn {
+    // grow 預設是 1 0 auto:基準是內容寬,長字串會把整列撐出去而不是折行;
+    // 改成基準 0 才會真的平分寬度
+    flex: 1 1 0;
+    min-inline-size: 0;
+    padding-inline: 6px !important; // 全域按鈕樣式用 !important 鎖了 20px 內距,要同樣強度才蓋得過
+    block-size: auto !important;
+    min-block-size: 42px;
+    font-size: 0.8125rem;
+
+    // 越南文頁籤名稱(例如「轉寄出貨」)一個字都放不下時折成兩行,而不是把整條頁籤列撐到要橫捲
+    .v-btn__content {
+      white-space: normal;
+      line-height: 1.25;
+      padding-block: 4px;
+    }
+  }
+}
 .bookmark-tabs .v-tab--selected {
   background: rgb(var(--v-theme-primary)) !important;
   color: #fff !important;
@@ -604,7 +650,6 @@ body {
 // 這裡把「實際使用中、且肉眼看得出差異」的幾個 class 鎖回 Vuetify 3 的數值,畫面維持升級前的樣子。
 // 未列出的(headline-small、body-medium)在 v4 數值本來就相同,不必覆寫。
 // =============================================================================
-// 官方對照把 h1、h2 都併成 display-large;專案只用過 h2(儀表板本場累計),鎖回 h2 的數值
 // 官方對照把 subtitle-1 與 body-1 都併成 body-large,但兩者行高/字距不同;
 // 原本用 subtitle-1 的 6 處保留舊名,由本專案自己提供(Vuetify 4 不再內建)
 // 放進 Vuetify 自己的 vuetify-utilities.typography 層(不能用不分層的規則):不分層永遠壓過分層,
@@ -613,7 +658,6 @@ body {
   .text-title-large { font-size: 1.25rem !important; font-weight: 500; line-height: 2rem; letter-spacing: 0.0125em !important; }
   .text-headline-large { font-size: 2.125rem !important; line-height: 2.5rem; letter-spacing: 0.0073529412em !important; }
   .text-display-medium { font-size: 3rem !important; line-height: 3.125rem; letter-spacing: normal !important; }
-  .text-display-large { font-size: 3.75rem !important; font-weight: 300; line-height: 3.75rem; letter-spacing: -0.0083333333em !important; }
   .text-body-large { line-height: 1.5rem; }
   .text-subtitle-1 { font-size: 1rem !important; font-weight: 400; line-height: 1.75rem; letter-spacing: 0.009375em !important; font-family: var(--v-font-body, inherit); }
   .text-body-small { line-height: 1.25rem; }
@@ -687,6 +731,37 @@ body {
 .Toastify__toast--info .Toastify__toast-icon { color: var(--toastify-icon-color-info); }
 
 // =============================================================================
+// 日曆彈窗(桌面用 VMenu 貼著輸入框開;手機由 AppDatePicker 改開置中對話框,不經這裡)
+// =============================================================================
+// 日曆維持 Vuetify 預設的 328px,不隨輸入框變寬(VMenu 預設會把彈窗最小寬度對齊輸入框)
+.app-date-picker-menu {
+  min-width: auto !important;
+}
+
+// =============================================================================
+// 起訖日期一組(對話框裡的「設定日期區間」)
+// =============================================================================
+// 一個日期欄含圖示與內距至少要 160px 才放得下「2026-09-11」;桌面對話框兩欄並排,
+// 手機對話框只有 300px 左右,硬並排會把日期最後一碼切掉,改成各佔一列、中間的「~」收起
+.date-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  &__field {
+    flex: 1 1 160px;
+    min-inline-size: 160px;
+  }
+
+  @media (max-width: 599.98px) {
+    &__sep {
+      display: none;
+    }
+  }
+}
+
+// =============================================================================
 // 卡片說明文字要能換行
 // =============================================================================
 // Vuetify 的 VCardSubtitle 預設單行、超出就用刪節號截掉。桌面寬度多半看得完,
@@ -694,6 +769,15 @@ body {
 // 使用者看不出這個開關在做什麼。寧可佔兩三行,也不要只看到前半句。
 .v-card-subtitle {
   white-space: normal;
+}
+
+// 標題同理,但只放寬手機:桌面標題幾乎不會超出,越南文標題(例如「工控機連線位址」)
+// 在手機上卻長到一半就被截成刪節號。頁面明確標了 text-truncate 的(袋號、單號這類
+// 折了行反而會被讀錯的識別碼)維持原本的截斷行為
+@media (max-width: 599.98px) {
+  .v-card-title:not(.text-truncate) {
+    white-space: normal;
+  }
 }
 
 // =============================================================================
@@ -713,6 +797,11 @@ body {
       inline-size: 100%;
     }
 
+    // 一筆一張卡要跟外面的卡片邊、上下的分頁列留點距離,不然卡貼著卡看起來像框線畫錯
+    .v-table__wrapper > table > tbody {
+      padding: 0.5rem 0.75rem 0.25rem;
+    }
+
     // 表頭在卡片模式沒有意義（欄名改寫在每一格前面）
     .v-table__wrapper > table > thead {
       display: none;
@@ -724,12 +813,21 @@ body {
       padding-block: 0.25rem;
       border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
       border-radius: 8px;
+
+      // 「查無資料」那一列只有一格橫跨整列,不是資料,不要畫成一張卡
+      &:has(> td[colspan]:only-child) {
+        border: none;
+        margin-block-end: 0;
+        padding-block: 0.75rem;
+      }
     }
 
+    // 欄名靠左、內容全部靠右:靠「欄名撐開右邊距」而不是 space-between,
+    // 否則一格裡有兩顆按鈕(編輯／刪除)時會被拆到中間和右邊
     .v-table__wrapper > table > tbody > tr > td {
       display: flex !important;
       align-items: center;
-      justify-content: space-between !important;
+      justify-content: flex-end !important;
       gap: 0.75rem;
       block-size: auto !important;
       min-block-size: 0 !important;
@@ -740,6 +838,7 @@ body {
       &::before {
         content: attr(data-label);
         flex: 0 0 auto;
+        margin-inline-end: auto;
         color: rgba(var(--v-theme-on-surface), 0.6);
         font-size: 0.8125rem;
         text-align: start;

@@ -60,7 +60,7 @@
     "warehouseScanner": "Quét nhập kho",
     "fieldOperationMonitor": "Giám sát tác nghiệp",
     "cacheSettings": "Bộ nhớ đệm ảnh",
-    "dispatchProviders": "Chỉ định hãng vận chuyển",
+    "dispatchProviders": "Hãng vận chuyển",
     "serverSettings": "Cài đặt dịch vụ",
     "cloudSettings": "API đám mây",
     "printerSettings": "Cài đặt máy in",
@@ -355,6 +355,7 @@
   "sync": {
     "settings": {
       "section": "Đồng bộ đối soát số kiện liên máy",
+      "descShort": "Đồng bộ tiến độ in giữa các máy khi dùng chung túi. Mặc định tắt",
       "desc": "Khi nhiều máy phân loại xử lý cùng một túi, tiến độ in được đồng bộ tức thời qua Reverb; túi xử lý ở máy khác cũng cập nhật ngay danh sách đối soát của máy này. Mặc định tắt.",
       "enable": "Bật đồng bộ liên máy",
       "enableDesc": "Bật để đăng ký nhận quảng bá Reverb; tắt thì giữ chế độ đơn máy (không ảnh hưởng luồng hiện có)",
@@ -408,6 +409,7 @@
     },
     "clearanceAdd": {
       "title": "Kiện hàng nhập kho",
+      "subtitleShort": "Quét túi để thêm vào thông quan",
       "subtitle": "Quét mã túi kiện hàng, thêm vào danh sách thông quan",
       "settingsTitle": "Cài đặt thông quan",
       "scanTitle": "Quét kiện hàng",
@@ -426,6 +428,7 @@
     },
     "clearanceDispatch": {
       "title": "Điều phối tài xế",
+      "subtitleShort": "Quét túi để chỉ định tài xế",
       "subtitle": "Quét mã túi kiện hàng, chỉ định tài xế xuất hàng",
       "settingsTitle": "Cài đặt điều phối",
       "scanTitle": "Quét kiện hàng",
@@ -444,11 +447,13 @@
     },
     "dashboard": {
       "title": "Bảng điều khiển",
+      "subtitleShort": "Trạng thái dịch vụ trung gian",
       "subtitle": "Trạng thái thời gian thực của dịch vụ trung gian phân loại cục bộ",
       "previewModeAlert": "Chế độ xem trước trình duyệt — Dữ liệu trạng thái đến từ backend Tauri, vui lòng xem giá trị thực tế trong ứng dụng desktop.",
       "middleware": "Dịch vụ trung gian",
       "notStarted": "Chưa khởi động",
       "lanIpLabel": "Địa chỉ kết nối cho máy công nghiệp",
+      "lanIpHintShort": "Máy công nghiệp kết nối bằng địa chỉ dưới",
       "lanIpHint": "Máy công nghiệp hãy kết nối tới một trong các địa chỉ dưới đây (dịch vụ lắng nghe 0.0.0.0, cần dùng IP LAN thực tế)",
       "cloudConnection": "Kết nối đám mây",
       "todayRequests": "Số yêu cầu hôm nay",
@@ -458,10 +463,12 @@
       "cachedLabels": "Nhãn đã cache / {size}",
       "cloudNotLoggedInAlert": "Chưa đăng nhập API đám mây — vui lòng vào trang \"API đám mây\" để đăng nhập, nếu không máy công nghiệp tra kiện hàng sẽ trả 401.",
       "printStatsTitle": "Thống kê in nhãn",
+      "printStatsSubtitleShort": "Nhấn để xem chi tiết",
       "printStatsSubtitle": "Nhấn để xem chi tiết theo ngày / giờ / nhà vận chuyển / nhân viên dán nhãn"
     },
     "preGenerate": {
       "title": "Tạo trước nhãn",
+      "subtitleShort": "Tạo trước ảnh nhãn trên server",
       "subtitle": "Yêu cầu server tạo trước ảnh nhãn (không ghi nhật ký in, không kiểm tra trạng thái giao hàng)",
       "byOrderSn": "Mã đơn hàng",
       "byPackage": "Mã túi thông quan",
@@ -543,6 +550,7 @@
       "maxSizeMb": "Dung lượng tối đa MB (0 = không giới hạn)",
       "camera": {
         "title": "Camera chụp ảnh trạm đọc mã",
+        "subtitleShort": "Lưu ảnh camera khi tra cứu làm bằng chứng",
         "subtitle": "Khi nhận truy vấn từ máy công nghiệp, chụp ngay một khung hình từ camera USB làm bằng chứng, để đối chiếu khi có tranh chấp \"không hàng mà vẫn in nhãn\" (ảnh lưu trong thư mục cache, dọn theo số ngày lưu ở trên)",
         "enable": "Bật chụp ảnh trạm đọc mã",
         "enableHint": "Cần cắm camera USB và cấp quyền camera trước; khi tắt hoàn toàn không ảnh hưởng việc in nhãn (chỉ là không lưu bằng chứng)",
@@ -577,6 +585,7 @@
     },
     "printer": {
       "title": "Cài đặt máy in",
+      "subtitleShort": "Máy in cho từng hãng vận chuyển",
       "subtitle": "Đặt máy in cục bộ tương ứng với từng hãng vận chuyển",
       "mockPrefix": "(Chế độ trình duyệt)",
       "loadFailed": "Không thể tải máy in: {reason}",
@@ -588,6 +597,7 @@
       "webAccess": {
         "lanOnlyNote": "Để tránh người lấy được mật khẩu đổi luôn khoá cửa, ba việc sau chỉ làm được tại máy trung gian hoặc trong mạng nội bộ hiện trường: sửa cấu hình mục này, đổi mật khẩu, chỉ định tệp cần in. Các chức năng khác kết nối từ bên ngoài vẫn dùng bình thường.",
         "section": "Truy cập web",
+        "descShort": "Mở màn hình máy này bằng trình duyệt; trong mạng nội bộ không cần mật khẩu",
         "desc": "Cho phép quản lý hoặc đồng nghiệp mở màn hình của máy này bằng trình duyệt. Mở trong mạng nội bộ tại hiện trường thì không cần mật khẩu; kết nối từ bên ngoài công ty thì phải nhập mật khẩu thiết lập bên dưới.",
         "enable": "Mở kết nối từ bên ngoài",
         "enableDesc": "Khi tắt, người ngoài mạng hiện trường hoàn toàn không kết nối được, kể cả màn hình đăng nhập cũng không thấy.",
@@ -611,6 +621,7 @@
         "lanRangesHint": "Mỗi dòng một mục. Máy tính trong các dải này được coi là thiết bị hiện trường, mở màn hình không cần nhập mật khẩu. Máy công nghiệp cũng phải nằm trong đây, nếu không sẽ không kết nối được."
       },
       "title": "Cài đặt dịch vụ",
+      "subtitleShort": "Dịch vụ cục bộ cho máy công nghiệp",
       "subtitle": "HTTP API cục bộ cho máy công nghiệp phân loại gọi",
       "restart": "Khởi động lại dịch vụ",
       "autoStartFailed": "Chuyển đổi tự khởi động thất bại: {reason}",
@@ -625,6 +636,8 @@
       "localeDesc": "Chuyển đổi ngôn ngữ hiển thị giao diện, có hiệu lực tức thì và được lưu lại"
     },
     "cloud": {
+      "subtitle": "Địa chỉ đám mây và mã đăng nhập",
+      "subtitleShort": "Kết nối đám mây",
       "title": "Cài đặt API đám mây",
       "loggedIn": "Đã đăng nhập",
       "tokenKeyringInfo": "Token sẽ được lưu vào keyring hệ thống (macOS Keychain / Windows Credential Vault), không ghi vào file config.",
@@ -656,6 +669,7 @@
     },
     "eventLog": {
       "title": "Nhật ký sự kiện",
+      "subtitleShort": "Sự kiện hệ thống và đám mây",
       "subtitle": "Sự kiện hệ thống / đám mây / cache / hàng đợi / máy in",
       "browserAlert": "Chế độ xem trước trình duyệt — Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động tải nhật ký event_log từ SQLite.",
       "keyword": "Từ khoá",
@@ -709,6 +723,7 @@
     },
     "bagCheck": {
       "title": "Đối chiếu kiện theo túi",
+      "subtitleShort": "Tự động đối chiếu số kiện mỗi túi",
       "subtitle": "Tự động đối chiếu số kiện mỗi túi sau khi thiết bị chạy đơn; giữ lại mọi túi còn kiện chưa in, túi đã hoàn tất chỉ giữ túi mới nhất",
       "clearList": "Xoá danh sách",
       "empty": "Chưa có dữ liệu túi",
@@ -748,6 +763,7 @@
     },
     "fieldOperationMonitor": {
       "title": "Giám sát tác nghiệp hiện trường",
+      "subtitleShort": "Tiến độ thông quan và dán đơn",
       "subtitle": "Tiến độ thông quan và năng suất dán đơn hằng ngày",
       "board": "Tiến độ thông quan / chuyển tiếp",
       "dataTime": "Dữ liệu lúc {time}",
@@ -845,6 +861,7 @@
     },
     "alertLog": {
       "title": "Cảnh báo tra cứu",
+      "subtitleShort": "Bất thường khi tra cứu đám mây",
       "subtitle": "Các bất thường khi tra cứu trên đám mây (cửa hàng đóng/chuyển, chưa xác nhận, không tìm thấy …)",
       "keyword": "Từ khóa",
       "keywordPlaceholder": "Thông báo",
@@ -860,6 +877,7 @@
     },
     "parcelQueryLog": {
       "title": "Lịch sử yêu cầu",
+      "subtitleShort": "Lịch sử tra cứu của máy công nghiệp",
       "subtitle": "Lịch sử máy công nghiệp gọi GET /api/parcel",
       "msField": "Trường thời gian",
       "msFieldAny": "Bất kỳ trường nào",
@@ -897,6 +915,7 @@
         "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4", "R5": "Phải 5"
       },
       "title": "Kênh phân loại",
+      "subtitleShort": "Cài đặt 10 kênh trái / phải",
       "subtitle": "5 kênh trái / 5 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
       "saveAll": "Lưu tất cả thay đổi ({n})",
@@ -954,6 +973,7 @@
     },
     "dispatch": {
       "title": "Chỉ định hãng vận chuyển",
+      "subtitleShort": "Hãng vận chuyển cho kênh phân loại",
       "subtitle": "Danh sách hãng vận chuyển có thể chọn cho các kênh phân loại",
       "create": "Thêm hãng",
       "emptyHint": "Chưa có hãng vận chuyển, nhấn \"Thêm hãng\" ở góc trên bên phải để bắt đầu",
@@ -980,6 +1000,7 @@
     },
     "queue": {
       "title": "Lịch sử hàng đợi",
+      "subtitleShort": "Kết quả báo cáo của máy công nghiệp",
       "subtitle": "Kết quả báo cáo từ máy công nghiệp / webhook đẩy",
       "browserAlert": "Chế độ xem trước trình duyệt — Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động tải bản ghi hàng đợi cục bộ.",
       "retryFailed": "Thử lại các mục thất bại",
@@ -1090,6 +1111,7 @@
     },
     "printStats": {
       "title": "Thống kê in nhãn",
+      "subtitleShort": "Thống kê in nhãn theo 3 nguồn",
       "subtitle": "3 nguồn: Quét in / In tự động / Máy công nghiệp tra ảnh",
       "today": "Hôm nay",
       "yesterday": "Hôm qua",
@@ -1112,6 +1134,7 @@
       "byProvider": "Theo nhà vận chuyển",
       "byProviderHint": "Số nhãn (khử trùng lặp) của từng nhà vận chuyển trong khoảng",
       "bySticker": "Theo nhân viên dán nhãn",
+      "byStickerHintShort": "Số nhãn theo nhân viên dán",
       "byStickerHint": "Số nhãn của từng nhân viên dán (Quét/Tự động lấy từ form, Máy công nghiệp lấy từ kênh phân loại)",
       "sourceScan": "Quét in",
       "sourceAuto": "In tự động",
@@ -1125,12 +1148,15 @@
       "sinceLabel": "Từ",
       "past24h": "24 giờ qua",
       "byScanner": "Theo người thao tác",
+      "byScannerHintShort": "Số nhãn theo người thao tác",
       "byScannerHint": "Số nhãn của từng người thao tác (máy quét / in tự động) trong khoảng",
       "noScannerData": "Chưa có người thao tác trong khoảng",
       "byChannel": "Theo kênh phân loại",
+      "byChannelHintShort": "Số nhãn theo kênh phân loại (máy công nghiệp)",
       "byChannelHint": "Số nhãn đã khử trùng lặp theo từng kênh phân loại trong khoảng (chỉ máy phân loại công nghiệp)",
       "noChannelData": "Chưa có nhãn in qua kênh phân loại của máy công nghiệp trong khoảng",
       "compareTitle": "So sánh lịch sử",
+      "compareHintShort": "So với 7 / 30 ngày trước",
       "compareHint": "7 ngày gần nhất so 7 ngày trước, 30 ngày gần nhất so 30 ngày trước",
       "compareWeek": "7 ngày",
       "compareMonth": "30 ngày",

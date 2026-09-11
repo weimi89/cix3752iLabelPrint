@@ -399,17 +399,30 @@ const saveSchedule = async () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.preGenerate.title')" :subtitle="$t('page.preGenerate.subtitle')" icon="tabler-photo-down">
+    <AppHeader :title="$t('page.preGenerate.title')" :subtitle="$t('page.preGenerate.subtitle')" :subtitle-short="$t('page.preGenerate.subtitleShort')" icon="tabler-photo-down">
       <template #actions>
-        <VBtn color="default" variant="tonal" prepend-icon="tabler-clock-cog" @click="openSchedule">
-          {{ $t('page.preGenerate.scheduleBtn') }}
+        <div class="d-none d-md-flex ga-2">
+          <VBtn color="default" variant="tonal" prepend-icon="tabler-clock-cog" @click="openSchedule">
+            {{ $t('page.preGenerate.scheduleBtn') }}
+          </VBtn>
+        </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem @click="openSchedule">
+                <template #prepend><VIcon icon="tabler-clock-cog" size="20" /></template>
+                <VListItemTitle>{{ $t('page.preGenerate.scheduleBtn') }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
         </VBtn>
       </template>
     </AppHeader>
 
     <!-- 排程常駐狀態:不必開對話框即可確認「排程是否啟用 / 下次何時跑 / 上次跑得如何」 -->
     <VCard v-if="pageSched.loaded" variant="tonal" class="mb-4 sched-status-card" :color="pageSched.enabled ? 'primary' : undefined">
-      <VCardText class="py-3 d-flex flex-wrap align-center gc-6 gr-2">
+      <VCardText class="sched-status-row py-3 d-flex flex-wrap align-center gc-6 gr-2">
         <div class="d-flex align-center ga-2">
           <VIcon :icon="pageSched.enabled ? 'tabler-clock-check' : 'tabler-clock-off'" size="20" :color="pageSched.enabled ? 'primary' : 'medium-emphasis'" />
           <span class="text-body-medium font-weight-medium">
@@ -617,7 +630,7 @@ const saveSchedule = async () => {
                     <div class="text-body-medium font-weight-medium">{{ $t('page.preGenerate.forceRerun') }}</div>
                     <div class="text-body-small text-medium-emphasis text-wrap">{{ $t('page.preGenerate.forceRerunHint') }}</div>
                   </div>
-                  <VSwitch v-model="forceRerun" color="primary" hide-details density="compact" inset :disabled="isProcessing" />
+                  <VSwitch v-model="forceRerun" class="flex-shrink-0" color="primary" hide-details density="compact" inset :disabled="isProcessing" />
                 </div>
                 <VBtn
                   v-if="processedTodayCount > 0"
@@ -643,7 +656,7 @@ const saveSchedule = async () => {
             </VCardText>
           </VCard>
 
-          <div class="d-flex justify-center gap-2 mt-3">
+          <div class="query-actions d-flex justify-center gap-2 mt-3">
             <template v-if="!isProcessing">
               <VBtn v-if="inputMode === 'order'" color="primary" @click="handleQuery">
                 <VIcon icon="tabler-search" class="me-1" />{{ $t('common.search') }}
@@ -772,6 +785,35 @@ const saveSchedule = async () => {
   position: sticky;
   inset-block-start: 5rem;
   z-index: 1;
+
+  // 兩欄並排(lg 以上)時左欄才需要跟著捲;單欄堆疊時黏住會蓋在結果列表上
+  @media (max-width: 1279.98px) {
+    position: static;
+  }
+}
+
+// 手機:排程狀態列的各段(標題 / 下次執行 / 上次結果 / 看記錄)各佔一列,
+// 不然會依剩餘寬度隨機擠在一起,「查看排程記錄」被推到右邊孤零零一顆
+@media (max-width: 599.98px) {
+  .sched-status-row {
+    > * {
+      flex: 1 1 100%;
+    }
+
+    > .v-spacer {
+      display: none;
+    }
+
+    > .v-btn {
+      justify-content: flex-start;
+      margin-inline-start: -8px; // 文字按鈕自帶內距,退回去讓文字跟上面的圖示對齊
+    }
+  }
+
+  // 查詢 / 停止按鈕撐滿,拇指好按
+  .query-actions > .v-btn {
+    flex: 1 1 auto;
+  }
 }
 
 /* 失敗清單卡:置於縮圖前,紅色描邊醒目;表格限高捲動,避免大量失敗把縮圖擠到很下面 */

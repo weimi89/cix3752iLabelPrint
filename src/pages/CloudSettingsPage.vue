@@ -122,21 +122,22 @@ const handleLogout = async () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.cloud.title')" subtitle="API Base URL + Personal Access Token" icon="tabler-cloud-network">
+    <AppHeader :title="$t('page.cloud.title')" :subtitle="$t('page.cloud.subtitle')" :subtitle-short="$t('page.cloud.subtitleShort')" icon="tabler-cloud-network">
       <template #actions>
         <VBtn variant="text" color="default" class="d-none d-md-inline-flex" @click="isSoundSettingsDialogVisible = true">
           <VIcon icon="tabler-volume" size="18" class="me-1" />{{ $t('soundSettings.title') }}
         </VBtn>
+        <!-- 登入狀態徽章:手機只留圖示(越南文「Đã đăng nhập」會把標題擠成三行),桌面才顯示文字 -->
         <VChip
           v-if="session.logged_in"
           color="success"
           variant="tonal"
           size="small"
         >
-          <VIcon icon="tabler-circle-check" size="14" class="me-1" />{{ $t('page.cloud.loggedIn') }}
+          <VIcon icon="tabler-circle-check" size="14" class="me-md-1" /><span class="d-none d-md-inline">{{ $t('page.cloud.loggedIn') }}</span>
         </VChip>
         <VChip v-else color="warning" variant="tonal" size="small">
-          <VIcon icon="tabler-alert-triangle" size="14" class="me-1" />{{ $t('user.notLoggedIn') }}
+          <VIcon icon="tabler-alert-triangle" size="14" class="me-md-1" /><span class="d-none d-md-inline">{{ $t('user.notLoggedIn') }}</span>
         </VChip>
         <VBtn v-if="session.logged_in" color="error" size="small" class="d-none d-md-inline-flex" @click="handleLogout">
           <VIcon icon="tabler-logout" size="16" class="me-1" />{{ $t('user.logout') }}
@@ -184,7 +185,7 @@ const handleLogout = async () => {
         <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">API Base URL</VLabel>
+          <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">API Base URL</VLabel>
           <VTextField
             v-model="form.api_base"
             placeholder="https://your-domain.example.com"
@@ -194,7 +195,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">Personal Access Token</VLabel>
+          <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">Personal Access Token</VLabel>
           <VTextField
             v-model="form.token"
             type="password"
@@ -205,7 +206,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cloud.jobUserLabel') }}</VLabel>
+          <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.cloud.jobUserLabel') }}</VLabel>
           <VTextField
             v-model="form.job_user"
             :placeholder="$t('page.cloud.jobUserPlaceholder')"
@@ -215,7 +216,7 @@ const handleLogout = async () => {
         </div>
 
         <div class="mb-3">
-          <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.cloud.parcelModeLabel') }}</VLabel>
+          <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.cloud.parcelModeLabel') }}</VLabel>
           <VSelect
             v-model="form.parcel_mode"
             :items="PARCEL_MODES"
@@ -235,6 +236,7 @@ const handleLogout = async () => {
           </div>
           <VSwitch
             v-model="form.allow_invalid_certs"
+            class="flex-shrink-0"
             hide-details
             color="warning"
             inset
@@ -271,7 +273,8 @@ const handleLogout = async () => {
       </VExpansionPanel>
     </VExpansionPanels>
 
-    <div class="d-flex justify-center ga-2 mt-4">
+    <!-- 允許折行:越南文兩顆按鈕的字比較長,手機上一列放不下 -->
+    <div class="d-flex flex-wrap justify-center ga-2 mt-4">
       <VBtn variant="outlined" size="large" :loading="loading" :disabled="!form.api_base" @click="handleSaveOnly">
         <VIcon icon="tabler-device-floppy" size="18" class="me-2" />{{ $t('page.cloud.saveOnly') }}
       </VBtn>

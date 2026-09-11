@@ -1,8 +1,10 @@
 <script setup>
 import { provide, ref, computed, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useLocale } from 'vuetify'
+import { useDisplay, useLocale } from 'vuetify'
 import { VuetifyDateAdapter } from 'vuetify/date/adapters/vuetify'
+import { VDialog } from 'vuetify/components/VDialog'
+import { VMenu } from 'vuetify/components/VMenu'
 
 // 共用日期選擇器:VTextField(唯讀)+ 彈出 VDatePicker。
 // 封裝 PrintStatsPage 驗證過的兩個坑修法:
@@ -17,8 +19,9 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   // 輸入框寬度(預設滿版);日曆 popup 寬度由下方 content-class 壓掉 min-width,不受此影響
   width: { type: String, default: '100%' },
-  // 可選的最晚日期('yyyy-mm-dd');空=不限制。之後的日子在日曆上會被停用
+  // 可選的最晚 / 最早日期('yyyy-mm-dd');空=不限制。範圍外的日子在日曆上會被停用
   max: { type: String, default: '' },
+  min: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -43,6 +46,11 @@ watchEffect(() => {
 
 const menu = ref(false)
 
+// 手機:日曆改開在置中的對話框,不用貼著輸入框的彈窗。
+// 貼著輸入框的彈窗會從輸入框左緣往右開 328px,輸入框不在最左邊時右邊就出界、整頁被撐出橫向捲軸,
+// 靠 CSS 硬把它拉回來在 iOS Safari 上並不可靠;對話框天生置中、永遠在螢幕內。
+const { smAndDown } = useDisplay()
+
 // 字串 yyyy-mm-dd ↔ Date 互轉(VDatePicker 內部用 Date 物件)
 const strToDate = s => {
   if (!s) return null
@@ -66,7 +74,13 @@ const dateObj = computed({
 </script>
 
 <template>
-  <VMenu v-model="menu" :close-on-content-click="false" :disabled="disabled" location="bottom start" content-class="app-date-picker-menu">
+  <component
+    :is="smAndDown ? VDialog : VMenu"
+    v-model="menu"
+    :close-on-content-click="false"
+    :disabled="disabled"
+    v-bind="smAndDown ? { width: 'auto' } : { location: 'bottom start', contentClass: 'app-date-picker-menu' }"
+  >
     <template #activator="{ props: act }">
       <VTextField
         v-bind="act"
@@ -84,10 +98,11 @@ const dateObj = computed({
       v-model="dateObj"
       :locale="dateLocale"
       :max="strToDate(max) || undefined"
+      :min="strToDate(min) || undefined"
       show-adjacent-months
       hide-header
     />
-  </VMenu>
+  </component>
 </template>
 
 <!--
@@ -112,15 +127,6 @@ const dateObj = computed({
 .v-date-picker-month__day--adjacent .v-btn {
   color: rgba(var(--v-theme-on-surface), 0.38) !important;
 }
-.v-date-picker > .v-picker__body,
-.v-date-picker {
-  width: auto !important;
-  min-width: 328px;
-}
-
-/* 輸入框可滿版,但 VMenu 預設會把 popup min-width 對齊 activator 寬度,
-   這裡壓掉,讓日曆維持自身 328px,不被全寬輸入框撐大 */
-.app-date-picker-menu {
-  min-width: auto !important;
-}
+/* 日曆彈窗的寬度規則(桌面固定寬、手機貼齊螢幕)在 styles/main.scss 的「日曆彈窗」段,
+   印單統計頁自己掛 VDatePicker 也要套同一套,所以不放在這個元件裡 */
 </style>

@@ -225,9 +225,25 @@ onUnmounted(() => {
   :deep(.v-card-item__content) {
     min-inline-size: 0;
   }
+
+  // 手機:標題列同時要放圖示、袋號與狀態徽章,袋號字級縮到 1rem 才不會被截成「BAG2026…」
+  @media (max-width: 599.98px) {
+    :deep(.v-card-title) {
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+  }
 }
 .bag-card__orders {
   th, td { white-space: nowrap; }
+
+  // 手機:三欄加上 16px 內距剛好比卡片寬,列印時間會貼到邊;內距與字級縮一點就放得下
+  @media (max-width: 599.98px) {
+    th, td {
+      padding-inline: 8px !important;
+      font-size: 0.875rem;
+    }
+  }
 }
 .bag-card__toggle {
   // 滑鼠點完焦點留在這格,WebKit 會畫內建焦點框;本頁為觸控/滑鼠操作,點完不留框(鍵盤 Enter/Space 仍可用)
@@ -289,9 +305,9 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.bagCheck.title')" :subtitle="$t('page.bagCheck.subtitle')" icon="tabler-packages">
+    <AppHeader :title="$t('page.bagCheck.title')" :subtitle="$t('page.bagCheck.subtitle')" :subtitle-short="$t('page.bagCheck.subtitleShort')" icon="tabler-packages">
       <template #actions>
-        <div class="d-flex ga-2">
+        <div class="d-none d-md-flex ga-2">
           <DisplayLauncher
             route="/bag-check"
             window-label="display-bagcheck"
@@ -301,6 +317,17 @@ onUnmounted(() => {
             <VIcon icon="tabler-eraser" size="16" class="me-1" />{{ $t('page.bagCheck.clearList') }}
           </VBtn>
         </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem :disabled="!bags.length" @click="clearList">
+                <template #prepend><VIcon icon="tabler-eraser" size="20" /></template>
+                <VListItemTitle>{{ $t('page.bagCheck.clearList') }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
+        </VBtn>
       </template>
     </AppHeader>
 
@@ -336,7 +363,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 無資料 -->
-    <VCard v-if="!bags.length" class="py-10">
+    <VCard v-if="!bags.length" class="py-10 px-4 text-center">
       <div class="d-flex flex-column align-center justify-center text-medium-emphasis">
         <VIcon icon="tabler-package-off" size="48" class="mb-3" />
         <div class="text-title-large mb-1">{{ $t('page.bagCheck.empty') }}</div>
@@ -346,7 +373,7 @@ onUnmounted(() => {
 
     <!-- 缺件總覽:扁平列出每個有缺的袋 + 其未印件 -->
     <template v-else-if="viewMode === 'missing'">
-      <VCard v-if="!missingOverview.length" class="py-10">
+      <VCard v-if="!missingOverview.length" class="py-10 px-4 text-center">
         <div class="d-flex flex-column align-center justify-center text-success">
           <VIcon icon="tabler-circle-check" size="48" class="mb-3" />
           <div class="text-title-large">{{ $t('page.bagCheck.allComplete') }}</div>
@@ -372,11 +399,11 @@ onUnmounted(() => {
 
     <!-- 精簡列表:每袋一行 -->
     <template v-else-if="viewMode === 'compact'">
-      <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
+      <VCard v-if="!filteredBags.length" class="py-10 px-4 text-center text-medium-emphasis">
         <div class="text-body-large">{{ $t('page.bagCheck.noMatch') }}</div>
       </VCard>
       <VCard v-else>
-        <VTable class="bag-compact">
+        <VTable class="bag-compact table-cards">
           <thead>
             <tr>
               <th class="text-start">{{ $t('page.bagCheck.col.packageSn') }}</th>
@@ -388,14 +415,14 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="bag in filteredBags" :key="bag.package_sn">
-              <td class="text-start bag-compact__bag">
+              <td class="text-start bag-compact__bag" :data-label="$t('page.bagCheck.col.packageSn')">
                 <VIcon :icon="bag._stateIcon" :color="bag._stateColor" size="20" class="me-2" />
                 {{ bag.package_sn }}
               </td>
-              <td class="text-center bag-compact__num">{{ bag.total }}</td>
-              <td class="text-center bag-compact__num text-success">{{ bag.printed }}</td>
-              <td class="text-center bag-compact__num" :class="bag.missing > 0 ? 'text-warning font-weight-bold' : 'text-disabled'">{{ bag.missing }}</td>
-              <td class="text-center bag-compact__time">{{ formatTimeShort(bag.last_request_at) }}</td>
+              <td class="text-center bag-compact__num" :data-label="$t('page.bagCheck.total')">{{ bag.total }}</td>
+              <td class="text-center bag-compact__num text-success" :data-label="$t('page.bagCheck.printed')">{{ bag.printed }}</td>
+              <td class="text-center bag-compact__num" :class="bag.missing > 0 ? 'text-warning font-weight-bold' : 'text-disabled'" :data-label="$t('page.bagCheck.missing')">{{ bag.missing }}</td>
+              <td class="text-center bag-compact__time" :data-label="$t('page.bagCheck.lastRequestAt')">{{ formatTimeShort(bag.last_request_at) }}</td>
             </tr>
           </tbody>
         </VTable>
@@ -404,7 +431,7 @@ onUnmounted(() => {
 
     <!-- 詳細卡片:Masonry 瀑布流(row-major,4 個一列填滿),展開/收合/刷新由 ResizeObserver 自動重排 -->
     <template v-else>
-      <VCard v-if="!filteredBags.length" class="py-10 text-center text-medium-emphasis">
+      <VCard v-if="!filteredBags.length" class="py-10 px-4 text-center text-medium-emphasis">
         <div class="text-body-large">{{ $t('page.bagCheck.noMatch') }}</div>
       </VCard>
       <div v-else ref="masonryEl" class="bag-masonry" :class="{ 'bag-masonry--ready': masonryReady }">
@@ -487,9 +514,9 @@ onUnmounted(() => {
                       v-for="(o, i) in bag.orders"
                       :key="o.shipping_no + i"
                     >
-                      <td class="text-center">{{ o.shipping_provider || '—' }}</td>
-                      <td class="text-start">{{ o.shipping_no || '—' }}</td>
-                      <td class="text-center">
+                      <td class="text-center" :data-label="$t('page.bagCheck.col.provider')">{{ o.shipping_provider || '—' }}</td>
+                      <td class="text-start" :data-label="$t('page.bagCheck.col.shippingNo')">{{ o.shipping_no || '—' }}</td>
+                      <td class="text-center" :data-label="$t('page.bagCheck.col.printTime')">
                         <span v-if="isPrinted(o)" class="text-success">
                           {{ formatTimeShort(o.last_print_time) }}
                         </span>

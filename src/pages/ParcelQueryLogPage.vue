@@ -122,7 +122,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader :title="$t('page.parcelQueryLog.title')" :subtitle="$t('page.parcelQueryLog.subtitle')" icon="tabler-history">
+    <AppHeader :title="$t('page.parcelQueryLog.title')" :subtitle="$t('page.parcelQueryLog.subtitle')" :subtitle-short="$t('page.parcelQueryLog.subtitleShort')" icon="tabler-history">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" @click="load">
@@ -205,10 +205,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     </VExpansionPanels>
 
     <VCard>
-      <div class="d-flex align-center ga-3 px-4 py-1">
-        <VSpacer />
-        <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="total" header />
-      </div>
+      <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="total" header />
 
       <VDivider />
 

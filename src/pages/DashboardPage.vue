@@ -78,7 +78,7 @@ const formatBytes = bytes => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.dashboard.title')" :subtitle="$t('page.dashboard.subtitle')" icon="tabler-layout-dashboard" />
+    <AppHeader :title="$t('page.dashboard.title')" :subtitle="$t('page.dashboard.subtitle')" :subtitle-short="$t('page.dashboard.subtitleShort')" icon="tabler-layout-dashboard" />
 
     <VAlert v-if="!hasBackend" type="info" variant="tonal" class="mb-3" icon="tabler-info-circle">
       {{ $t('page.dashboard.previewModeAlert') }}
@@ -86,18 +86,19 @@ const formatBytes = bytes => {
 
     <!-- 本場累計 banner — 跨日 / 換班 / 計件結算的核心指標,永遠醒目 -->
     <VCard class="mb-2 card-shadow session-banner">
-      <VCardText class="d-flex align-center gap-4">
+      <VCardText class="session-banner__body d-flex align-center flex-wrap gap-4">
         <VAvatar color="primary" variant="flat" size="56">
           <VIcon icon="tabler-restore" size="32" />
         </VAvatar>
-        <div class="flex-grow-1 d-flex flex-column" style="min-width: 0;">
+        <div class="session-banner__text flex-grow-1 d-flex flex-column" style="min-width: 0;">
           <div class="text-body-small text-medium-emphasis">{{ $t('page.printStats.sinceReset') }}</div>
-          <div class="text-display-large font-weight-bold text-primary" style="line-height: 1.1;">{{ status.printStats.since_reset }}</div>
+          <div class="session-banner__count font-weight-bold text-primary">{{ status.printStats.since_reset }}</div>
           <div class="text-body-small text-medium-emphasis mt-1">
             <VIcon icon="tabler-clock-play" size="14" class="me-1" />{{ $t('page.printStats.sinceLabel') }} {{ summarySinceLabel }}
           </div>
         </div>
         <VBtn
+          class="session-banner__reset"
           color="warning"
           variant="flat"
           prepend-icon="tabler-refresh-dot"
@@ -147,8 +148,9 @@ const formatBytes = bytes => {
                 <VIcon icon="tabler-chart-bar" />
               </VAvatar>
             </template>
-            <VCardTitle>{{ $t('page.dashboard.printStatsTitle') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.dashboard.printStatsSubtitle') }}</VCardSubtitle>
+            <!-- 右側掛著 24 小時件數,標題只剩一半寬,越南文「Thống kê in nhãn」在桌面也會被截斷,允許折行 -->
+            <VCardTitle class="text-wrap">{{ $t('page.dashboard.printStatsTitle') }}</VCardTitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.dashboard.printStatsSubtitle') }}</span><span class="d-sm-none">{{ $t('page.dashboard.printStatsSubtitleShort') }}</span></VCardSubtitle>
             <template #append>
               <div class="d-flex align-center gap-3 pe-1">
                 <div class="text-end">
@@ -236,7 +238,7 @@ const formatBytes = bytes => {
               </VAvatar>
             </template>
             <VCardTitle>{{ $t('page.dashboard.lanIpLabel') }}</VCardTitle>
-            <VCardSubtitle>{{ $t('page.dashboard.lanIpHint') }}</VCardSubtitle>
+            <VCardSubtitle><span class="d-none d-sm-inline">{{ $t('page.dashboard.lanIpHint') }}</span><span class="d-sm-none">{{ $t('page.dashboard.lanIpHintShort') }}</span></VCardSubtitle>
           </VCardItem>
           <VCardText class="pt-0 d-flex flex-wrap ga-2">
             <VChip
@@ -263,9 +265,10 @@ const formatBytes = bytes => {
             <VIcon :icon="netOverallIcon" />
           </VAvatar>
         </template>
-        <VCardTitle class="d-flex align-center">
+        <!-- 允許折行:手機上(尤其越南文)標題 + 狀態徽章 + 檢查按鈕放不進一列,不折行徽章會被壓扁 -->
+        <VCardTitle class="d-flex align-center flex-wrap">
           {{ $t('network.card.title') }}
-          <VChip :color="netOverallColor" size="x-small" variant="tonal" class="ms-2">
+          <VChip :color="netOverallColor" size="x-small" variant="tonal" class="ms-2 flex-shrink-0">
             {{ $t(`network.overall.${overall}`) }}
           </VChip>
           <VSpacer />
@@ -426,6 +429,32 @@ const formatBytes = bytes => {
     rgba(var(--v-theme-primary), 0.04),
     rgba(var(--v-theme-primary), 0)
   );
+
+  // 件數是一個整數,絕不能被折成兩行(「9648」斷成「96 / 48」會被讀成兩個數字)。
+  // 字級直接寫在這裡、不掛 Vuetify 字級 class:那些 class 的數值鎖在 !important 分層,
+  // 元件內的媒體查詢蓋不過去,手機版縮字會失效
+  &__count {
+    font-size: 3.75rem;
+    line-height: 1.1;
+    letter-spacing: -0.0083333333em;
+    white-space: nowrap;
+  }
+
+  // 手機:圖示與數字同列、重置按鈕獨佔下一列。
+  // 不這樣做,按鈕會搶走文字欄的寬度,數字與起算時間都被擠到折行
+  @media (max-width: 599.98px) {
+    &__body {
+      gap: 0.75rem;
+    }
+
+    &__count {
+      font-size: 3rem;
+    }
+
+    &__reset {
+      flex: 1 1 100%;
+    }
+  }
 }
 
 // Vuetify VListItem 在 #prepend slot 下會塞一個 .v-list-item__spacer (預設 16px) 把圖示推離 content

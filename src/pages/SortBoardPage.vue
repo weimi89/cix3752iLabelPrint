@@ -119,11 +119,14 @@ onUnmounted(() => {
       icon="tabler-device-tv"
     >
       <template #actions>
-        <DisplayLauncher
-          route="/sort-board"
-          window-label="display-sort-board"
-          :title="$t('page.board.title')"
-        />
+        <!-- 手機本身就是看板,不提供「開到另一台螢幕」;與其他頁在手機收起 DisplayLauncher 一致 -->
+        <div class="d-none d-md-flex">
+          <DisplayLauncher
+            route="/sort-board"
+            window-label="display-sort-board"
+            :title="$t('page.board.title')"
+          />
+        </div>
       </template>
     </AppHeader>
 

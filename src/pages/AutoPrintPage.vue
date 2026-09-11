@@ -478,7 +478,7 @@ onMounted(() => {
             <VCardText>
               <div class="d-flex ga-3 my-3">
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">
                     {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -490,7 +490,7 @@ onMounted(() => {
                   />
                 </div>
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">
                     {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -503,7 +503,7 @@ onMounted(() => {
                 </div>
               </div>
               <div class="mb-3">
-                <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
+                <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">
                   {{ examineByOrderSn ? $t('page.auto.orderSn') : $t('page.auto.packageBarcode') }}
                 </VLabel>
                 <VTextField
@@ -518,7 +518,7 @@ onMounted(() => {
                   上面那個輸入框 enter 後直接走 examinePackage,後續還是回到上面繼續刷,
                   第二個欄位 label 重複「系統訂單編號」會讓使用者不知道刷哪個,直接隱藏 -->
               <div v-if="!examineByOrderSn" class="mb-3">
-                <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
+                <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.auto.orderSn') }}</VLabel>
                 <VTextField
                   ref="orderSnRef"
                   v-model="form.order_sn"
@@ -528,7 +528,7 @@ onMounted(() => {
               </div>
               <div>
                 <VLabel
-                  class="mb-1 text-body-medium"
+                  class="mb-1 text-body-medium text-wrap"
                   style="line-height: 15px;"
                   :class="{ 'text-error font-weight-bold': printTypeMultiple }"
                 >

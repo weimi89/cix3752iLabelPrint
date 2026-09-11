@@ -91,10 +91,23 @@ const applyDates = () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.fieldOperationMonitor.title')" :subtitle="$t('page.fieldOperationMonitor.subtitle')" icon="tabler-user-check">
+    <AppHeader :title="$t('page.fieldOperationMonitor.title')" :subtitle="$t('page.fieldOperationMonitor.subtitle')" :subtitle-short="$t('page.fieldOperationMonitor.subtitleShort')" icon="tabler-user-check">
       <template #actions>
-        <VBtn color="primary" :loading="loading" @click="load">
-          <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
+        <div class="d-none d-md-flex ga-2">
+          <VBtn color="primary" :loading="loading" @click="load">
+            <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
+          </VBtn>
+        </div>
+        <VBtn class="d-block d-md-none" icon variant="tonal" color="default" density="compact" size="34">
+          <VIcon icon="tabler-playlist-add" size="22" />
+          <VMenu activator="parent">
+            <VList>
+              <VListItem :disabled="loading" @click="load">
+                <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
+                <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
         </VBtn>
       </template>
     </AppHeader>
@@ -315,10 +328,10 @@ const applyDates = () => {
         <VCardTitle class="text-body-large">{{ $t('page.fieldOperationMonitor.setRange') }}</VCardTitle>
         <VCardText>
           <div class="text-body-small text-medium-emphasis mb-3">{{ $t('page.fieldOperationMonitor.rangeHint') }}</div>
-          <div class="d-flex align-center ga-2">
-            <AppDatePicker v-model="dFrom" density="compact" />
-            <span class="text-disabled">~</span>
-            <AppDatePicker v-model="dTo" density="compact" />
+          <div class="date-range">
+            <div class="date-range__field"><AppDatePicker v-model="dFrom" density="compact" /></div>
+            <span class="date-range__sep text-disabled">~</span>
+            <div class="date-range__field"><AppDatePicker v-model="dTo" density="compact" /></div>
           </div>
         </VCardText>
         <VCardActions class="px-4 pb-3">

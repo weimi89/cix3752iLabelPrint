@@ -66,7 +66,7 @@ const reset = () => {
 
 <template>
   <div>
-    <AppHeader :title="$t('page.printer.title')" :subtitle="$t('page.printer.subtitle')" icon="tabler-printer">
+    <AppHeader :title="$t('page.printer.title')" :subtitle="$t('page.printer.subtitle')" :subtitle-short="$t('page.printer.subtitleShort')" icon="tabler-printer">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!hasBackend" @click="refresh">

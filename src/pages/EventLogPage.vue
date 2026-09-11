@@ -145,7 +145,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
 <template>
   <div>
-    <AppHeader :title="$t('page.eventLog.title')" :subtitle="$t('page.eventLog.subtitle')" icon="tabler-bell-ringing">
+    <AppHeader :title="$t('page.eventLog.title')" :subtitle="$t('page.eventLog.subtitle')" :subtitle-short="$t('page.eventLog.subtitleShort')" icon="tabler-bell-ringing">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <VBtn color="primary" :loading="loading" :disabled="!hasBackend" @click="load">
@@ -207,10 +207,7 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
 
     <VCard>
       <!-- 頂部 header 分頁 -->
-      <div class="d-flex align-center ga-3 px-4 py-1">
-        <VSpacer />
-        <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="mockTotal" header />
-      </div>
+      <TablePagination v-model:page="page" v-model:per-page="pageSize" :total="mockTotal" header />
 
       <VDivider />
 

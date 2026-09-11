@@ -355,6 +355,7 @@
   "sync": {
     "settings": {
       "section": "件數核對跨機同步",
+      "descShort": "多台分揀機共用同一袋時即時同步列印進度。預設關閉",
       "desc": "多台分揀機共用同一袋時,經 Reverb 即時同步列印進度;同袋在別台處理也會即時更新本機核對清單。預設關閉。",
       "enable": "啟用跨機同步",
       "enableDesc": "開啟後訂閱 Reverb 廣播;關閉則維持單機(不影響既有流程)",
@@ -408,6 +409,7 @@
     },
     "clearanceAdd": {
       "title": "包裹入廠",
+      "subtitleShort": "掃描包裹袋號,新增至清關清單",
       "subtitle": "掃描包裹袋號,新增至清關清單",
       "settingsTitle": "清關設定",
       "scanTitle": "掃描包裹",
@@ -426,6 +428,7 @@
     },
     "clearanceDispatch": {
       "title": "司機派工",
+      "subtitleShort": "掃描包裹袋號,指派出清司機",
       "subtitle": "掃描包裹袋號,指派出清司機",
       "settingsTitle": "派工設定",
       "scanTitle": "掃描包裹",
@@ -444,11 +447,13 @@
     },
     "dashboard": {
       "title": "儀表板",
+      "subtitleShort": "本地分揀中介服務即時狀態",
       "subtitle": "本地分揀中介服務即時狀態",
       "previewModeAlert": "瀏覽器預覽模式 — 狀態資料來自 Tauri 後端,請於桌面 App 內查看實際數值。",
       "middleware": "中介服務",
       "notStarted": "未啟動",
       "lanIpLabel": "工控機連線位址",
+      "lanIpHintShort": "工控機請用下列位址連線",
       "lanIpHint": "工控機請以下列任一位址連線(服務監聽 0.0.0.0,需用實際 LAN IP)",
       "cloudConnection": "雲端連線",
       "todayRequests": "本日請求數",
@@ -458,10 +463,12 @@
       "cachedLabels": "快取面單 / {size}",
       "cloudNotLoggedInAlert": "尚未登入雲端 API — 請至「雲端 API」頁完成登入,否則工控機查包裹會回 401。",
       "printStatsTitle": "印單統計",
+      "printStatsSubtitleShort": "點擊查看詳細統計",
       "printStatsSubtitle": "點擊查看完整每日/小時/物流商/貼標人員拆分"
     },
     "preGenerate": {
       "title": "面單預產",
+      "subtitleShort": "先讓伺服器產好面單圖",
       "subtitle": "先讓伺服器產好面單圖(不寫列印記錄、不檢查出貨狀態)",
       "byOrderSn": "訂單編號",
       "byPackage": "清關袋號",
@@ -543,6 +550,7 @@
       "maxSizeMb": "最大容量 MB(0 = 不限)",
       "camera": {
         "title": "讀碼站快照相機",
+        "subtitleShort": "工控機查件時抓相機一幀存證",
         "subtitle": "收到工控機查件當下,抓 USB 相機一幀存證,佐證「沒貨卻出紙」時讀碼站有無實體包裹(快照存在快取目錄下,依上方保留天數一併清理)",
         "enable": "啟用讀碼站快照",
         "enableHint": "需先接上 USB 相機並允許相機權限;關閉時完全不影響正常出單(僅不留存證)",
@@ -577,6 +585,7 @@
     },
     "printer": {
       "title": "印表機設定",
+      "subtitleShort": "設定每個物流商對應的本機印表機",
       "subtitle": "設定每個物流商對應的本機印表機",
       "mockPrefix": "(瀏覽器模式)",
       "loadFailed": "無法載入印表機:{reason}",
@@ -588,6 +597,7 @@
       "webAccess": {
         "lanOnlyNote": "為了避免有人拿到密碼後把門鎖換掉,這三件事只能在中介機本機或現場網路內做:改這一區的設定、更換密碼、指定要列印的檔案。其他功能從外面連進來後都能正常使用。",
         "section": "網頁存取",
+        "descShort": "讓主管或同仁用瀏覽器開這台機器的畫面;現場網路免密碼,外部連線要密碼",
         "desc": "讓主管或同仁用瀏覽器開這台機器的畫面。在現場網路內開啟不需要密碼;從公司外面連進來則要輸入下面設定的密碼。",
         "enable": "開放外部連線",
         "enableDesc": "關閉時,現場網路以外的人一律連不進來,連登入畫面都看不到。",
@@ -611,6 +621,7 @@
         "lanRangesHint": "一行一筆。這些範圍內的電腦視為現場設備,開啟畫面不必輸入密碼。工控機也必須落在這裡面,否則會連不上。"
       },
       "title": "服務設定",
+      "subtitleShort": "給工控機呼叫的本地服務",
       "subtitle": "給分揀機工控機呼叫的本地 HTTP API",
       "restart": "重啟服務",
       "autoStartFailed": "自動啟動切換失敗:{reason}",
@@ -625,6 +636,8 @@
       "localeDesc": "切換介面顯示語言,設定即時生效並持久化"
     },
     "cloud": {
+      "subtitle": "雲端連線網址與登入憑證",
+      "subtitleShort": "雲端連線設定",
       "title": "雲端 API 設定",
       "loggedIn": "已登入",
       "tokenKeyringInfo": "Token 會儲存到系統 keyring(macOS Keychain / Windows Credential Vault),不會寫入 config 檔。",
@@ -656,6 +669,7 @@
     },
     "eventLog": {
       "title": "事件記錄",
+      "subtitleShort": "系統與雲端的事件記錄",
       "subtitle": "系統 / 雲端 / 快取 / 佇列 / 印表機事件",
       "browserAlert": "瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入 SQLite 內的 event_log 紀錄。",
       "keyword": "關鍵字",
@@ -709,6 +723,7 @@
     },
     "bagCheck": {
       "title": "件數核對",
+      "subtitleShort": "自動核對各袋件數",
       "subtitle": "設備跑單後自動核對各袋件數,有未印件的袋持續保留、已完成的保留最新一袋",
       "clearList": "清除清單",
       "empty": "尚無分袋資料",
@@ -748,6 +763,7 @@
     },
     "fieldOperationMonitor": {
       "title": "現場作業監控",
+      "subtitleShort": "清關進度與每日貼單產能",
       "subtitle": "清關進度與每日貼單產能",
       "board": "清關 / 轉寄進度",
       "dataTime": "資料時間 {time}",
@@ -845,6 +861,7 @@
     },
     "alertLog": {
       "title": "查件異常",
+      "subtitleShort": "雲端查件回報的異常",
       "subtitle": "雲端查件回報的異常(門市關轉、未確認、查無此件 …)",
       "keyword": "關鍵字",
       "keywordPlaceholder": "訊息",
@@ -860,6 +877,7 @@
     },
     "parcelQueryLog": {
       "title": "請求記錄",
+      "subtitleShort": "工控機查件的歷史記錄",
       "subtitle": "工控機呼叫 GET /api/parcel 的查詢歷史",
       "msField": "耗時欄位",
       "msFieldAny": "任一欄位",
@@ -897,6 +915,7 @@
         "R1": "右 1", "R2": "右 2", "R3": "右 3", "R4": "右 4", "R5": "右 5"
       },
       "title": "分揀通道",
+      "subtitleShort": "左右各 5 通道的設定",
       "subtitle": "左 5 通道 / 右 5 通道,各自設定代碼、物流與貼標人員",
       "browserAlert": "瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。",
       "saveAll": "儲存全部變更 ({n})",
@@ -954,6 +973,7 @@
     },
     "dispatch": {
       "title": "指派物流",
+      "subtitleShort": "分揀通道可選擇的物流商主檔",
       "subtitle": "分揀通道可選擇的物流商主檔",
       "create": "新增物流",
       "emptyHint": "尚未設定物流商,按右上「新增物流」開始",
@@ -980,6 +1000,7 @@
     },
     "queue": {
       "title": "佇列歷史",
+      "subtitleShort": "工控機回報與推送結果",
       "subtitle": "工控機回報 / webhook 推送結果",
       "browserAlert": "瀏覽器預覽模式 — 實機請於桌面 App 內開啟,系統會自動載入本地佇列紀錄。",
       "retryFailed": "重試失敗",
@@ -1090,6 +1111,7 @@
     },
     "printStats": {
       "title": "印單統計",
+      "subtitleShort": "三來源的印單統計",
       "subtitle": "三來源:掃描列印 / 自動印單 / 工控機要圖",
       "today": "今日",
       "yesterday": "昨日",
@@ -1112,6 +1134,7 @@
       "byProvider": "依物流商",
       "byProviderHint": "區間內各物流商去重後的印單數",
       "bySticker": "依貼標人員",
+      "byStickerHintShort": "各貼標人員的印單數",
       "byStickerHint": "區間內各貼標人員的印單數(來源:掃描/自動由前端填、工控機由分揀通道帶入)",
       "sourceScan": "掃描列印",
       "sourceAuto": "自動印單",
@@ -1125,12 +1148,15 @@
       "sinceLabel": "自",
       "past24h": "過去 24 小時",
       "byScanner": "依操作人員",
+      "byScannerHintShort": "各操作人員的印單數",
       "byScannerHint": "區間內各操作人員(掃描槍 / 自動印單)的印單數",
       "noScannerData": "區間內尚無操作人員紀錄",
       "byChannel": "依分揀通道",
+      "byChannelHintShort": "各分揀通道的印單數(僅工控機)",
       "byChannelHint": "區間內各分揀通道去重後的印單數(僅工控機分揀機出單)",
       "noChannelData": "區間內尚無工控機分揀通道印單紀錄",
       "compareTitle": "歷史比對",
+      "compareHintShort": "近 7 天、近 30 天與前期比較",
       "compareHint": "近 7 天 vs 前 7 天、近 30 天 vs 前 30 天",
       "compareWeek": "近 7 天",
       "compareMonth": "近 30 天",

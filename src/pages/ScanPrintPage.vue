@@ -419,7 +419,7 @@ const groupedStatus = computed(() => {
             <VCardText>
               <div class="d-flex ga-3 my-3">
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">
                     {{ $t('page.scan.scannerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -431,7 +431,7 @@ const groupedStatus = computed(() => {
                   />
                 </div>
                 <div class="flex-grow-1" style="flex-basis: 0; min-width: 0;">
-                  <VLabel class="mb-1 text-body-medium" style="line-height: 15px;">
+                  <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">
                     {{ $t('page.scan.stickerUser') }} <span class="text-error ms-1">※</span>
                   </VLabel>
                   <PersonnelCombobox
@@ -453,7 +453,7 @@ const groupedStatus = computed(() => {
               </div>
               <div class="mt-3">
                 <VLabel
-                  class="mb-1 text-body-medium"
+                  class="mb-1 text-body-medium text-wrap"
                   style="line-height: 15px;"
                   :class="{ 'text-error font-weight-bold': printTypeMultiple }"
                 >

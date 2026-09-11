@@ -157,7 +157,12 @@ api/media.js              面單圖 / 存證照 / 相機串流的網址(桌面�
 
 **手機版**:記錄類表格在窄螢幕會變成卡片式(`.table-cards`,樣式在 `styles/main.scss`),
 欄名取自各 `<td>` 的 `data-label` —— **加新欄位時要一併補上**,否則手機上那格會沒有名稱。
-畫面驗證用 `npx playwright@1.49.0 screenshot --channel=chrome`(用系統 Chrome,可開 localhost)。
+畫面驗證用 `npx playwright@1.49.0 screenshot --channel=chrome`(用系統 Chrome,可開 localhost);
+改到版面後跑 `node tests/mobile-layout-audit.mjs <輸出目錄> 390 vi-VN`(`yarn dev` 先開著)可一次截全部頁面並列出超出、被切的元素,
+越南文字比中文長,**手機版一定要用 vi-VN 也跑一次**。
+
+**改字級要注意的坑**:Vuetify 的字級 class(`text-display-*`、`text-headline-*` …)在 `main.scss` 是鎖在 `@layer vuetify-utilities` 的 `!important`,
+分層的 `!important` 永遠壓過元件內未分層的 `!important`,元件裡的媒體查詢改不動它。手機要縮字的數字 / 標題不要掛這些 class,字級由元件自己寫。
 
 **圖示離線化**:圖示資料打包在 `src/plugins/icons-offline.json`(只含實際用到的 176 個)。
 沒有它,`@iconify/vue` 會去 `api.iconify.design` 線上抓 —— 外網一斷畫面上每個圖示都變空白。
