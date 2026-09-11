@@ -762,6 +762,27 @@ body {
 }
 
 // =============================================================================
+// 導覽列在手機的預算
+// =============================================================================
+// 360px 的螢幕扣掉頁面邊距與導覽列卡片自己的內距後只剩 270px,卻要放:漢堡、印單統計數字、
+// 清關進度、登出(外網時)、網路狀態、語系,五位數的統計一出現就把最右邊的語系擠出卡片。
+// 卡片內距與圖示鈕縮一點,把預算撐到 300px 以上
+@media (max-width: 599.98px) {
+  .layout-navbar .navbar-content-container {
+    padding-inline: 12px !important;
+  }
+
+  .layout-navbar .v-btn--icon.v-btn--size-small {
+    inline-size: 36px;
+    block-size: 36px;
+  }
+
+  .layout-navbar .v-chip .ms-2 {
+    margin-inline-start: 4px !important;
+  }
+}
+
+// =============================================================================
 // 卡片說明文字要能換行
 // =============================================================================
 // Vuetify 的 VCardSubtitle 預設單行、超出就用刪節號截掉。桌面寬度多半看得完,
@@ -835,13 +856,22 @@ body {
       border: none !important;
       text-align: end !important;
 
+      // 欄名可以縮、可以折行,數值不行:欄名與數值都很長時(作業監控「清關 · 件(剩 / 總)」配「4,467 / 4,672」)
+      // 若欄名不肯讓,整格會撐破卡片、數值被推到邊上
       &::before {
         content: attr(data-label);
-        flex: 0 0 auto;
-        margin-inline-end: auto;
+        flex: 1 1 auto;
+        min-inline-size: 0;
+        white-space: normal;
         color: rgba(var(--v-theme-on-surface), 0.6);
         font-size: 0.8125rem;
+        line-height: 1.3;
         text-align: start;
+      }
+
+      // 數值本身(可能是好幾個 span 拼成「剩 / 總」)不縮、不折,一起留在右邊
+      > * {
+        flex: 0 0 auto;
       }
 
       // 「查無資料」這種橫跨整列的格子沒有欄名，維持置中

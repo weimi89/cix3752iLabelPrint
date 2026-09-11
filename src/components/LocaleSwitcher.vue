@@ -11,14 +11,16 @@ const currentLabel = computed(() =>
 <template>
   <VMenu offset="8">
     <template #activator="{ props: actv }">
+      <!-- 手機只留圖示:導覽列在手機同時要放統計數字、清關進度、登出、網路狀態,
+           「繁體中文」四個字一擺,數字一大整列就被擠出畫面 -->
       <VBtn
         v-bind="actv"
         variant="text"
         color="default"
-        class="text-none"
-        :prepend-icon="'tabler-language'"
+        class="text-none locale-btn"
       >
-        {{ currentLabel }}
+        <VIcon icon="tabler-language" size="22" />
+        <span class="d-none d-sm-inline ms-1">{{ currentLabel }}</span>
       </VBtn>
     </template>
     <VList density="compact" min-width="160" class="py-1">
@@ -41,3 +43,13 @@ const currentLabel = computed(() =>
     </VList>
   </VMenu>
 </template>
+
+<style scoped lang="scss">
+@media (max-width: 599.98px) {
+  // 疊三層 .v-btn 才蓋得過全域按鈕樣式的 20px 內距(那條也是 !important)
+  .v-btn.v-btn.locale-btn {
+    min-inline-size: 0;
+    padding-inline: 8px !important;
+  }
+}
+</style>
