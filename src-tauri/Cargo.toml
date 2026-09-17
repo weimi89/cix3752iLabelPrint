@@ -79,8 +79,8 @@ rust-embed = "8"
 # argon2:共用密碼的雜湊(慢雜湊,擋離線暴力破解)
 # sha2:session token 的雜湊(token 本身是高熵亂數,不需要慢雜湊,每次請求都要驗)
 # ipnet:內網網段比對
-argon2 = { version = "0.5", features = ["std"] }
-sha2 = "0.10"
+argon2 = "0.6"
+sha2 = "0.11"
 ipnet = "2"
 # v4 的 default(= v1 feature)本來就含三個平台的原生 store
 # (macOS keychain / Windows / Linux secret-service),不必再逐一指定 ——

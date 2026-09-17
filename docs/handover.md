@@ -5,7 +5,22 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-11（v1.1.1 已公開發佈）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+最後更新：**2026-09-17（套件升級，未發版）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+
+---
+
+## 2026-09-17：套件升級（已 commit，未發版）
+
+| 端 | 升了什麼 | 附帶修改 |
+|---|---|---|
+| Rust | `cargo update` 74 個間接相依；**argon2 0.5 → 0.6**、**sha2 0.10 → 0.11**（RustCrypto 這輪 major） | `server/auth.rs`：password-hash 0.6 把鹽的產生收進 `hash_password(bytes)`（`SaltString`／`OsRng` 沒了）、`PasswordHash` 改從 `argon2::PasswordHash` 拿；sha2 0.11 的 digest 輸出型別不再實作 `LowerHex`，改逐 byte 組小寫十六進位。**預設參數 m=19456,t=2,p=1 兩版相同** |
+| 前端 | vuetify 4.1.12 → **4.2.1**（寫死版號）、@vueuse/core 14 → **15**、vite 8.3.0、vue-router 5.3.1、vue-echarts 8.3.0、vue-i18n 11.4.12、sass-embedded 1.104.1、jsdom 30.1.0、plugin-vue 6.0.9 | Vuetify 4.2 移除 `$select-chips-margin-bottom`、`$switch-inset-thumb-off-width`、`$table-row-font-size`；對照 4.1.12 原始包確認三者在 4.1.12 就沒被任何樣式使用，拿掉覆寫零視覺差異；`_overrides.scss` 引用從未定義的 `--select-chips-margin-bottom` 那條一併移除。VueUse 15 的 `useThrottleFn` 預設 trailing 改 true，`DefaultLayout.vue` 那處兩個旗標都明寫、不受影響；`templateRef` 拿掉，專案沒用 |
+
+**相容性是這次的重點**（認證路徑）：新增兩個測試——用 argon2 0.5 實際產出的 PHC 字串在 0.6 下必須驗得過（現場 `app_setting` 存的密碼雜湊升級後不能失效）、`hash_token` 必須仍是 sha256 小寫十六進位（`web_session` 存的是它，格式一變全部登入態作廢）。
+
+**驗證**：`cargo check --all-targets`、`cargo test` 全綠（含新加的 2 個）、`node --test tests/maintenance-guards.test.mjs` 15/15、`yarn build`、`yarn audit` 0、`cargo audit` 0 漏洞（9 個 unmaintained／unsound 警告全在 Tauri／gtk／字型鏈）、`yarn preview` 瀏覽器預覽模式看儀表板／印單統計／服務設定：版面正常、console 零訊息。
+
+**升不上去的**：`matchit` 0.8.4（axum 釘死）、`crypto-common`／`generic-array`（升了會互相降版，cargo 不選）。`block v0.1.6` 的 future-incompat 警告來自 tauri → cocoa 0.20 → metal，上游未換。
 
 ---
 

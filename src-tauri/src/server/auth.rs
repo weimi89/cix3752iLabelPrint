@@ -20,8 +20,8 @@
 use std::net::{IpAddr, SocketAddr};
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
+    password_hash::{PasswordHasher, PasswordVerifier},
+    Argon2, PasswordHash,
 };
 use axum::{
     extract::{ConnectInfo, Request, State},
@@ -182,7 +182,7 @@ fn is_lan(ip: IpAddr, cidrs: &[String]) -> bool {
 fn hash_token(token: &str) -> String {
     let mut h = Sha256::new();
     h.update(token.as_bytes());
-    format!("{:x}", h.finalize())
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// 產生 session token:兩個 v4 UUID 串接(各 122 bit 亂數),足以抵抗猜測
@@ -212,9 +212,9 @@ pub async fn set_password(db: &DbPool, plain: &str) -> AppResult<()> {
     let hash = if plain.is_empty() {
         String::new()
     } else {
-        let salt = SaltString::generate(&mut OsRng);
+        // 鹽由 argon2 自己用系統亂數產生（16 bytes），輸出是標準 PHC 字串
         Argon2::default()
-            .hash_password(plain.as_bytes(), &salt)
+            .hash_password(plain.as_bytes())
             .map_err(|e| crate::AppError::Config(format!("密碼雜湊失敗: {e}")))?
             .to_string()
     };
@@ -997,14 +997,28 @@ mod tests {
 
     #[test]
     fn 密碼雜湊可驗證且不同鹽產生不同結果() {
-        let salt = SaltString::generate(&mut OsRng);
         let h = Argon2::default()
-            .hash_password(b"pa55word", &salt)
+            .hash_password(b"pa55word")
             .unwrap()
             .to_string();
         assert!(verify_password("pa55word", &h));
         assert!(!verify_password("wrong", &h));
         assert!(!verify_password("pa55word", "not-a-hash"));
+    }
+
+    /// 現場 app_setting 裡存的是舊版 argon2 crate 產生的 PHC 字串；升級 crate 後必須仍驗得過，
+    /// 否則所有人的共用密碼會在更新後全部失效
+    #[test]
+    fn 舊版_crate_產生的密碼雜湊仍可驗證() {
+        let legacy = "$argon2id$v=19$m=19456,t=2,p=1$NOqaPgLLBQDO40FkacNh3w$fxDoMAatRWENn0QHYjFOHOyafdftgpEuzPbaKbEUMYw";
+        assert!(verify_password("pa55word", legacy));
+        assert!(!verify_password("wrong", legacy));
+    }
+
+    /// web_session 表存的是 token 的 sha256 小寫十六進位；雜湊輸出格式一變，既有登入態全部作廢
+    #[test]
+    fn token_雜湊為_sha256_小寫十六進位() {
+        assert_eq!(hash_token("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
     #[test]
