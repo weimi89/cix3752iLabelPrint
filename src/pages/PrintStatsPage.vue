@@ -997,7 +997,7 @@ onUnmounted(() => {
   inline-size: 170px;
 }
 
-@media (max-width: 599.98px) {
+@media (max-width: 639.98px) {
   // 外層列要先撐滿整行,兩個欄位才有東西可以平分;
   // 沒撐滿時列寬會縮成內容寬,欄位跟著縮到只剩「2(」兩個字
   .stats-date-row {
@@ -1035,7 +1035,7 @@ onUnmounted(() => {
 
   // 手機上這張卡只有半個螢幕寬(扣掉圖示後文字區約 85px),
   // 3rem 的四位數會被卡片邊緣切掉;1.75rem 五位數才放得下
-  @media (max-width: 599.98px) {
+  @media (max-width: 639.98px) {
     &__count {
       font-size: 1.75rem;
       line-height: 2rem;

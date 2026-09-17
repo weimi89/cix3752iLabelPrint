@@ -213,9 +213,9 @@ onUnmounted(() => {
 .bag-masonry__item {
   inline-size: 100%;
 
-  @media (min-width: 600px) { inline-size: calc((100% - 12px) / 2); }
-  @media (min-width: 960px) { inline-size: calc((100% - 24px) / 3); }
-  @media (min-width: 1264px) { inline-size: calc((100% - 36px) / 4); }
+  @media (min-width: 640px) { inline-size: calc((100% - 12px) / 2); }
+  @media (min-width: 1024px) { inline-size: calc((100% - 24px) / 3); }
+  @media (min-width: 1280px) { inline-size: calc((100% - 36px) / 4); }
 }
 .bag-masonry__item {
   margin-block-end: 12px;
@@ -227,7 +227,7 @@ onUnmounted(() => {
   }
 
   // 手機:標題列同時要放圖示、袋號與狀態徽章,袋號字級縮到 1rem 才不會被截成「BAG2026…」
-  @media (max-width: 599.98px) {
+  @media (max-width: 639.98px) {
     :deep(.v-card-title) {
       font-size: 1rem;
       letter-spacing: 0;
@@ -238,7 +238,7 @@ onUnmounted(() => {
   th, td { white-space: nowrap; }
 
   // 手機:三欄加上 16px 內距剛好比卡片寬,列印時間會貼到邊;內距與字級縮一點就放得下
-  @media (max-width: 599.98px) {
+  @media (max-width: 639.98px) {
     th, td {
       padding-inline: 8px !important;
       font-size: 0.875rem;

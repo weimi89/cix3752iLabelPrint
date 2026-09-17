@@ -306,7 +306,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('ши
   padding: 10px 16px;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1023.98px) {
   .switch-row { flex-direction: column; }
   .switch-divider { display: none; }
 }

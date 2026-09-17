@@ -442,7 +442,7 @@ const formatBytes = bytes => {
 
   // 手機:圖示與數字同列、重置按鈕獨佔下一列。
   // 不這樣做,按鈕會搶走文字欄的寬度,數字與起算時間都被擠到折行
-  @media (max-width: 599.98px) {
+  @media (max-width: 639.98px) {
     &__body {
       gap: 0.75rem;
     }

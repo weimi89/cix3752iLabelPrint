@@ -18,7 +18,8 @@ export default defineConfig(async () => ({
         html.replace('<head>', '<head><script>window.__CIX_WEB__=true</script>'),
     },
     vue(),
-    vuetify({ autoImport: true }),
+    // configFile 只餵斷點（見該檔說明），沒接的話 Vuetify 的 d-md-*／v-col-* 會用原廠 600/840/1145 切
+    vuetify({ autoImport: true, styles: { configFile: 'src/styles/vuetify-settings.scss' } }),
     AutoImport({
       imports: [
         'vue',

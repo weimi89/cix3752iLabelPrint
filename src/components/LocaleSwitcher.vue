@@ -45,7 +45,7 @@ const currentLabel = computed(() =>
 </template>
 
 <style scoped lang="scss">
-@media (max-width: 599.98px) {
+@media (max-width: 639.98px) {
   // 疊三層 .v-btn 才蓋得過全域按鈕樣式的 20px 內距(那條也是 !important)
   .v-btn.v-btn.locale-btn {
     min-inline-size: 0;

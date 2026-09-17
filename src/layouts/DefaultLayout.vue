@@ -187,7 +187,7 @@ onBeforeUnmount(() => {
 /* 載入 @layouts plugin 的 layout styles */
 @use "@layouts/styles/default-layout";
 
-/* 側邊欄收合/展開按鈕 — 不使用 header-action class 以避開模板隱藏規則 */
+/* 側邊欄收合/展開按鈕 */
 .layout-vertical-nav .nav-collapse-btn {
   display: flex;
   align-items: center;

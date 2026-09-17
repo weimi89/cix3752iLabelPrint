@@ -5,7 +5,26 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-17（套件升級，未發版）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+最後更新：**2026-09-17（套件升級＋斷點統一，未發版）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+
+---
+
+## 2026-09-17：RWD 斷點統一為 Tailwind 4（已 commit，未發版）
+
+**改前**四套各說各話：Vuetify CSS class（`d-md-*`、`v-col--lg`）用原廠 600/840/1145（樣板的 `$grid-breakpoints` 覆寫沒接到 vite-plugin-vuetify，形同虛設）、JS `useDisplay()` 600/960/1280/1920、側欄覆蓋點 992、`main.scss` 一段「≥992 強制藏漢堡鈕」補丁掩蓋 `d-lg-none` 對不上。
+
+**改後**全部 640／768／1024／1280／1536，單一來源 `src/styles/variables/_breakpoints.scss`（做法與 cix3752iSorter 同一套）：
+
+| 位置 | 做法 |
+|---|---|
+| `src/styles/vuetify-settings.scss`（新）＋ `vite.config.js` `styles.configFile` | 只把 `$grid-breakpoints` 餵給 Vuetify 元件樣式；**刻意不接樣板整份 `_vuetify.scss`**（會把 120 個變數覆寫一起套到全站元件） |
+| `src/plugins/vuetify.js` `display.thresholds` | 六級同一組值 |
+| 側欄切換點四處 | `themeConfig.js`／`@layouts/config.js` 改 `breakpointsTailwind`；`VerticalNavLayout.vue` 兩條（含收合後內距，原本 1200 與常駐點 992 對不上）與 `VerticalNav.vue` 改 1024／1023.98 |
+| 硬寫媒體查詢逐條對位 | 手機 599.98→639.98（main.scss×6、LocaleSwitcher、PrintStats×2、Dashboard、BagCheck×2、PreGenerate）；PreGenerate 左欄 sticky 對應 `lg` 1279.98→1023.98；BagCheck 瀑布流 600/960/1264→640/1024/1280；SortChannels 開關列 960→1023.98；dialog 尺寸 →640/1024/1280；`styles.scss` 1200→1280 |
+| 拿掉 | `main.scss` 強制隱藏補丁（`d-lg-none` 現在真的在 1024 切；`.header-action` 本專案沒渲染）；`DefaultLayout.vue` 相關註解 |
+| 死檔搬到 `backups/20260917093650/` | `plugins/vuetify-materio/`、`@core/libs/apex-chart/`、`template/pages/page-auth.scss`、`template/libs/shepherd.scss`（都沒被引用、留著舊數字會誤導盤點） |
+
+**驗證**：打包 CSS 只剩新值（480 是 Toastify、430/399.98 是元件微尺寸）；`yarn preview` 瀏覽器縮放 639/640、767/768、1023/1024、1279/1280：側欄常駐↔覆蓋與漢堡鈕、`d-md-*`、VCol 欄寬、導覽列手機內距、分揀通道開關列、預產面單左欄 sticky、件數核對瀑布流欄數（1→2→3→4）全部在同一像素切換；console 零訊息。
 
 ---
 

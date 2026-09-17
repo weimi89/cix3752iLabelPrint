@@ -787,14 +787,14 @@ const saveSchedule = async () => {
   z-index: 1;
 
   // 兩欄並排(lg 以上)時左欄才需要跟著捲;單欄堆疊時黏住會蓋在結果列表上
-  @media (max-width: 1279.98px) {
+  @media (max-width: 1023.98px) {
     position: static;
   }
 }
 
 // 手機:排程狀態列的各段(標題 / 下次執行 / 上次結果 / 看記錄)各佔一列,
 // 不然會依剩餘寬度隨機擠在一起,「查看排程記錄」被推到右邊孤零零一顆
-@media (max-width: 599.98px) {
+@media (max-width: 639.98px) {
   .sched-status-row {
     > * {
       flex: 1 1 100%;
