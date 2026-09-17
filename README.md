@@ -33,7 +33,7 @@
 
 | 模組 | 說明 |
 |---|---|
-| **本地 HTTP API** | 給工控機呼叫的四支 endpoint(健康檢查、查包裹、回報結果、設備異常通知)。詳見 [`docs/local-http-api.md`](docs/local-http-api.md) |
+| **本地 HTTP API** | 給工控機呼叫的四支 endpoint(健康檢查、查包裹、回報結果、設備異常通知)。詳見 `../cix3752iBrain/docs/cix3752iLabelPrint/local-http-api.md`（cix3752iBrain repo） |
 | **掃描列印** | 操作員手動掃碼出單(對齊雲端 web 端 `scan-print` 體驗) |
 | **自動印單** | 掃包裹條碼 → 列訂單清單 → 逐筆呼叫 cloud-print + 浮水印 + 本機列印 |
 | **面單預產** | 批次預下載面單到本機快取(可自動排程 / 強制重跑,`pregen_done` 去重單一來源) |
@@ -54,7 +54,7 @@
 | **事件記錄** | 系統各層級事件 log(category × level 篩選) |
 | **儀表板** | Middleware / 雲端 / 印單統計 三卡 + 當日 request / success率 / NoRead / cache hit/miss + 網路狀態 |
 | **全頁印單統計**| Navbar 右上常駐 chip(今日 / 昨日),任何頁面都看得到件數,點擊跳統計頁 |
-| **設備異常廣播** | 工控機回報異常(卡包裹 / USB 斷線 …),桌面 App 用中越雙語**預錄語音**喊話現場人員 + toast。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md) |
+| **設備異常廣播** | 工控機回報異常(卡包裹 / USB 斷線 …),桌面 App 用中越雙語**預錄語音**喊話現場人員 + toast。詳見 `../cix3752iBrain/docs/cix3752iLabelPrint/device-alert-api.md`（cix3752iBrain repo） |
 | **提示音自訂** | 全域 effect_1~4(AutoPrint 設定頁,parcel-alert 共用)+ 入倉 beep,118 音效庫可指定 |
 | **雙語切換** | 繁體中文 + Tiếng Việt(vue-i18n,介面熱切換) |
 
@@ -134,7 +134,7 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 
 ## 本地 HTTP API(給工控機)
 
-預設綁定 `0.0.0.0:18080`。完整規範見 [`docs/local-http-api.md`](docs/local-http-api.md)(亦提供 `.docx` 給整合廠商)。設備異常通知另有獨立整合文件 [`docs/device-alert-api.md`](docs/device-alert-api.md)(亦含 `.docx`)。
+預設綁定 `0.0.0.0:18080`。完整規範見 `../cix3752iBrain/docs/cix3752iLabelPrint/local-http-api.md`（cix3752iBrain repo）(亦提供 `.docx` 給整合廠商)。設備異常通知另有獨立整合文件 `../cix3752iBrain/docs/cix3752iLabelPrint/device-alert-api.md`（cix3752iBrain repo）(亦含 `.docx`)。
 
 | 方法 | Path | 用途 |
 |---|---|---|
@@ -219,7 +219,7 @@ echo 'export CIX3752I_DEV_SIGN_IDENTITY="<你的 cert hash>"' >> ~/.zshrc
 - **固定廣播一次 + 前端 20s 去抖** — 每次呼叫雙語廣播一次(2026-07-01 起移除 `repeat` 次數控制;舊工控機仍傳 `repeat` 會被忽略、不報錯)。同一 `alert_type` 在 20s 內只廣播 + toast 一次,避免持續性異常狂丟同一訊號打斷語音、洗版 toast;持續性異常由工控機自行定時重發。
 - **自訂補充字** — `message` 欄位顯示於 toast(語音只唸固定雙語文案)。
 
-新增固定分類只需在 App 端補語音與 i18n,工控機端不需改動。詳見 [`docs/device-alert-api.md`](docs/device-alert-api.md)。
+新增固定分類只需在 App 端補語音與 i18n,工控機端不需改動。詳見 `../cix3752iBrain/docs/cix3752iLabelPrint/device-alert-api.md`（cix3752iBrain repo）。
 
 ### 三層網路健康偵測
 

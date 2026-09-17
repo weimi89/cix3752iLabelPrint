@@ -42,11 +42,8 @@ yarn-error.log*
 .env.local
 
 # === 本地備份(搬移過的檔案、reference 截圖等) ===
-backups/
 
 # === AI 工具工作目錄 ===
-.claude/
-.serena/
 
 # === 測試產物(tests/docker-ubuntu-build.sh build 出的 tarball,40MB+ 不入 git)===
 /tests/tarballs/
@@ -54,3 +51,22 @@ backups/
 # === 程式碼圖譜索引產物(本地分析用,不入 git)===
 # .gitnexus 已自帶內層 .gitignore;graphify-out 為 graphify 產出(graph.html/json 約 3MB)
 graphify-out/
+
+# AI 協作文件與規則一律放 ../cix3752iBrain，專案內只有符號連結，不入版控、不部署
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.claude
+.serena
+.codex
+.cursor
+.cursorignore
+.gemini
+.ai
+.bmad-core
+.mcp.json
+boost.json
+openspec
+CLAUDE.local.md
+.agents
+backups/
