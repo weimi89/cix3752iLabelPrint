@@ -5,7 +5,26 @@
 > 這是「快速接手」用的單一位置，持續更新同一份、不另開新檔。
 > Roadmap 與歷史經驗在 `docs/next-steps.md`；工控機對外契約在 `docs/local-http-api.md`。
 
-最後更新：**2026-09-17（套件升級＋斷點統一，未發版）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+最後更新：**2026-09-17（套件升級＋斷點統一＋網頁存取加固，未發版）**　目前版本：**v1.1.1（2026-09-11 11:07 UTC 公開;只打 Windows,`latest.json` 只含 windows）**
+
+---
+
+## 2026-09-17：網頁存取控制加固（已 commit，未發版）
+
+Sorter 把這套設計搬過去時，Codex 獨立審查抓到幾個原始實作就有的問題，同步補回這裡：
+
+| 問題 | 修法 |
+|---|---|
+| 設定更新沒序列化：外網拿舊快照 `update_config` 能把內網剛改的 `web_access` 蓋回去（檢查時一樣、寫入時已不一樣） | `config_commands::UPDATE_LOCK`，`update_config` 整段持鎖；`/rpc/update_config` 在鎖內先做外網檢查再呼叫 `update_config_locked` |
+| 改密碼與登入沒共用鎖、寫雜湊與清 session 不在同一交易：舊密碼能在清完 session 之後偷插一條新 session | `set_password` 取 `LOGIN_LOCK`，upsert＋delete 同一交易 |
+| `/auth/login` 吃預設 2 MiB body、密碼無長度上限：外網可灌記憶體再讓 argon2 慢慢算 | 該路由 4 KiB 上限、密碼最多 128 字（登入與設定兩端都擋） |
+| 鎖定鍵是完整 IP：IPv6 換位址就重拿次數；失敗紀錄永久堆積 | IPv6 以 /64 計、IPv4-mapped 還原；一天沒動且沒在鎖的紀錄順手清 |
+| `Content-Type` 前綴比對，`application/jsonp` 也過 | 精確比對 `application/json`（可接 `;charset`） |
+| `session_hours`／`max_fail_attempts`／`lock_minutes`／`lan_cidrs` 只有前端限制 | `update_config` 後端加上下限與 CIDR 驗證 |
+
+**實測**（本機改 `web_access` 讓區網 IP 算外網，跑 debug 執行檔）：200 字密碼設定與登入都被拒、5 KB 登入 body 413、`application/jsonp` 打 rpc 415、`lock_minutes=0` 被拒、錯 3 次第 4 次 429、解鎖後登入、外網送舊快照被 403 且內網剛改的值保留、改密碼後外網舊 cookie 401。`cargo test` 84 綠（含新加 2 個）。測完設定檔已還原。
+
+**接受不改**（與 Sorter 同）：反向代理／tunnel 部署會讓全部外網被當內網（現場是路由器直接轉埠）；三種標頭全缺時放行（非瀏覽器客戶端）。
 
 ---
 

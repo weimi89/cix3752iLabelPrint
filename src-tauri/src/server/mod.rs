@@ -386,7 +386,9 @@ async fn start_inner(
         .nest_service("/captures", captures_service)
         // 登入相關:自身不能被登入中介層擋住,否則外網永遠登不進來
         .route("/auth/status", get(auth::status))
-        .route("/auth/login", post(auth::login))
+        // 登入是唯一不用登入就能送內容的端點,內容只該有一組密碼:
+        // 上限縮到 4 KiB,免得外網用超大 JSON 灌記憶體、再讓 argon2 慢慢算
+        .route("/auth/login", post(auth::login).layer(axum::extract::DefaultBodyLimit::max(4 * 1024)))
         .route("/auth/logout", post(auth::logout))
         // 網頁版前端:以上都沒中的路徑交給它,含前端路由的 SPA fallback
         .fallback(assets::serve)

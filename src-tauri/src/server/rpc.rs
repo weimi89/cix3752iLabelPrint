@@ -108,11 +108,20 @@ pub(super) async fn rpc_handler(
 ) -> Result<Json<Value>, RpcError> {
     let args = body.map(|Json(v)| v).unwrap_or(Value::Null);
 
-    // 存取控制本身不能由外網來源改動,否則對方可以把自己劃進「內網」(見 auth.rs)
+    // 存取控制本身不能由外網來源改動,否則對方可以把自己劃進「內網」(見 auth.rs)。
+    // 檢查與寫入要在同一把鎖內:否則檢查時跟現況一樣、寫入時現況已被內網改掉,外網拿舊快照就把它蓋回去。
     if cmd == "update_config" {
+        let _serialized = commands::config_commands::UPDATE_LOCK.lock().await;
         super::auth::guard_web_access_change(&state, peer.ip(), &args)
             .await
             .map_err(RpcError::Forbidden)?;
+        let out = v(commands::config_commands::update_config_locked(
+            state.app.clone(),
+            state.app.state(),
+            arg(&args, "new_config")?,
+        )
+        .await?)?;
+        return Ok(Json(out));
     }
     // 外網不得指定伺服器端的任意檔案路徑當列印來源(見 auth.rs)
     if cmd == "print_image" {

@@ -10,12 +10,50 @@ pub async fn get_config(state: State<'_, SharedState>) -> AppResult<AppConfig> {
 }
 
 /// 更新設定並持久化
+/// 設定更新的序列化鎖。
+///
+/// 「比對現況 → 套用 → 落檔 → 寫回記憶體」中間沒有鎖的話,兩份更新會交錯:後到的那份是拿
+/// 過期快照算的,會把前一份剛存的蓋回去。網頁版的 `/rpc/update_config` 對外網來源的
+/// 「不得改 web_access」檢查也要跟寫入在同一個臨界區內,否則檢查時一樣、寫入時已經不一樣。
+pub static UPDATE_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
 #[tauri::command]
 pub async fn update_config(
     handle: AppHandle,
     state: State<'_, SharedState>,
     new_config: AppConfig,
 ) -> AppResult<AppConfig> {
+    let _serialized = UPDATE_LOCK.lock().await;
+    update_config_locked(handle, state, new_config).await
+}
+
+/// `update_config` 的本體;呼叫端必須已持有 `UPDATE_LOCK`(網頁版 RPC 會在鎖內先做外網檢查再呼叫這裡)。
+pub async fn update_config_locked(
+    handle: AppHandle,
+    state: State<'_, SharedState>,
+    new_config: AppConfig,
+) -> AppResult<AppConfig> {
+    // 安全參數的上下限不能只靠畫面:設定檔可以手改、RPC 可以直接打;超出範圍的值會讓鎖定形同虛設
+    // 或讓 SQLite 的時間運算回 NULL
+    {
+        let w = &new_config.web_access;
+        if !(1..=720).contains(&w.session_hours) {
+            return Err(crate::AppError::Config("登入後可用時數必須在 1–720 小時".into()));
+        }
+        if !(1..=50).contains(&w.max_fail_attempts) {
+            return Err(crate::AppError::Config("密碼可錯次數必須在 1–50".into()));
+        }
+        if !(1..=1440).contains(&w.lock_minutes) {
+            return Err(crate::AppError::Config("鎖住分鐘數必須在 1–1440".into()));
+        }
+        for c in &w.lan_cidrs {
+            c.parse::<ipnet::IpNet>().map_err(|_| {
+                crate::AppError::Config(format!("內網網段「{c}」不是有效的 CIDR(例如 192.168.0.0/16)"))
+            })?;
+        }
+    }
+
     // server.listen_ip / port 不是熱套用欄位(要重綁 socket)。先比對是否變更,
     // 變更則用新設定重啟 server —— start 會驗證新 addr 可綁,失敗就整個 update 中止、
     // 不持久化也不動其他設定,避免「設定存了卻沒生效」的斷鏈。

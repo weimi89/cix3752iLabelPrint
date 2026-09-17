@@ -41,6 +41,12 @@ pub async fn web_auth_set_password(
             "網頁存取密碼至少需要 8 個字元".into(),
         ));
     }
+    if pw.chars().count() > auth::PASSWORD_MAX_CHARS {
+        return Err(crate::AppError::Config(format!(
+            "網頁存取密碼最多 {} 個字元",
+            auth::PASSWORD_MAX_CHARS
+        )));
+    }
 
     auth::set_password(&state.db, &pw).await
 }

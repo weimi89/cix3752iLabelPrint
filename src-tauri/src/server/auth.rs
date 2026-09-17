@@ -150,7 +150,8 @@ fn rpc_body_is_json(req: &Request) -> bool {
     req.headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.trim_start().starts_with("application/json"))
+        // 只認 type/subtype 恰為 application/json(後面可接 ;charset=…),`application/jsonp` 之類不算
+        .is_some_and(|v| v.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("application/json"))
 }
 
 /// 來源是否落在設定的內網網段
@@ -208,6 +209,14 @@ pub async fn stored_password_hash(db: &DbPool) -> AppResult<Option<String>> {
     Ok(row.map(|r| r.get::<String, _>("value")).filter(|s| !s.is_empty()))
 }
 
+/// 密碼長度上限(字元)。argon2 是慢雜湊,超長輸入等於讓外網免費燒 CPU;真人不會用這麼長的共用密碼。
+pub const PASSWORD_MAX_CHARS: usize = 128;
+
+/// 設定共用密碼;空字串代表清除。
+///
+/// 與登入共用 `LOGIN_LOCK`,且「寫新雜湊」與「清所有 session」在同一筆交易:
+/// 否則登入流程讀到舊雜湊、驗證通過後在清完 session 之後才插入新 session,
+/// 那條用舊密碼換來的連線會一直活到自然到期,改密碼等於沒改。
 pub async fn set_password(db: &DbPool, plain: &str) -> AppResult<()> {
     let hash = if plain.is_empty() {
         String::new()
@@ -219,6 +228,8 @@ pub async fn set_password(db: &DbPool, plain: &str) -> AppResult<()> {
             .to_string()
     };
 
+    let _serialized = LOGIN_LOCK.lock().await;
+    let mut tx = db.begin().await?;
     sqlx::query(
         "INSERT INTO app_setting (key, value, updated_at)
          VALUES (?, ?, datetime('now','localtime'))
@@ -226,11 +237,11 @@ pub async fn set_password(db: &DbPool, plain: &str) -> AppResult<()> {
     )
     .bind(PASSWORD_KEY)
     .bind(&hash)
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
-
     // 改密碼等於要把所有人請出去重新驗證,否則舊密碼流出後對方仍能用既有連線
-    sqlx::query("DELETE FROM web_session").execute(db).await?;
+    sqlx::query("DELETE FROM web_session").execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -324,7 +335,33 @@ async fn lock_remaining_secs(db: &DbPool, ip: &str) -> AppResult<i64> {
     })
 }
 
+/// 登入失敗計數用的來源鍵。
+///
+/// IPv6 一個人手上通常整個 /64 都是他的,照完整位址計數的話換一個位址就重新拿到 N 次機會,
+/// 鎖定形同虛設;IPv4 沒有這個問題,照原位址。IPv4-mapped 的 IPv6 先還原成 IPv4。
+fn lockout_key(ip: IpAddr) -> String {
+    match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let seg = v6.segments();
+                format!("{:x}:{:x}:{:x}:{:x}::/64", seg[0], seg[1], seg[2], seg[3])
+            }
+        },
+    }
+}
+
 async fn record_fail(db: &DbPool, ip: &str, cfg: &WebAccessConfig) -> AppResult<()> {
+    // 順手清掉早就沒在鎖、也很久沒再失敗的紀錄,免得每個亂猜過一次的來源都永久留一列
+    let _ = sqlx::query(
+        "DELETE FROM web_login_attempt
+         WHERE (locked_until IS NULL OR locked_until <= datetime('now','localtime'))
+           AND (last_fail_at IS NULL OR last_fail_at < datetime('now','localtime','-1 day'))",
+    )
+    .execute(db)
+    .await;
+
     sqlx::query(
         "INSERT INTO web_login_attempt (client_ip, fail_count, last_fail_at)
          VALUES (?, 1, datetime('now','localtime'))
@@ -713,10 +750,13 @@ pub(super) async fn login(
         );
     };
 
-    let ip = peer.ip().to_string();
+    let ip = lockout_key(peer.ip());
 
     if !cfg.enabled && !is_lan(peer.ip(), &cfg.lan_cidrs) {
         return json_error(StatusCode::FORBIDDEN, "此服務未對外開放");
+    }
+    if body.password.chars().count() > PASSWORD_MAX_CHARS {
+        return json_error(StatusCode::BAD_REQUEST, "密碼太長");
     }
 
     // 從這裡到「記錄失敗」為止必須不可分割,理由見 LOGIN_LOCK
@@ -948,6 +988,23 @@ mod tests {
     fn 非瀏覽器請求不帶_origin_不受影響() {
         // 工控機 PLC、curl 都不會帶 Origin
         assert!(!is_cross_site(&req_with(&[("host", "192.168.1.50:18080")])));
+    }
+
+    #[test]
+    fn 內容型別只認_application_json_本身() {
+        assert!(rpc_body_is_json(&req_with(&[("content-type", "Application/JSON")])));
+        assert!(!rpc_body_is_json(&req_with(&[("content-type", "application/jsonp")])));
+        assert!(!rpc_body_is_json(&req_with(&[("content-type", "application/json-patch+json")])));
+    }
+
+    #[test]
+    fn 鎖定鍵_ipv6_以_64_為單位_ipv4_照原位址() {
+        assert_eq!(lockout_key("203.0.113.9".parse().unwrap()), "203.0.113.9");
+        assert_eq!(lockout_key("::ffff:203.0.113.9".parse().unwrap()), "203.0.113.9");
+        let a = lockout_key("2001:db8:1:2:aaaa::1".parse().unwrap());
+        let b = lockout_key("2001:db8:1:2:bbbb::2".parse().unwrap());
+        assert_eq!(a, b, "同一個 /64 要算同一個來源");
+        assert_ne!(a, lockout_key("2001:db8:1:3::1".parse().unwrap()));
     }
 
     #[test]
