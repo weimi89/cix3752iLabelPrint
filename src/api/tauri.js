@@ -54,7 +54,7 @@ const MOCK_CONFIG = {
     webhook_path: '/webhook/logistic-cat',
   },
   cache: { dir: '', keep_days: 5, max_size_mb: 0 },
-  camera: { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 },
+  camera: { enabled: false, device_name: '', device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 },
   sync: { enabled: false, reverb_host: '', reverb_port: 443, reverb_scheme: 'wss', reverb_app_key: '' },
   sort_only: { enabled: false },
   error_label: { enabled: false },
@@ -92,6 +92,11 @@ export const updateConfig = async newConfig => {
 export const cameraSetZoom = async zoom => {
   if (!hasBackend) return
   return await invoke('camera_set_zoom', { zoom })
+}
+// 列出目前接上的相機 [{ name, description, index }],設定頁下拉用;設定檔存的是 name
+export const cameraListDevices = async () => {
+  if (!hasBackend) return []
+  return await invoke('camera_list_devices')
 }
 // 手動拍一張:抓當下最新一幀存進存證目錄,回相對 key(相機未啟用/無幀時回 null)
 export const cameraCaptureNow = async () => {

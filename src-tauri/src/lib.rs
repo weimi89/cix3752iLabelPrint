@@ -48,6 +48,10 @@ pub struct AppState {
     pub pregen_status: RwLock<pregen::PregenStatus>,
     /// 面單預產「今日已預產的 order_sn」共用去重(自動排程 + 手動頁共讀共寫,persist 到 DB)
     pub pregen_done: pregen::PregenDoneStore,
+    /// 桌面 webview 向本機 server 載入媒體(面單縮圖、存證照、相機預覽串流)時帶的權杖,每次啟動隨機產生。
+    /// 桌面頁面的來源是 Tauri 自己的 `tauri.localhost`,瀏覽器把它打 `127.0.0.1:{port}` 的 `<img>` 標成跨站,
+    /// 跨站防護會擋;帶這組權杖讓 server 認得「這是自己的桌面畫面」。只經 Tauri IPC 交給前端,不走 `/rpc`。
+    pub desktop_token: String,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -105,10 +109,12 @@ pub fn run() {
             commands::config_commands::pregen_clear_done,
             commands::camera_commands::camera_set_zoom,
             commands::camera_commands::camera_capture_now,
+            commands::camera_commands::camera_list_devices,
             commands::printer_commands::list_printers,
             commands::printer_commands::print_image,
             commands::printer_commands::warehouse_print_labels,
             commands::server_commands::server_status,
+            commands::server_commands::desktop_media_token,
             commands::server_commands::server_restart,
             commands::server_commands::local_lan_ips,
             commands::queue_commands::queue_stats,
@@ -250,6 +256,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         sync,
         pregen_status: RwLock::new(pregen::PregenStatus::default()),
         pregen_done: pregen::PregenDoneStore::new(),
+        desktop_token: uuid::Uuid::new_v4().simple().to_string(),
     });
 
     // 面單預產自動排程 worker(需完整 AppState,故在此啟動)

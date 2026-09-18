@@ -9,6 +9,7 @@ import i18n from './plugins/i18n'
 import { createLayouts } from '@layouts'
 import { themeConfig } from '@themeConfig'
 import { setUnauthorizedHandler } from '@/api/rpc'
+import { loadDesktopMediaToken } from '@/api/media'
 import { useWebAuth } from '@/composables/useWebAuth'
 
 // Vuetify 4 layer 順序 + 選擇性 CSS reset,必須排在 vuetify/styles 之前
@@ -42,4 +43,8 @@ toastify(app)
 // @layouts plugin (初始化 layoutConfig + cookie 同步)
 app.use(createLayouts(themeConfig))
 
-app.mount('#app')
+// 桌面版先拿到本機 server 的媒體權杖再掛載,首次渲染的縮圖 / 相機預覽才帶得到它。
+// 拿不到(理論上不會)只記錄,App 仍要能開 —— 缺的只是圖,不是整套功能。
+loadDesktopMediaToken()
+  .catch(e => console.error('取得桌面媒體權杖失敗', e))
+  .finally(() => app.mount('#app'))

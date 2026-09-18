@@ -175,10 +175,15 @@ fn default_reverb_scheme() -> String { "wss".to_string() }
 /// 讀碼站快照相機設定 — 收到工控機 GET /api/parcel 時抓 USB 相機當下一幀存證
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CameraConfig {
-    /// 總開關(預設關;接好相機、選對 device_index 再開)
+    /// 總開關(預設關;接好相機、在設定頁挑好相機再開)
     #[serde(default)]
     pub enabled: bool,
-    /// USB 相機裝置索引(0 = 第一台;多台時依序試)
+    /// 相機名稱(設定頁從偵測到的清單挑)。以名稱認機,換 USB 孔位或接入順序改變都不受影響;
+    /// 留白 = 沿用 `device_index`。
+    #[serde(default)]
+    pub device_name: String,
+    /// 舊版設定的裝置索引,只在 `device_name` 留白時採用。保留讓舊設定檔升上來不會突然換到別台相機;
+    /// 設定頁不再顯示它。
     #[serde(default)]
     pub device_index: u32,
     /// JPEG 壓縮品質 1-100(預設 80,存證夠用又省空間)
@@ -201,6 +206,7 @@ impl Default for CameraConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            device_name: String::new(),
             device_index: 0,
             jpeg_quality: default_camera_quality(),
             zoom: default_camera_zoom(),

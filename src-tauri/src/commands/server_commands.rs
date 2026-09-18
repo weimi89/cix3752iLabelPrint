@@ -5,6 +5,13 @@ use crate::config::AppConfig;
 use crate::server;
 use crate::{AppResult, SharedState};
 
+/// 桌面 webview 載入本機 server 媒體時要帶在網址上的權杖(`?dt=`),見 `AppState::desktop_token`。
+/// 刻意只開在 Tauri IPC、不列進 `/rpc`:網頁版拿得到的話,任何登入者都能替別的網站借用。
+#[tauri::command]
+pub fn desktop_media_token(state: State<'_, SharedState>) -> String {
+    state.desktop_token.clone()
+}
+
 /// 用指定設定重啟 server:**先關舊的釋放 port,再綁新的**。
 ///
 /// 不可「先綁新的、成功才關舊的」—— 那樣在**同一個 port 重啟**(只改了存證目錄等設定、port 沒變)時,

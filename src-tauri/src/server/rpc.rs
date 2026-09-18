@@ -148,6 +148,7 @@ async fn dispatch(app: &tauri::AppHandle, cmd: &str, args: Value) -> Result<Valu
         "cache_clear" => v(commands::cache_commands::cache_clear(app.state()).await?)?,
         "cache_stats" => v(commands::cache_commands::cache_stats(app.state()).await?)?,
         "camera_capture_now" => v(commands::camera_commands::camera_capture_now(app.clone(), app.state()).await?)?,
+        "camera_list_devices" => v(commands::camera_commands::camera_list_devices().await?)?,
         "camera_set_zoom" => v(commands::camera_commands::camera_set_zoom(app.state(), arg(&args, "zoom")?).await?)?,
         "cloud_clearance_dispatch" => v(commands::cloud_commands::cloud_clearance_dispatch(app.state(), arg(&args, "req")?).await?)?,
         "cloud_clearance_options" => v(commands::cloud_commands::cloud_clearance_options(app.state()).await?)?,
@@ -311,6 +312,11 @@ mod registry_sync {
             .collect()
     }
 
+    /// 刻意只給桌面、**不可**開在 `/rpc` 的 command。放進來的每一支都要有理由:
+    /// - `desktop_media_token`:桌面 webview 向本機 server 證明身分的權杖,網頁版拿得到就等於
+    ///   任何登入者都能替別的網站繞過跨站防護(見 `auth::is_own_desktop_request`)。
+    const DESKTOP_ONLY: &[&str] = &["desktop_media_token"];
+
     #[test]
     fn 每支_tauri_command_都有對應的_rpc_分派() {
         let registered = tauri_registered();
@@ -323,12 +329,23 @@ mod registry_sync {
 
         let missing: Vec<_> = registered
             .iter()
-            .filter(|c| !dispatched.contains(c))
+            .filter(|c| !dispatched.contains(c) && !DESKTOP_ONLY.contains(&c.as_str()))
             .collect();
         assert!(
             missing.is_empty(),
             "以下 command 只有桌面能用,網頁版會回 404 —— 請在 dispatch 補上分派:{missing:?}"
         );
+    }
+
+    #[test]
+    fn 桌面專用的_command_不得出現在_rpc_分派() {
+        let dispatched = rpc_dispatched();
+        let leaked: Vec<_> = DESKTOP_ONLY.iter().filter(|c| dispatched.contains(&c.to_string())).collect();
+        assert!(leaked.is_empty(), "這些 command 只能走 Tauri IPC,不可開給網頁版:{leaked:?}");
+        // 清單裡的每一支都必須真的有註冊,免得改名後這條保護悄悄失效
+        let registered = tauri_registered();
+        let stale: Vec<_> = DESKTOP_ONLY.iter().filter(|c| !registered.contains(&c.to_string())).collect();
+        assert!(stale.is_empty(), "DESKTOP_ONLY 裡有未註冊的 command:{stale:?}");
     }
 
     #[test]

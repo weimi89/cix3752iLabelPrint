@@ -16,8 +16,59 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
+use serde::Serialize;
 
 use crate::config::CameraConfig;
+
+/// 系統偵測到的一台相機,供設定頁下拉選擇。`name` 是作業系統給的裝置名稱(設定檔存的就是它)。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CameraDevice {
+    pub name: String,
+    pub description: String,
+    pub index: u32,
+}
+
+/// 列舉目前接上的相機。走系統 API(macOS AVFoundation / Windows MSMF / Linux V4L2),
+/// 可能要幾十到幾百毫秒,不要在請求路徑上同步呼叫。列舉失敗視同沒有相機,只 log。
+pub fn list_devices() -> Vec<CameraDevice> {
+    use nokhwa::utils::{ApiBackend, CameraIndex};
+    let infos = match nokhwa::query(ApiBackend::Auto) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(?e, "列舉相機失敗");
+            return Vec::new();
+        }
+    };
+    infos
+        .into_iter()
+        .filter_map(|info| {
+            let index = match info.index() {
+                CameraIndex::Index(i) => *i,
+                CameraIndex::String(s) => s.parse().ok()?,
+            };
+            Some(CameraDevice {
+                name: info.human_name(),
+                description: info.description().to_string(),
+                index,
+            })
+        })
+        .collect()
+}
+
+/// 依設定挑出要開的相機索引。名稱優先(接多台或換 USB 孔後索引會變,名稱不會);
+/// 名稱留白時退回舊版設定的索引。指定了名稱但清單裡沒有 → `None`(相機沒接上或名稱已變)。
+fn pick_device(devices: &[CameraDevice], name: &str, legacy_index: u32) -> Option<u32> {
+    if name.is_empty() {
+        return Some(legacy_index);
+    }
+    devices.iter().find(|d| d.name == name).map(|d| d.index)
+}
+
+/// 擷取執行緒每次開相機前用來認機的設定切片(名稱優先、索引備援,見 [`pick_device`])。
+struct DeviceSelector {
+    name: String,
+    legacy_index: u32,
+}
 
 #[derive(Clone)]
 pub struct CameraManager {
@@ -52,7 +103,7 @@ impl CameraManager {
         self.apply_config(config);
     }
 
-    /// 套用(熱)相機設定:`enabled` 切換、`device_index` / 品質變更都即時生效,無須重啟 App。
+    /// 套用(熱)相機設定:`enabled` 切換、換相機 / 品質變更都即時生效,無須重啟 App。
     ///
     /// 作法:每次呼叫把世代 +1 —— 任何既有擷取執行緒在下一輪檢查發現世代已變,即自行結束並
     /// 釋放相機裝置;若新設定 `enabled`,再為新世代開一條新擷取執行緒。重複呼叫安全:舊執行緒
@@ -71,11 +122,14 @@ impl CameraManager {
             .zoom_bits
             .store(config.zoom.clamp(1.0, 4.0).to_bits(), Ordering::Relaxed);
         let inner = self.inner.clone();
-        let device_index = config.device_index;
+        let selector = DeviceSelector {
+            name: config.device_name.clone(),
+            legacy_index: config.device_index,
+        };
         let quality = config.jpeg_quality.clamp(1, 100);
         if let Err(e) = std::thread::Builder::new()
             .name("camera-capture".into())
-            .spawn(move || capture_loop(inner, generation, device_index, quality))
+            .spawn(move || capture_loop(inner, generation, selector, quality))
         {
             tracing::warn!(?e, "啟動讀碼站相機執行緒失敗");
         }
@@ -105,13 +159,24 @@ impl Default for CameraManager {
 /// 常駐擷取迴圈:開相機 → 持續抓幀解碼成 JPEG 存進 latest。
 /// 取幀失敗就跳出重開;開相機失敗就 5s 後重試。整個 nokhwa `Camera` 只活在本執行緒內
 ///(不跨執行緒搬移),避開 macOS AVFoundation 物件非 Send 的問題。
-fn capture_loop(inner: Arc<Inner>, generation: u64, device_index: u32, quality: u8) {
+fn capture_loop(inner: Arc<Inner>, generation: u64, selector: DeviceSelector, quality: u8) {
     use nokhwa::pixel_format::RgbFormat;
     use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
     use nokhwa::Camera;
 
     // 世代被新設定取代(或已停用)就結束;否則開相機 → 持續抓幀
     while inner.generation.load(Ordering::SeqCst) == generation {
+        // 每次重開都重新認機:相機拔掉再插回(索引可能變了)也接得回來
+        let devices = if selector.name.is_empty() { Vec::new() } else { list_devices() };
+        let Some(device_index) = pick_device(&devices, &selector.name, selector.legacy_index) else {
+            tracing::warn!(
+                name = %selector.name,
+                detected = ?devices.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
+                "找不到設定的讀碼站相機(未接上或名稱已變),5s 後重試"
+            );
+            std::thread::sleep(Duration::from_secs(5));
+            continue;
+        };
         let index = CameraIndex::Index(device_index);
         let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
@@ -147,7 +212,8 @@ fn capture_loop(inner: Arc<Inner>, generation: u64, device_index: u32, quality: 
                 tracing::warn!(
                     ?e,
                     device_index,
-                    "開啟讀碼站相機失敗(未接 / 權限未給 / 索引錯),5s 後重試"
+                    name = %selector.name,
+                    "開啟讀碼站相機失敗(未接 / 權限未給 / 被別的程式占用),5s 後重試"
                 );
             }
         }
@@ -255,6 +321,36 @@ pub fn cleanup_captures(captures_dir: &Path, keep_days: u32) {
 }
 
 #[cfg(test)]
+mod pick_tests {
+    use super::*;
+
+    fn devices() -> Vec<CameraDevice> {
+        vec![
+            CameraDevice { name: "Logitech C920".into(), description: "usb".into(), index: 1 },
+            CameraDevice { name: "Integrated Camera".into(), description: "builtin".into(), index: 0 },
+        ]
+    }
+
+    #[test]
+    fn 依名稱認機_不看索引() {
+        assert_eq!(pick_device(&devices(), "Logitech C920", 0), Some(1));
+        assert_eq!(pick_device(&devices(), "Integrated Camera", 7), Some(0));
+    }
+
+    #[test]
+    fn 名稱留白退回舊索引() {
+        assert_eq!(pick_device(&devices(), "", 2), Some(2));
+        assert_eq!(pick_device(&[], "", 0), Some(0));
+    }
+
+    #[test]
+    fn 指定的相機沒接上就不開() {
+        assert_eq!(pick_device(&devices(), "Logitech C270", 0), None);
+        assert_eq!(pick_device(&[], "Logitech C920", 0), None);
+    }
+}
+
+#[cfg(test)]
 mod hw_tests {
     use super::*;
     use crate::config::CameraConfig;
@@ -271,6 +367,7 @@ mod hw_tests {
         let mgr = CameraManager::new();
         mgr.start(&CameraConfig {
             enabled: true,
+            device_name: String::new(),
             device_index: 0,
             jpeg_quality: 80,
             zoom: 1.0,

@@ -1,6 +1,6 @@
 <script setup>
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
-import { getConfig, updateConfig, cacheStats, cacheClear, cameraSetZoom, cameraCaptureNow } from '@/api/tauri'
+import { getConfig, updateConfig, cacheStats, cacheClear, cameraSetZoom, cameraCaptureNow, cameraListDevices } from '@/api/tauri'
 import { clearProcessed } from '@/composables/usePreGenProcessed'
 import AppHeader from '@/components/AppHeader.vue'
 import { useI18n } from 'vue-i18n'
@@ -64,7 +64,7 @@ const hitRatePct = computed(() => Math.round((stats.value.hit_rate || 0) * 100))
 const load = async () => {
   config.value = await getConfig()
   // 舊設定檔可能尚無 camera 區段(後端 serde default 會補,但 web preview / 舊版需前端兜底)
-  if (!config.value.camera) config.value.camera = { enabled: false, device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 }
+  if (!config.value.camera) config.value.camera = { enabled: false, device_name: '', device_index: 0, jpeg_quality: 80, zoom: 1, captures_dir: '', keep_days: 90 }
   if (hasBackend) {
     try {
       stats.value = await cacheStats()
@@ -72,9 +72,36 @@ const load = async () => {
       // 後端 command 尚未生效時不阻塞 UI
       errorMsg.value = t('page.cache.statsLoadFailed', { reason: errorMessageFromException(e) })
     }
+    await loadDevices()
   }
 }
 onMounted(load)
+
+// 相機下拉:列舉目前接上的相機,設定檔存的是裝置名稱(換 USB 孔或接入順序改變都不受影響)
+const devices = ref([])
+const devicesLoading = ref(false)
+const devicesError = ref('')
+const loadDevices = async () => {
+  devicesLoading.value = true
+  devicesError.value = ''
+  try {
+    devices.value = await cameraListDevices()
+  } catch (e) {
+    devices.value = []
+    devicesError.value = errorMessageFromException(e)
+  } finally {
+    devicesLoading.value = false
+  }
+}
+// 設定裡存的相機目前沒偵測到(拔掉了、或名稱變了)時仍要列出來,使用者才看得到現在選的是哪台、不會被默默清空
+const deviceItems = computed(() => {
+  const items = devices.value.map(d => ({ title: d.name, value: d.name }))
+  const current = config.value?.camera?.device_name
+  if (current && !items.some(i => i.value === current)) {
+    items.unshift({ title: `${current}${t('page.cache.camera.deviceMissing')}`, value: current })
+  }
+  return items
+})
 
 const save = async () => {
   errorMsg.value = ''
@@ -262,9 +289,25 @@ const handleClear = async () => {
 
         <VRow density="compact">
           <VCol cols="12" md="6">
-            <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.cache.camera.deviceIndex') }}</VLabel>
-            <VNumberInput v-model="config.camera.device_index" :min="0" :disabled="!config.camera.enabled" />
-            <div class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.deviceIndexHint') }}</div>
+            <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.cache.camera.device') }}</VLabel>
+            <div class="d-flex gap-2">
+              <VSelect
+                v-model="config.camera.device_name"
+                :items="deviceItems"
+                :placeholder="$t('page.cache.camera.deviceAuto')"
+                :disabled="!config.camera.enabled"
+                :loading="devicesLoading"
+                clearable
+                hide-details
+                class="flex-grow-1"
+              />
+              <VBtn variant="tonal" :loading="devicesLoading" :disabled="!config.camera.enabled || !hasBackend" @click="loadDevices">
+                <VIcon icon="tabler-refresh" size="18" class="me-1" />{{ $t('page.cache.camera.deviceRefresh') }}
+              </VBtn>
+            </div>
+            <div v-if="devicesError" class="text-body-small text-error mt-1">{{ devicesError }}</div>
+            <div v-else-if="hasBackend && !devicesLoading && !devices.length" class="text-body-small text-warning mt-1">{{ $t('page.cache.camera.deviceNone') }}</div>
+            <div v-else class="text-body-small text-disabled mt-1">{{ $t('page.cache.camera.deviceHint') }}</div>
           </VCol>
           <VCol cols="12" md="6">
             <VLabel class="mb-1 text-body-medium text-wrap" style="line-height: 15px;">{{ $t('page.cache.camera.jpegQuality') }}</VLabel>

@@ -141,6 +141,35 @@ fn is_cross_site(req: &Request) -> bool {
     origin.split("://").nth(1).unwrap_or("") != host
 }
 
+/// 桌面 App 自己的 webview 打本機 server 的媒體請求。
+///
+/// 桌面頁面的來源是 Tauri 的 `tauri.localhost`(Windows)/ `tauri://localhost`(macOS、Linux),
+/// 對瀏覽器來說與 `127.0.0.1:{port}` 是不同站:面單縮圖、存證照、相機預覽串流這些 `<img>`
+/// 一律標 `Sec-Fetch-Site: cross-site`,會被 [`is_cross_site`] 當成 CSRF 擋掉 —— 桌面版的
+/// 相機預覽與縮圖就是這樣空白的。它們不是別的網站,但瀏覽器給不出能區分的標頭
+///(`Referer` 對非 http 來源不送、`<img>` 也不帶 `Origin`),所以改由 App 自己證明身分:
+/// 網址帶 `?dt=` 權杖,值是本次啟動隨機產生、只經 Tauri IPC 交給桌面前端的
+/// `AppState::desktop_token`。同一台電腦的瀏覽器分頁拿不到它,對端也必須是本機迴路。
+fn is_own_desktop_request(req: &Request, peer: IpAddr, app: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    let Some(shared) = app.try_state::<crate::SharedState>() else {
+        return false;
+    };
+    desktop_token_matches(req.uri().query(), peer, &shared.desktop_token)
+}
+
+/// [`is_own_desktop_request`] 的純判斷:對端是本機迴路,且查詢字串的 `dt` 與權杖完全相同。
+fn desktop_token_matches(query: Option<&str>, peer: IpAddr, token: &str) -> bool {
+    if !peer.is_loopback() || token.is_empty() {
+        return false;
+    }
+    query
+        .unwrap_or("")
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .any(|(k, v)| k == "dt" && v == token)
+}
+
 /// `/rpc` 是否以 JSON 送出。
 ///
 /// 要求 `application/json` 會讓瀏覽器對跨站請求先送預檢,而這台 server 不回任何
@@ -465,7 +494,7 @@ pub(super) async fn guard(
 
     // 這兩道要擋在「內網放行」之前 —— CSRF 針對的正是內網使用者的瀏覽器,
     // 先放行內網再檢查等於沒檢查。
-    if is_cross_site(&req) {
+    if is_cross_site(&req) && !is_own_desktop_request(&req, ip, &state.app) {
         tracing::warn!(%ip, %path, "擋下跨站請求");
         return json_error(StatusCode::FORBIDDEN, "不接受跨站請求");
     }
@@ -932,6 +961,28 @@ mod tests {
             ("origin", "http://192.168.1.50:9999"),
             ("host", "192.168.1.50:18080"),
         ])));
+    }
+
+    #[test]
+    fn 桌面_webview_帶對的權杖從本機來_放行() {
+        let lo: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(desktop_token_matches(Some("dt=abc123"), lo, "abc123"));
+        // 混在其他參數裡也認得
+        assert!(desktop_token_matches(Some("x=1&dt=abc123&y=2"), lo, "abc123"));
+        assert!(desktop_token_matches(Some("dt=abc123"), "::1".parse().unwrap(), "abc123"));
+    }
+
+    #[test]
+    fn 權杖不對_沒帶_或不是本機來的_一律不放行() {
+        let lo: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(!desktop_token_matches(Some("dt=abc12"), lo, "abc123"));
+        assert!(!desktop_token_matches(Some("dt=abc1234"), lo, "abc123"));
+        assert!(!desktop_token_matches(Some("token=abc123"), lo, "abc123"));
+        assert!(!desktop_token_matches(None, lo, "abc123"));
+        // 同網段別台電腦上的瀏覽器就算猜到權杖也不算桌面自己
+        assert!(!desktop_token_matches(Some("dt=abc123"), "192.168.1.50".parse().unwrap(), "abc123"));
+        // 權杖還沒產生(理論上不會)時不能變成「任何 dt 都過」
+        assert!(!desktop_token_matches(Some("dt="), lo, ""));
     }
 
     #[test]

@@ -1,6 +1,15 @@
 use tauri::{AppHandle, State};
 
-use crate::{AppResult, SharedState};
+use crate::camera::CameraDevice;
+use crate::{AppError, AppResult, SharedState};
+
+/// 列出目前接上的相機(名稱 + 索引),供設定頁下拉選擇。列舉走系統 API 可能要幾百毫秒,丟 blocking pool。
+#[tauri::command]
+pub async fn camera_list_devices() -> AppResult<Vec<CameraDevice>> {
+    tauri::async_runtime::spawn_blocking(crate::camera::list_devices)
+        .await
+        .map_err(|e| AppError::Other(format!("列舉相機的工作中斷: {e}")))
+}
 
 /// **即時**調整數位變焦(不重啟相機擷取、不寫設定檔)。供「相機預覽對話框」拖滑桿時呼叫 ——
 /// 後端下一幀就套用,MJPEG 預覽串流立刻反映新框景。要永久保存仍需把 `camera.zoom`
