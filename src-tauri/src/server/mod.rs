@@ -151,27 +151,43 @@ fn join_share(root: &str, relative: &str) -> String {
 /// 讓「這次跑起來之後分過的」永遠排在啟動前的歷史之後。
 const RUNTIME_SEQ_BASE: i64 = 1 << 40;
 
-/// 一個格口最近一次收件的狀態
+/// 格口的固定輪流順序:左右交替、同側隔格,連續兩件不會落在同一側的相鄰格口。
+/// 收件次數平手時照這個順序分;不在表上的位置(理論上不存在)排在最後。
+const SORT_RING: [&str; 10] = ["L1", "R2", "L3", "R4", "L5", "R1", "L2", "R3", "L4", "R5"];
+
+/// 位置在輪流順序上的序號,不在表上的位置一律排最後。
+fn ring_index(position: &str) -> usize {
+    SORT_RING
+        .iter()
+        .position(|p| *p == position)
+        .unwrap_or(SORT_RING.len())
+}
+
+/// 一個格口的收件狀態
 #[derive(Clone)]
 struct ChannelLast {
-    /// 收件先後的排序值,越大越新。啟動前的歷史取 print_event.id,本進程分配取 RUNTIME_SEQ_BASE + 序號。
-    /// 0 = 這個格口沒收過任何件,排最前面(最該輪到它)。
+    /// 最近一次收件的先後序號,越大越新。啟動前的歷史取 print_event.id,本進程分配取 RUNTIME_SEQ_BASE + 序號。
+    /// 0 = 這個格口沒收過任何件。只用來判斷「閒置多久」,不決定分配順序。
     seq: i64,
     /// 最近一次收到的配送單號,用來比對後兩碼。None = 沒有歷史。
     no: Option<String>,
+    /// 本進程起算的收件次數(啟動時由歷史推回當輪已收的格口記 1)。分配順序看它:次數最少的先。
+    count: i64,
 }
 
 /// 分揀分配的跨請求狀態。
 /// 用 tokio async Mutex(非 parking_lot):resolve_channel_code 需在持鎖期間 await DB
 /// 做原子 skip 消耗,把「讀-判定-扣減」全序列化,杜絕並發 double-skip 競態。
-/// 各格口的最近收件狀態共用同一把鎖:選格口時排序與尾碼要一起看,拆兩把會在並發下
+/// 各格口的收件狀態共用同一把鎖:選格口時次數、閒置與尾碼要一起看,拆兩把會在並發下
 /// 讀到半新半舊的組合,選出錯的格口。
 #[derive(Default)]
 struct SortRouting {
-    /// 通道代碼 → 最近一次收件狀態。缺項代表還沒回查過 DB。
+    /// 通道代碼 → 收件狀態。缺項代表還沒回查過 DB。
     last: HashMap<String, ChannelLast>,
-    /// 本進程已分配次數,作為收件先後的排序值
+    /// 本進程已分配次數,作為收件先後的序號
     seq: i64,
+    /// 是否已從列印記錄推回「當輪已收過的格口」。只做一次,之後全靠記憶體累計。
+    seeded: bool,
 }
 
 type SortRoutingState = Arc<tokio::sync::Mutex<SortRouting>>;
@@ -1150,9 +1166,9 @@ fn tail2(no: &str) -> Option<String> {
     )
 }
 
-/// 該格口最近一次收件的狀態(收件先後 + 單號)。
-/// 記憶體沒有紀錄(進程剛啟動)時回查一次列印記錄補上:不補的話每次重開 App,
-/// 分配順序與尾碼迴避都會從頭來過 —— 剛收過件的格口會被當成整天沒收件,連著再收一件。
+/// 該格口的收件狀態(最近序號 + 單號 + 本進程收件次數)。
+/// 記憶體沒有紀錄(進程剛啟動)時回查一次列印記錄補上序號與單號:不補的話每次重開 App,
+/// 尾碼迴避形同失效 —— 剛收過同尾碼的格口會再收一件。次數從 0 起算,當輪已收過的由 seed_round 補 1。
 async fn channel_last(
     db: &DbPool,
     routing: &mut SortRouting,
@@ -1173,12 +1189,65 @@ async fn channel_last(
             Some(r) => ChannelLast {
                 seq: r.try_get::<i64, _>("id").unwrap_or(0),
                 no: r.try_get::<String, _>("shipping_no").ok(),
+                count: 0,
             },
-            None => ChannelLast { seq: 0, no: None },
+            None => ChannelLast { seq: 0, no: None, count: 0 },
         };
         routing.last.insert(channel_code.to_string(), last);
     }
-    routing.last.get(channel_code).cloned().unwrap_or(ChannelLast { seq: 0, no: None })
+    routing
+        .last
+        .get(channel_code)
+        .cloned()
+        .unwrap_or(ChannelLast { seq: 0, no: None, count: 0 })
+}
+
+/// 進程剛啟動時從列印記錄推回「當輪已收過件的格口」,讓輪流從上次停的位置接著走,
+/// 而不是每次重開 App 都從左1重來。往回看最近的分配,位置在輪流順序上一路遞減(正向即遞增)
+/// 的都算同一輪,遇到往回跳就是上一輪的尾巴、停。共用格口被別家插件會讓推回提早停,
+/// 影響只是重開後那一輪的順序略有出入,不會讓同一格口連著收兩件。
+async fn seed_round(db: &DbPool, routing: &mut SortRouting) {
+    routing.seeded = true;
+    let rows = sqlx::query(
+        "SELECT pe.channel_code, sc.position
+           FROM print_event pe
+           JOIN sort_channels sc ON sc.channel_code = pe.channel_code
+          WHERE pe.channel_code IS NOT NULL AND pe.channel_code <> ''
+          ORDER BY pe.id DESC LIMIT ?",
+    )
+    .bind(SORT_RING.len() as i64)
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    let mut prev = usize::MAX;
+    for r in rows {
+        let (Ok(code), Ok(pos)) = (r.try_get::<String, _>("channel_code"), r.try_get::<String, _>("position")) else {
+            break;
+        };
+        let idx = ring_index(&pos);
+        if idx >= prev {
+            break;
+        }
+        prev = idx;
+        channel_last(db, routing, &code).await;
+        if let Some(entry) = routing.last.get_mut(&code) {
+            entry.count = 1;
+        }
+    }
+}
+
+/// 全場啟用中且有代碼的格口數。一個格口超過這麼多件都沒輪到,就視為閒置。
+async fn count_enabled_channels(db: &DbPool) -> i64 {
+    sqlx::query(
+        "SELECT COUNT(*) AS n FROM sort_channels
+          WHERE enabled = 1 AND channel_code IS NOT NULL AND channel_code <> ''",
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .and_then(|r| r.try_get::<i64, _>("n").ok())
+    .unwrap_or(0)
 }
 
 /// 消耗一次該通道的「跳過本輪」額度。回傳 true 代表這次真的扣到、該通道本輪不參與分配。
@@ -1193,8 +1262,8 @@ async fn consume_skip(db: &DbPool, position: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// 依物流商代碼解析分揀通道:有指派通道時挑最久沒收件的那個(公平輪替);
-/// 未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
+/// 依物流商代碼解析分揀通道:有指派通道時挑收件次數最少的那個,平手照 SORT_RING 的固定順序
+/// (左右交替、同側隔格);未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
 /// 回傳 `(channel_code, has_assigned)`,`has_assigned=false` 代表該物流商沒有任何指派通道。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
 ///
@@ -1206,7 +1275,8 @@ async fn resolve_channel_code(
     provider: &str,
     shipping_no: Option<&str>,
 ) -> (Option<String>, bool) {
-    // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)
+    // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)。
+    // 這裡的排序只是讓候選清單穩定,實際分配順序看下面的收件次數與 SORT_RING。
     let rows = sqlx::query(
         "SELECT sc.position, sc.channel_code
          FROM sort_channel_dispatch scd
@@ -1249,65 +1319,83 @@ async fn resolve_channel_code(
     // 真的扣到一次才視為「跳過此通道」,扣不到(額度已被其他請求用盡)就選它 —— 不依賴鎖外快照。
     let chosen: Option<String> = {
         let mut rt = routing.lock().await;
-
-        // 依「最久沒收件」排序,平手時照 L1→R5 的固定順序 ——
-        // 排序值看的是格口實際收了什麼,不分物流。共用格口(例如同時掛 7-11 與全家)
-        // 剛被別家的件用掉,下一件就會讓給比較閒的格口,現場各格口的量才會平均。
-        let mut order: Vec<usize> = (0..n).collect();
-        let mut seqs: Vec<i64> = Vec::with_capacity(n);
-        for (_, code) in &candidates {
-            seqs.push(channel_last(db, &mut rt, code).await.seq);
+        if !rt.seeded {
+            seed_round(db, &mut rt).await;
         }
-        order.sort_by_key(|&i| (seqs[i], i));
 
-        let mut picked: Option<String> = None;
-        // 只因尾碼撞號而讓過的候選(依上面的排序)。它們的 skip 額度尚未消耗,
-        // 第二輪回頭挑時才扣 —— 先扣會把「跳過本輪」的額度浪費在根本沒分給它的那次。
-        let mut tail_blocked: Vec<usize> = Vec::new();
+        let mut states: Vec<ChannelLast> = Vec::with_capacity(n);
+        for (_, code) in &candidates {
+            states.push(channel_last(db, &mut rt, code).await);
+        }
 
-        for &idx in &order {
-            let (pos, code) = &candidates[idx];
-            if let Some(t) = tail.as_deref() {
-                let last_tail = channel_last(db, &mut rt, code).await.no.and_then(|no| tail2(&no));
-                if last_tail.as_deref() == Some(t) {
-                    tail_blocked.push(idx);
+        // 收件次數看的是格口實際收了什麼,不分物流。共用格口(例如同時掛 7-11 與全家)
+        // 被別家多收了幾件,就會被讓開到其他格口追上為止,現場各格口的量才會平均。
+        //
+        // 閒置的格口(超過全場格口數這麼多件都沒輪到)次數若跟同組其他格口差超過 1,
+        // 就拉回同組的範圍:新啟用或重新指派的格口不會因為次數是 0 被連續灌件,
+        // 被別家灌爆的格口在別家停下、閒置一輪之後也不用等其他格口慢慢追上。
+        // 正在收件的格口不動 —— 它落後或超前都是真的,得靠分配去平衡。
+        if n >= 2 {
+            let enabled = count_enabled_channels(db).await.max(n as i64);
+            let now_seq = RUNTIME_SEQ_BASE + rt.seq;
+            let snapshot: Vec<i64> = states.iter().map(|s| s.count).collect();
+            for i in 0..n {
+                if now_seq - states[i].seq <= enabled {
                     continue;
                 }
+                let others = snapshot.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, c)| *c);
+                let lo = others.clone().min().unwrap_or(0);
+                let hi = others.max().unwrap_or(0);
+                let c = snapshot[i];
+                let clamped = if c < lo - 1 { lo } else if c > hi + 1 { hi } else { c };
+                if clamped != c {
+                    states[i].count = clamped;
+                    if let Some(entry) = rt.last.get_mut(&candidates[i].1) {
+                        entry.count = clamped;
+                    }
+                }
             }
-            if consume_skip(db, pos).await {
+        }
+
+        // 先避開尾碼撞號的格口,再挑收件次數最少的,平手照 SORT_RING 固定順序。
+        // 撞尾碼的排在最後而不是排除:繞完一圈每個候選都撞,就照原順序給出去 —— 否則這件會無格口可去。
+        // 「跳過本輪」的額度只在真的輪到它時才扣,排在後面的撞尾碼格口沒被輪到就不會扣。
+        let collides: Vec<bool> = states
+            .iter()
+            .map(|s| match tail.as_deref() {
+                Some(t) => s.no.as_deref().and_then(tail2).as_deref() == Some(t),
+                None => false,
+            })
+            .collect();
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by_key(|&i| (collides[i], states[i].count, ring_index(&candidates[i].0), i));
+
+        let mut picked: Option<usize> = None;
+        for &i in &order {
+            if consume_skip(db, &candidates[i].0).await {
                 // 該通道本輪待跳過:已原子消耗一次,改看下一個
                 continue;
             }
-            picked = Some(code.clone());
+            picked = Some(i);
             break;
-        }
-
-        // 尾碼迴避只跑一輪:繞完一圈每個候選不是撞尾碼就是待跳過,就不再堅持,
-        // 回頭在「只因撞尾碼而讓過」的候選裡照同一個順序挑 —— 否則這件會無格口可去。
-        if picked.is_none() {
-            for idx in tail_blocked {
-                let (pos, code) = &candidates[idx];
-                if consume_skip(db, pos).await {
-                    continue;
-                }
-                picked = Some(code.clone());
-                break;
-            }
         }
 
         // 記住這格口這次收到誰、以及它是最新收件的那個。以「分配」為準而非列印結果:
         // 包裹已經滾進那個格口,後面印不印得出來都不影響作業員看到的順序。
-        if let Some(code) = &picked {
+        if let Some(i) = picked {
             rt.seq += 1;
             let seq = RUNTIME_SEQ_BASE + rt.seq;
             let no = shipping_no
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
-                .or_else(|| rt.last.get(code).and_then(|l| l.no.clone()));
-            rt.last.insert(code.clone(), ChannelLast { seq, no });
+                .or_else(|| states[i].no.clone());
+            rt.last.insert(
+                candidates[i].1.clone(),
+                ChannelLast { seq, no, count: states[i].count + 1 },
+            );
         }
-        picked
+        picked.map(|i| candidates[i].1.clone())
     };
 
     match chosen {
@@ -2787,7 +2875,7 @@ mod tests {
         assert_eq!(first.as_deref(), Some("A01"));
         let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999988")).await;
         assert_eq!(second.as_deref(), Some("A02"));
-        // 第三件又是 47:輪替指標指回 A01,但 A01 上一件就是 47 → 改給尾碼不撞的 A02
+        // 第三件又是 47:兩格次數平手、輪到 A01,但 A01 上一件就是 47 → 改給尾碼不撞的 A02
         let (third, _) = resolve_channel_code(&db, &routing, "C", Some("SF12312312347")).await;
         assert_eq!(third.as_deref(), Some("A02"), "撞尾碼的格口不該再收一件同尾碼");
         // 換回不撞的尾碼:輪替回到 A01,不該因為前一件被改道就一直卡在 A02
@@ -2878,7 +2966,7 @@ mod tests {
     #[tokio::test]
     async fn shared_channel_yields_to_the_idlest_one() {
         // 包裹順序 7-11 → 全家 → 7-11。中間那件全家進了左2,第三件 7-11 就該讓給
-        // 一直沒收件的左3 —— 排序看的是「格口實際收了什麼」,不是各家物流自己的順序。
+        // 還沒收件的左3 —— 次數看的是「格口實際收了什麼」,不是各家物流自己的順序。
         let db = shared_channel_db().await;
         let routing = routing_state();
 
@@ -2888,7 +2976,7 @@ mod tests {
         assert_eq!(
             (a.as_deref(), b.as_deref(), c.as_deref()),
             (Some("L1"), Some("L2"), Some("L3")),
-            "左2 剛收過全家的件,第三件應讓給最久沒收的左3"
+            "左2 剛收過全家的件,第三件應讓給還沒收件的左3"
         );
     }
 
@@ -2902,14 +2990,16 @@ mod tests {
         resolve_channel_code(&db, &routing, "F", Some("SF00000000044")).await; // 左2 收全家,尾碼 44
         resolve_channel_code(&db, &routing, "7", Some("SF00000000011")).await; // 左1
         resolve_channel_code(&db, &routing, "7", Some("SF00000000022")).await; // 左3
-        // 此時最久沒收的是左2,但它上一件尾碼正是 44 → 讓給次久的左1
+        // 此時三格次數平手、照固定順序輪到左1;左2 上一件尾碼正是 44,即使輪到它也得讓開
         let (d, _) = resolve_channel_code(&db, &routing, "7", Some("SF99999999944")).await;
         assert_eq!(d.as_deref(), Some("L1"), "撞到別家物流留下的尾碼一樣要讓開");
+        let (e, _) = resolve_channel_code(&db, &routing, "7", Some("SF88888888855")).await;
+        assert_eq!(e.as_deref(), Some("L3"), "左2 撞尾碼讓過後,下一件照固定順序輪到左3");
     }
 
     #[tokio::test]
     async fn no_shipping_no_still_alternates_channels() {
-        // 錯誤面單等拿不到配送單號的情況:沒有尾碼可比,仍照「最久沒收件」輪流
+        // 錯誤面單等拿不到配送單號的情況:沒有尾碼可比,仍照收件次數輪流
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         let routing = routing_state();
 
@@ -2919,6 +3009,118 @@ mod tests {
         assert_eq!(
             (a.as_deref(), b.as_deref(), c.as_deref()),
             (Some("A01"), Some("A02"), Some("A01"))
+        );
+    }
+
+    /// 左1～左5、右1～右5 全部指派給同一家物流,通道代碼 = 位置
+    async fn full_ring_db(provider: &str) -> DbPool {
+        let positions: Vec<(&str, &str)> = EXPECTED_RING.iter().map(|p| (*p, *p)).collect();
+        routing_db(&positions, provider).await
+    }
+
+    /// 連續分配 n 件,配送單號後兩碼各不相同(不觸發尾碼迴避),回傳分到的通道代碼
+    async fn assign_many(db: &DbPool, routing: &SortRoutingState, provider: &str, n: usize) -> Vec<String> {
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let no = format!("SF{:011}", 1000 + i);
+            let (code, _) = resolve_channel_code(db, routing, provider, Some(&no)).await;
+            out.push(code.expect("每件都應分到格口"));
+        }
+        out
+    }
+
+    /// 業主指定的輪流順序,刻意寫死而不引用 SORT_RING:常數改錯了測試才抓得到
+    const EXPECTED_RING: [&str; 10] = ["L1", "R2", "L3", "R4", "L5", "R1", "L2", "R3", "L4", "R5"];
+
+    fn ring_sequence(len: usize) -> Vec<String> {
+        EXPECTED_RING.iter().cycle().take(len).map(|s| s.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn full_ring_follows_alternating_order() {
+        // 十格都指派給同一家:左右交替、同側隔格,繞完一圈接著再來一圈
+        let db = full_ring_db("C").await;
+        let routing = routing_state();
+        assert_eq!(assign_many(&db, &routing, "C", 20).await, ring_sequence(20));
+    }
+
+    #[tokio::test]
+    async fn cold_start_resumes_ring_from_history() {
+        // 重開 App:列印記錄顯示這一輪已經走到左3,下一件要接著給右4,不是從左1重來
+        let db = full_ring_db("C").await;
+        for (i, code) in ["L1", "R2", "L3"].iter().enumerate() {
+            sqlx::query("INSERT INTO print_event (source, shipping_no, channel_code) VALUES ('ipc', ?, ?)")
+                .bind(format!("SF{:011}", i))
+                .bind(code)
+                .execute(&db)
+                .await
+                .unwrap();
+        }
+        let routing = routing_state();
+        assert_eq!(assign_many(&db, &routing, "C", 3).await, vec!["R4", "L5", "R1"]);
+    }
+
+    #[tokio::test]
+    async fn tail_swap_gives_the_skipped_channel_the_next_parcel() {
+        // 輪到左1 卻撞尾碼、讓給右2:下一件要補回左1,之後照固定順序接著走(左3),
+        // 不能因為一次改道就把整圈順序永久錯開
+        let db = full_ring_db("C").await;
+        let routing = routing_state();
+        let first_lap = assign_many(&db, &routing, "C", 10).await;
+        assert_eq!(first_lap, ring_sequence(10));
+        // 第 11 件尾碼 00 與左1 上一件(SF00000001000)相同 → 改給右2
+        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777700")).await;
+        assert_eq!(a.as_deref(), Some("R2"));
+        let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777711")).await;
+        assert_eq!(b.as_deref(), Some("L1"), "被讓過的左1 下一件就要補回");
+        let (c, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777722")).await;
+        assert_eq!(c.as_deref(), Some("L3"), "補回之後照固定順序接著走");
+    }
+
+    #[tokio::test]
+    async fn newly_enabled_channel_joins_without_flooding() {
+        // 左5 原本停用,其他九格各收了兩輪;啟用左5 後它的次數是 0,
+        // 不能因此連續灌件,只能在固定順序輪到它時收一件
+        let db = full_ring_db("C").await;
+        sqlx::query("UPDATE sort_channels SET enabled = 0 WHERE position = 'L5'")
+            .execute(&db)
+            .await
+            .unwrap();
+        let routing = routing_state();
+        let without_l5: Vec<String> = ring_sequence(10).into_iter().filter(|p| p != "L5").collect();
+        let two_laps: Vec<String> = without_l5.iter().chain(without_l5.iter()).cloned().collect();
+        assert_eq!(assign_many(&db, &routing, "C", 18).await, two_laps);
+
+        sqlx::query("UPDATE sort_channels SET enabled = 1 WHERE position = 'L5'")
+            .execute(&db)
+            .await
+            .unwrap();
+        assert_eq!(assign_many(&db, &routing, "C", 10).await, ring_sequence(10));
+    }
+
+    #[tokio::test]
+    async fn heavy_shared_channel_is_skipped_until_others_catch_up() {
+        // 左2 同時掛 7-11 與全家,全家連進 3 件:接下來的 7-11 件要讓左1、左3 追到一樣多,
+        // 左2 才重新排進輪流 —— 這就是各格口量平均的意思
+        let db = shared_channel_db().await;
+        let routing = routing_state();
+        assign_many(&db, &routing, "F", 3).await;
+        assert_eq!(
+            assign_many(&db, &routing, "7", 9).await,
+            vec!["L1", "L3", "L1", "L3", "L1", "L3", "L1", "L3", "L2"]
+        );
+    }
+
+    #[tokio::test]
+    async fn hogged_channel_rejoins_after_idling_a_lap() {
+        // 全家灌了左2 十件後停下:左2 閒置一輪(全場三格 → 三件)就拉回同組次數,
+        // 重新排進輪流,不用等左1、左3 各追滿十件
+        let db = shared_channel_db().await;
+        let routing = routing_state();
+        assign_many(&db, &routing, "F", 10).await;
+        assert_eq!(
+            assign_many(&db, &routing, "7", 7).await,
+            vec!["L1", "L3", "L1", "L3", "L1", "L3", "L2"]
         );
     }
 }
