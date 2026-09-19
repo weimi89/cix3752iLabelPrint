@@ -67,6 +67,7 @@
     "eventLog": "事件記錄",
     "queueLog": "佇列歷史",
     "parcelQueryLog": "請求記錄",
+    "noreadReview": "讀碼異常",
     "alertLog": "查件異常",
     "printStats": "印單統計"
   },
@@ -879,6 +880,30 @@
         "message": "訊息"
       }
     },
+    "noreadReview": {
+      "title": "讀碼異常",
+      "subtitleShort": "翻看 NoRead 存證照並標原因",
+      "subtitle": "工控機讀不到單號時讀碼站拍下的存證照;逐張標記讀不到的原因,統計哪種最多,才知道讀碼站要調什麼",
+      "day": "日期",
+      "dayTotal": "當天讀碼失敗",
+      "tagged": "已標記",
+      "untaggedOnly": "只看未標記",
+      "allTags": "全部原因",
+      "noPhoto": "沒有照片(當時相機未取到畫面)",
+      "noItems": "這一天沒有讀碼失敗的紀錄",
+      "clearTag": "清除標記",
+      "tagSaved": "已標記",
+      "tag": {
+        "label_back": "標籤朝下／背面",
+        "glare": "反光",
+        "damaged": "破損皺褶",
+        "small": "包裹或標籤太小",
+        "position": "偏出視野",
+        "no_label": "沒貼標",
+        "other": "其他"
+      },
+      "hint": "點照片放大;下方按鈕直接標原因,再按一次同一個就清除"
+    },
     "parcelQueryLog": {
       "title": "請求記錄",
       "subtitleShort": "工控機查件的歷史記錄",
@@ -914,13 +939,25 @@
       "unassigned": "未指派通道"
     },
     "sort": {
-      "pos": {
-        "L1": "左 1", "L2": "左 2", "L3": "左 3", "L4": "左 4", "L5": "左 5",
-        "R1": "右 1", "R2": "右 2", "R3": "右 3", "R4": "右 4", "R5": "右 5"
-      },
+      "posLeft": "左 {n}",
+      "posRight": "右 {n}",
       "title": "分揀通道",
-      "subtitleShort": "左右各 5 通道的設定",
-      "subtitle": "左 5 通道 / 右 5 通道,各自設定代碼、物流與貼標人員",
+      "subtitleShort": "左 {l} / 右 {r} 通道的設定",
+      "subtitle": "左 {l} 通道 / 右 {r} 通道,各自設定代碼、物流與貼標人員",
+      "layout": {
+        "title": "格口配置",
+        "brief": "左 {l} 格 / 右 {r} 格",
+        "edit": "調整",
+        "dialogTitle": "調整格口配置",
+        "hint": "依現場分揀機實際的格口數設定,左右可以不同。新增的格口會以空白卡片出現;減少的格口會連同它的通道代碼、指派物流、貼標人員與印表機設定一起移除。",
+        "left": "左側格數",
+        "right": "右側格數",
+        "removeWarn": "套用後會移除:{list}",
+        "removeWarnCode": "其中 {list} 已設定通道代碼,分揀機那邊的格口也要一併調整",
+        "dirtyWarn": "有尚未儲存的通道變更,請先儲存或重新載入,再調整格口配置",
+        "save": "套用配置",
+        "saved": "格口配置已改為左 {l} 格 / 右 {r} 格"
+      },
       "browserAlert": "瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。",
       "saveAll": "儲存全部變更 ({n})",
       "savedFlash": "已批次儲存 {n} 筆",
@@ -993,7 +1030,7 @@
       "orderHint": "數字越小越前面",
       "confirmDelete": "確認刪除",
       "confirmDeleteBody": "確定要刪除「{name}」({code}) 嗎?",
-      "confirmDeleteHint": "已指派此物流的通道會自動清空 dispatch_code。",
+      "confirmDeleteHint": "已指派此物流的通道會自動取消這家物流的指派。",
       "col": {
         "order": "排序",
         "code": "代碼",
@@ -1190,7 +1227,7 @@
       "noData": "無資料",
       "resetBtn": "重置本場",
       "resetDialogTitle": "重置本場累計?",
-      "resetDialogBody": "重置後「本場累計」會從零開始,適合每場作業 / 每位臨時工結算前後做。歷史印單紀錄不會被刪除,只是 KPI 起算時間改為現在。",
+      "resetDialogBody": "重置後「本場累計」會從零重新計算,適合每場作業或每位臨時工結算前後使用。歷史印單紀錄不會被刪除,只是累計的起算時間改為現在。",
       "resetConfirm": "確認重置"
     }
   }

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::event_log;
 
+mod store_closed_cache;
 mod assets;
 pub(crate) mod auth;
 mod events;
@@ -151,16 +152,46 @@ fn join_share(root: &str, relative: &str) -> String {
 /// 讓「這次跑起來之後分過的」永遠排在啟動前的歷史之後。
 const RUNTIME_SEQ_BASE: i64 = 1 << 40;
 
-/// 格口的固定輪流順序:左右交替、同側隔格,連續兩件不會落在同一側的相鄰格口。
-/// 收件次數平手時照這個順序分;不在表上的位置(理論上不存在)排在最後。
-const SORT_RING: [&str; 10] = ["L1", "R2", "L3", "R4", "L5", "R1", "L2", "R3", "L4", "R5"];
+/// 一側的格號依「先單數再雙數」或「先雙數再單數」排成一列,給 ring_order 交錯用。
+fn side_numbers(count: usize, odds_first: bool) -> Vec<usize> {
+    let (first, second): (Vec<usize>, Vec<usize>) = (1..=count).partition(|i| (i % 2 == 1) == odds_first);
+    first.into_iter().chain(second).collect()
+}
+
+/// 格口的輪流順序:左右交替、同側隔格。左側「單數格再雙數格」、右側「雙數格再單數格」各排一列,
+/// 再一左一右交錯;一側排完,另一側剩下的接在後面。左右各 5 格時就是業主指定的
+/// 左1 → 右2 → 左3 → 右4 → 左5 → 右1 → 左2 → 右3 → 左4 → 右5;格數改了順序跟著長,不用改程式。
+/// 收件次數平手時照這個順序分;不在表上的位置排在最後。
+fn ring_order(left: usize, right: usize) -> Vec<String> {
+    let mut l = side_numbers(left, true).into_iter().map(|i| format!("L{i}"));
+    let mut r = side_numbers(right, false).into_iter().map(|i| format!("R{i}"));
+    let mut ring = Vec::with_capacity(left + right);
+    loop {
+        let (a, b) = (l.next(), r.next());
+        if a.is_none() && b.is_none() {
+            break;
+        }
+        ring.extend(a);
+        ring.extend(b);
+    }
+    ring
+}
+
+/// 目前格口配置的輪流順序,從 sort_channels 現有的列算(不看啟用與否:順序由實體位置決定,
+/// 暫停一格不該讓其他格換位)。台中左右各 3 格、桃園各 5 格,同一支程式各自長出自己的順序。
+async fn load_ring(db: &DbPool) -> Vec<String> {
+    match crate::commands::sort_channel_commands::load_layout(db).await {
+        Ok(l) => ring_order(l.left.max(0) as usize, l.right.max(0) as usize),
+        Err(e) => {
+            tracing::warn!(?e, "讀格口配置失敗,本次分配沒有輪流順序可依");
+            Vec::new()
+        }
+    }
+}
 
 /// 位置在輪流順序上的序號,不在表上的位置一律排最後。
-fn ring_index(position: &str) -> usize {
-    SORT_RING
-        .iter()
-        .position(|p| *p == position)
-        .unwrap_or(SORT_RING.len())
+fn ring_index(ring: &[String], position: &str) -> usize {
+    ring.iter().position(|p| p == position).unwrap_or(ring.len())
 }
 
 /// 一個格口的收件狀態
@@ -212,6 +243,8 @@ struct ServerState {
     /// DirectPrint 模式有序列印佇列:get_parcel 把工作丟進來,由單一 worker 逐筆 FIFO 處理。
     /// 保證列印順序 = 請求順序,且同時只有一筆在送印(不並發打 spooler)。
     direct_print_tx: mpsc::UnboundedSender<DirectPrintJob>,
+    /// 門市關轉單號的短期記憶(見 store_closed_cache):同一件反覆投料時不再每趟都問雲端
+    store_closed: Arc<std::sync::Mutex<store_closed_cache::StoreClosedCache>>,
 }
 
 /// DirectPrint 一筆待列印工作(下載 + 浮水印 + 送本機印表機所需的最小資料)
@@ -368,6 +401,7 @@ async fn start_inner(
         app,
         close_tx: close_tx.clone(),
         direct_print_tx,
+        store_closed: Arc::new(std::sync::Mutex::new(store_closed_cache::StoreClosedCache::default())),
     };
 
     let images_service = ServeDir::new(images_dir);
@@ -631,10 +665,10 @@ async fn set_channel_enabled(
     Path(position): Path<String>,
     Json(body): Json<SetEnabledBody>,
 ) -> impl IntoResponse {
-    use crate::commands::sort_channel_commands::POSITIONS;
+    use crate::commands::sort_channel_commands::position_exists;
     
 
-    if !POSITIONS.contains(&position.as_str()) {
+    if !position_exists(&state.db, &position).await {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": format!("無效的通道位置: {position}") })),
@@ -658,6 +692,14 @@ async fn set_channel_enabled(
             .into_response();
     }
 
+    // 記進事件記錄:格口件數突然掛零時(2026-09-18 左2／左3 二十點整掛零),要查得到是誰何時關的
+    event_log::log_bg(
+        state.db.clone(),
+        "info",
+        "server",
+        "分揀通道切換",
+        format!("通道 {position} 已{}(手機遙控)", if body.enabled { "啟用" } else { "暫停" }),
+    );
     // 廣播給桌面分揀通道頁即時同步開關狀態
     let _ = crate::event_bridge::emit(
         &state.app,
@@ -681,9 +723,9 @@ async fn skip_channel(
     Path(position): Path<String>,
     Json(body): Json<SkipBody>,
 ) -> impl IntoResponse {
-    use crate::commands::sort_channel_commands::POSITIONS;
+    use crate::commands::sort_channel_commands::position_exists;
 
-    if !POSITIONS.contains(&position.as_str()) {
+    if !position_exists(&state.db, &position).await {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": format!("無效的通道位置: {position}") })),
@@ -781,10 +823,10 @@ async fn assign_channel(
     Path(position): Path<String>,
     Json(body): Json<AssignBody>,
 ) -> impl IntoResponse {
-    use crate::commands::sort_channel_commands::{upsert_sticker_history, POSITIONS};
+    use crate::commands::sort_channel_commands::{position_exists, upsert_sticker_history};
     
 
-    if !POSITIONS.contains(&position.as_str()) {
+    if !position_exists(&state.db, &position).await {
         return assign_err(
             StatusCode::BAD_REQUEST,
             "BAD_POSITION",
@@ -1020,8 +1062,8 @@ async fn channel_recent(
     State(state): State<ServerState>,
     Path(position): Path<String>,
 ) -> impl IntoResponse {
-    use crate::commands::sort_channel_commands::POSITIONS;
-    if !POSITIONS.contains(&position.as_str()) {
+    use crate::commands::sort_channel_commands::position_exists;
+    if !position_exists(&state.db, &position).await {
         return Json(Vec::<ChannelRecentItem>::new());
     }
     // 取該通道目前的 channel_code
@@ -1166,6 +1208,12 @@ fn tail2(no: &str) -> Option<String> {
     )
 }
 
+/// 兩組後兩碼是否「撞號」:任一個字元出現在對方裡就算撞(47 對 74、41、17 都撞,對 12 不撞)。
+/// 作業員是拿後兩碼裡的數字認包裹,只要有一個數字跟上一件一樣就容易看錯;只比整組相同會漏掉這些。
+fn tails_overlap(a: &str, b: &str) -> bool {
+    a.chars().any(|c| b.contains(c))
+}
+
 /// 該格口的收件狀態(最近序號 + 單號 + 本進程收件次數)。
 /// 記憶體沒有紀錄(進程剛啟動)時回查一次列印記錄補上序號與單號:不補的話每次重開 App,
 /// 尾碼迴避形同失效 —— 剛收過同尾碼的格口會再收一件。次數從 0 起算,當輪已收過的由 seed_round 補 1。
@@ -1206,7 +1254,7 @@ async fn channel_last(
 /// 而不是每次重開 App 都從左1重來。往回看最近的分配,位置在輪流順序上一路遞減(正向即遞增)
 /// 的都算同一輪,遇到往回跳就是上一輪的尾巴、停。共用格口被別家插件會讓推回提早停,
 /// 影響只是重開後那一輪的順序略有出入,不會讓同一格口連著收兩件。
-async fn seed_round(db: &DbPool, routing: &mut SortRouting) {
+async fn seed_round(db: &DbPool, routing: &mut SortRouting, ring: &[String]) {
     routing.seeded = true;
     let rows = sqlx::query(
         "SELECT pe.channel_code, sc.position
@@ -1215,7 +1263,7 @@ async fn seed_round(db: &DbPool, routing: &mut SortRouting) {
           WHERE pe.channel_code IS NOT NULL AND pe.channel_code <> ''
           ORDER BY pe.id DESC LIMIT ?",
     )
-    .bind(SORT_RING.len() as i64)
+    .bind(ring.len() as i64)
     .fetch_all(db)
     .await
     .unwrap_or_default();
@@ -1225,7 +1273,7 @@ async fn seed_round(db: &DbPool, routing: &mut SortRouting) {
         let (Ok(code), Ok(pos)) = (r.try_get::<String, _>("channel_code"), r.try_get::<String, _>("position")) else {
             break;
         };
-        let idx = ring_index(&pos);
+        let idx = ring_index(ring, &pos);
         if idx >= prev {
             break;
         }
@@ -1262,13 +1310,13 @@ async fn consume_skip(db: &DbPool, position: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// 依物流商代碼解析分揀通道:有指派通道時挑收件次數最少的那個,平手照 SORT_RING 的固定順序
-/// (左右交替、同側隔格);未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
+/// 依物流商代碼解析分揀通道:有指派通道時挑收件次數最少的那個,平手照 ring_order 算出的固定順序
+/// (左右交替、同側隔格,依目前格口配置長出);未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
 /// 回傳 `(channel_code, has_assigned)`,`has_assigned=false` 代表該物流商沒有任何指派通道。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
 ///
-/// `shipping_no` 是本件的配送單號,用來避開「同一格口連著兩張後兩碼相同的單」——
-/// 作業員貼單就是靠後兩碼確認手上的單對得上包裹,連兩張尾碼一樣會分不出誰是誰。
+/// `shipping_no` 是本件的配送單號,用來避開「同一格口連著兩張後兩碼有數字重疊的單」——
+/// 作業員貼單就是靠後兩碼的數字確認手上的單對得上包裹,連兩張有同一個數字就容易貼錯。
 async fn resolve_channel_code(
     db: &DbPool,
     routing: &SortRoutingState,
@@ -1276,7 +1324,7 @@ async fn resolve_channel_code(
     shipping_no: Option<&str>,
 ) -> (Option<String>, bool) {
     // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)。
-    // 這裡的排序只是讓候選清單穩定,實際分配順序看下面的收件次數與 SORT_RING。
+    // 這裡的排序只是讓候選清單穩定,實際分配順序看下面的收件次數與輪流順序。
     let rows = sqlx::query(
         "SELECT sc.position, sc.channel_code
          FROM sort_channel_dispatch scd
@@ -1319,8 +1367,9 @@ async fn resolve_channel_code(
     // 真的扣到一次才視為「跳過此通道」,扣不到(額度已被其他請求用盡)就選它 —— 不依賴鎖外快照。
     let chosen: Option<String> = {
         let mut rt = routing.lock().await;
+        let ring = load_ring(db).await;
         if !rt.seeded {
-            seed_round(db, &mut rt).await;
+            seed_round(db, &mut rt, &ring).await;
         }
 
         let mut states: Vec<ChannelLast> = Vec::with_capacity(n);
@@ -1357,18 +1406,18 @@ async fn resolve_channel_code(
             }
         }
 
-        // 先避開尾碼撞號的格口,再挑收件次數最少的,平手照 SORT_RING 固定順序。
+        // 先避開尾碼撞號的格口(後兩碼有任一數字與該格上一件重疊),再挑收件次數最少的,平手照輪流順序。
         // 撞尾碼的排在最後而不是排除:繞完一圈每個候選都撞,就照原順序給出去 —— 否則這件會無格口可去。
         // 「跳過本輪」的額度只在真的輪到它時才扣,排在後面的撞尾碼格口沒被輪到就不會扣。
         let collides: Vec<bool> = states
             .iter()
             .map(|s| match tail.as_deref() {
-                Some(t) => s.no.as_deref().and_then(tail2).as_deref() == Some(t),
+                Some(t) => s.no.as_deref().and_then(tail2).is_some_and(|prev| tails_overlap(t, &prev)),
                 None => false,
             })
             .collect();
         let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by_key(|&i| (collides[i], states[i].count, ring_index(&candidates[i].0), i));
+        order.sort_by_key(|&i| (collides[i], states[i].count, ring_index(&ring, &candidates[i].0), i));
 
         let mut picked: Option<usize> = None;
         for &i in &order {
@@ -2055,7 +2104,28 @@ async fn get_parcel(
     // 一併帶給雲端(?sort_only=1),讓雲端該支請求也不記任何印單。
     let is_sort_only = state.label_resolver.is_sort_only();
 
-    match state.cloud.fetch_parcel(&query_no, is_sort_only).await {
+    // 兩小時內才被雲端判「門市關轉」的單號:直接重播上次的錯誤,不再打雲端(下面錯誤分支照走,
+    // 存證、看板、件數核對與工控機拿到的回應都跟第一次一模一樣)
+    let replay = state
+        .store_closed
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .lookup(&query_no, std::time::Instant::now());
+    let fetched = match replay {
+        Some(c) => {
+            tracing::info!(query_no = %query_no, "門市關轉單號重複投料,沿用兩小時內的雲端結果");
+            Err(AppError::Cloud {
+                code: c.code,
+                message: c.message,
+                shipping_provider: c.shipping_provider,
+                shipping_no: c.shipping_no,
+                package_sn: c.package_sn,
+                order_sn: c.order_sn,
+            })
+        }
+        None => state.cloud.fetch_parcel(&query_no, is_sort_only).await,
+    };
+    match fetched {
         Ok(info) => {
             let cloud_ms = t_start.elapsed().as_millis() as i64;
 
@@ -2428,6 +2498,19 @@ async fn get_parcel(
                 ),
                 other => ("error", other.to_string(), "ERROR".to_string(), None, None, None, None),
             };
+            // 門市關轉記兩小時:這件再被投進來就不必再問雲端(其他錯誤碼 remember 會自己略過)
+            state.store_closed.lock().unwrap_or_else(|e| e.into_inner()).remember(
+                &query_no,
+                store_closed_cache::CachedCloudError {
+                    code: err_code.clone(),
+                    message: msg.clone(),
+                    shipping_provider: err_provider.clone(),
+                    shipping_no: err_shipping_no.clone(),
+                    package_sn: err_package_sn.clone(),
+                    order_sn: err_order_sn.clone(),
+                },
+                std::time::Instant::now(),
+            );
             emit_parcel_alert(&state.app, kind, &msg, &query_no);
 
             // 錯誤面單總開關(設定頁熱切換,預設關)。關閉時工控機只拿得到 error_code:
@@ -2806,8 +2889,21 @@ mod tests {
         assert_eq!(tail2(""), None);
     }
 
+    #[test]
+    fn tails_overlap_on_any_shared_char() {
+        // 整組相同、順序對調、只有一個數字一樣,都算撞
+        assert!(tails_overlap("47", "47"));
+        assert!(tails_overlap("47", "74"));
+        assert!(tails_overlap("47", "41"));
+        assert!(tails_overlap("47", "17"));
+        assert!(tails_overlap("44", "45"));
+        // 兩個數字都不一樣才不撞
+        assert!(!tails_overlap("47", "12"));
+        assert!(!tails_overlap("00", "12"));
+    }
+
     // ── 尾碼迴避的分配測試 ──────────────────────────────────
-    // 作業員貼單靠單號後兩碼認包裹,同一格口連著兩張尾碼相同的單會分不出誰是誰。
+    // 作業員貼單靠單號後兩碼的數字認包裹,同一格口連著兩張後兩碼有數字重疊的單容易貼錯。
     // 以下用 in-memory SQLite 建與 migration 等價的三張表,直接跑 resolve_channel_code。
 
     use sqlx::sqlite::SqlitePoolOptions;
@@ -2881,6 +2977,30 @@ mod tests {
         // 換回不撞的尾碼:輪替回到 A01,不該因為前一件被改道就一直卡在 A02
         let (fourth, _) = resolve_channel_code(&db, &routing, "C", Some("SF45645645612")).await;
         assert_eq!(fourth.as_deref(), Some("A01"));
+    }
+
+    #[tokio::test]
+    async fn overlapping_tail_goes_to_the_next_channel() {
+        // 不只整組相同才算撞:上一件 47,本件 74(對調)或 15 對 31(只有一個數字一樣)都要讓開
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        let routing = routing_state();
+
+        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047")).await;
+        assert_eq!(a.as_deref(), Some("A01"));
+        let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000012")).await;
+        assert_eq!(b.as_deref(), Some("A02"));
+        // 輪到 A01,但 74 與 A01 上一件 47 只是數字對調 → 讓給 A02(上一件 12 不撞)
+        let (c, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000074")).await;
+        assert_eq!(c.as_deref(), Some("A02"), "數字對調也算撞,應讓開");
+        // A01 補回:31 與 47 沒有共同數字
+        let (d, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000031")).await;
+        assert_eq!(d.as_deref(), Some("A01"));
+        // 兩格次數平手輪到 A01,但 15 與 A01 上一件 31 有 1 重疊 → 讓給 A02(上一件 74 不撞)
+        let (e, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000015")).await;
+        assert_eq!(e.as_deref(), Some("A02"), "只有一個數字一樣也要讓開");
+        // A01 補回:26 與 31 不撞
+        let (f, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000026")).await;
+        assert_eq!(f.as_deref(), Some("A01"));
     }
 
     #[tokio::test]
@@ -3018,22 +3138,99 @@ mod tests {
         routing_db(&positions, provider).await
     }
 
-    /// 連續分配 n 件,配送單號後兩碼各不相同(不觸發尾碼迴避),回傳分到的通道代碼
+    /// 連續分配 n 件,配送單號後兩碼輪用 18 組彼此不共用任何字元的組合(不觸發尾碼迴避),
+    /// 回傳分到的通道代碼。第 i 件的後兩碼是 `DISJOINT_TAILS[i % 18]`。
     async fn assign_many(db: &DbPool, routing: &SortRoutingState, provider: &str, n: usize) -> Vec<String> {
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
-            let no = format!("SF{:011}", 1000 + i);
+            let no = format!("SF{:09}{}", i, DISJOINT_TAILS[i % DISJOINT_TAILS.len()]);
             let (code, _) = resolve_channel_code(db, routing, provider, Some(&no)).await;
             out.push(code.expect("每件都應分到格口"));
         }
         out
     }
 
-    /// 業主指定的輪流順序,刻意寫死而不引用 SORT_RING:常數改錯了測試才抓得到
+    /// 18 組後兩碼,任兩組之間沒有共用字元:給 assign_many 用,確保同一格口連續兩件不會撞尾碼
+    const DISJOINT_TAILS: [&str; 18] = [
+        "AB", "CD", "EF", "GH", "IJ", "KL", "MN", "OP", "QR", "ST", "UV", "WX", "YZ", "01", "23", "45", "67", "89",
+    ];
+
+    /// 業主指定的輪流順序(左右各 5 格),刻意寫死而不引用 ring_order:演算法改錯了測試才抓得到
     const EXPECTED_RING: [&str; 10] = ["L1", "R2", "L3", "R4", "L5", "R1", "L2", "R3", "L4", "R5"];
 
     fn ring_sequence(len: usize) -> Vec<String> {
         EXPECTED_RING.iter().cycle().take(len).map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn ring_order_for_five_per_side_is_the_owner_sequence() {
+        assert_eq!(ring_order(5, 5), EXPECTED_RING);
+    }
+
+    #[test]
+    fn ring_order_grows_with_the_layout() {
+        // 台中左右各 3 格:一樣左右交替、同側隔格
+        assert_eq!(ring_order(3, 3), ["L1", "R2", "L3", "R1", "L2", "R3"]);
+        // 舊的 4/4 配置
+        assert_eq!(ring_order(4, 4), ["L1", "R2", "L3", "R4", "L2", "R1", "L4", "R3"]);
+        // 左右格數不同:交錯到一側用完,另一側剩下的接在後面
+        assert_eq!(ring_order(3, 5), ["L1", "R2", "L3", "R4", "L2", "R1", "R3", "R5"]);
+        assert_eq!(ring_order(2, 0), ["L1", "L2"]);
+        assert!(ring_order(0, 0).is_empty());
+    }
+
+    #[test]
+    fn parse_position_accepts_only_side_plus_number() {
+        use crate::commands::sort_channel_commands::parse_position;
+        assert_eq!(parse_position("L1"), Some(('L', 1)));
+        assert_eq!(parse_position("R10"), Some(('R', 10)));
+        for bad in ["", "L", "L0", "X1", "l1", "L1a", "1L"] {
+            assert_eq!(parse_position(bad), None, "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn three_per_side_layout_rotates_on_its_own_ring() {
+        // 台中:左右各 3 格全指派同一家,輪流順序由現有格口長出,不是桃園那條十格的
+        let positions: Vec<(&str, &str)> = ["L1", "L2", "L3", "R1", "R2", "R3"].iter().map(|p| (*p, *p)).collect();
+        let db = routing_db(&positions, "C").await;
+        let routing = routing_state();
+        let expected: Vec<String> = ["L1", "R2", "L3", "R1", "L2", "R3"].iter().cycle().take(12).map(|s| s.to_string()).collect();
+        assert_eq!(assign_many(&db, &routing, "C", 12).await, expected);
+    }
+
+    #[tokio::test]
+    async fn apply_layout_adds_and_removes_positions() {
+        use crate::commands::sort_channel_commands::{apply_layout, load_layout, position_exists, SortLayout};
+        let db = full_ring_db("C").await;
+        // 縮成台中的 3/3:L4 L5 R4 R5 連同物流指派一起移除,留下的設定不動
+        let removed = apply_layout(&db, SortLayout { left: 3, right: 3 }).await.unwrap();
+        assert_eq!(removed, ["L4", "L5", "R4", "R5"]);
+        assert_eq!(load_layout(&db).await.unwrap(), SortLayout { left: 3, right: 3 });
+        assert!(position_exists(&db, "L3").await);
+        assert!(!position_exists(&db, "L4").await);
+        let dispatch_left: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sort_channel_dispatch")
+            .fetch_one(&db).await.unwrap().try_get("n").unwrap();
+        assert_eq!(dispatch_left, 6, "被移除位置的物流指派要一起清掉");
+        let code: Option<String> = sqlx::query("SELECT channel_code FROM sort_channels WHERE position = 'L3'")
+            .fetch_one(&db).await.unwrap().try_get("channel_code").unwrap();
+        assert_eq!(code.as_deref(), Some("L3"), "留下的格口設定不可被動到");
+        // 再改成 4/2:補建 L4 空列、移除 R3
+        let removed = apply_layout(&db, SortLayout { left: 4, right: 2 }).await.unwrap();
+        assert_eq!(removed, ["R3"]);
+        let l4: Option<String> = sqlx::query("SELECT channel_code FROM sort_channels WHERE position = 'L4'")
+            .fetch_one(&db).await.unwrap().try_get("channel_code").unwrap();
+        assert_eq!(l4, None, "補建的格口是空殼,由設定頁填代碼");
+        assert_eq!(ring_order(4, 2), ["L1", "R2", "L3", "R1", "L2", "L4"]);
+    }
+
+    #[tokio::test]
+    async fn apply_layout_rejects_out_of_range_without_touching_rows() {
+        use crate::commands::sort_channel_commands::{apply_layout, load_layout, SortLayout, MAX_SIDE_COUNT};
+        let db = full_ring_db("C").await;
+        assert!(apply_layout(&db, SortLayout { left: 0, right: 3 }).await.is_err());
+        assert!(apply_layout(&db, SortLayout { left: 3, right: MAX_SIDE_COUNT + 1 }).await.is_err());
+        assert_eq!(load_layout(&db).await.unwrap(), SortLayout { left: 5, right: 5 });
     }
 
     #[tokio::test]
@@ -3068,8 +3265,8 @@ mod tests {
         let routing = routing_state();
         let first_lap = assign_many(&db, &routing, "C", 10).await;
         assert_eq!(first_lap, ring_sequence(10));
-        // 第 11 件尾碼 00 與左1 上一件(SF00000001000)相同 → 改給右2
-        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777700")).await;
+        // 第 11 件尾碼 7A 與左1 上一件(後兩碼 AB)有 A 重疊 → 改給右2(上一件 CD 不撞)
+        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF7777777777A")).await;
         assert_eq!(a.as_deref(), Some("R2"));
         let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777711")).await;
         assert_eq!(b.as_deref(), Some("L1"), "被讓過的左1 下一件就要補回");

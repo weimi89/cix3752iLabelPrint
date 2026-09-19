@@ -5,6 +5,8 @@ import {
   sortChannelSetEnabled,
   sortChannelUnassignedGet,
   sortChannelUnassignedSave,
+  sortLayoutGet,
+  sortLayoutSave,
   dispatchProviderList,
   listPrinters,
   getConfig,
@@ -22,7 +24,7 @@ import { hasBackend } from '@/api/runtime'
 
 const { t } = useI18n()
 
-const channels = ref([]) // 後端回來的 10 筆,position L1..L5 / R1..R5
+const channels = ref([]) // 後端回來的全部格口,position L1..Ln / R1..Rm,格數依「格口配置」
 const dispatchOptions = ref([])
 // direct_print 模式:各通道可設定本機印表機(面單依分配到的通道送對應印表機)
 const isDirectPrintMode = ref(false)
@@ -57,12 +59,54 @@ const openUnassignedDialog = () => {
   unassignedDialog.value = true
 }
 
-const POSITION_LABELS = computed(() => ({
-  L1: t('page.sort.pos.L1'), L2: t('page.sort.pos.L2'), L3: t('page.sort.pos.L3'), L4: t('page.sort.pos.L4'), L5: t('page.sort.pos.L5'),
-  R1: t('page.sort.pos.R1'), R2: t('page.sort.pos.R2'), R3: t('page.sort.pos.R3'), R4: t('page.sort.pos.R4'), R5: t('page.sort.pos.R5'),
-}))
-const LEFT_POSITIONS = ['L1', 'L2', 'L3', 'L4', 'L5']
-const RIGHT_POSITIONS = ['R1', 'R2', 'R3', 'R4', 'R5']
+// 位置代碼 L3 → 「左 3」;格數不固定,標籤由代碼算,不寫死一張表
+const posNumber = pos => Number(String(pos ?? '').slice(1)) || 0
+const posLabel = pos => t(String(pos ?? '')[0] === 'R' ? 'page.sort.posRight' : 'page.sort.posLeft', { n: posNumber(pos) })
+const sideOf = side => channels.value
+  .filter(c => c.position?.[0] === side)
+  .map(c => c.position)
+  .sort((a, b) => posNumber(a) - posNumber(b))
+const LEFT_POSITIONS = computed(() => sideOf('L'))
+const RIGHT_POSITIONS = computed(() => sideOf('R'))
+
+// 格口配置(左右各幾格)。以後端現有的格口列為準;對話框裡改的是草稿,套用後重拉清單
+const LAYOUT_MAX = 10
+const layout = ref({ left: 0, right: 0 })
+const layoutDraft = ref({ left: 5, right: 5 })
+const layoutDialog = ref(false)
+const savingLayout = ref(false)
+const openLayoutDialog = () => {
+  layoutDraft.value = { ...layout.value }
+  layoutDialog.value = true
+}
+const draftNum = k => Number(layoutDraft.value[k])
+const layoutValid = computed(() => ['left', 'right'].every(k => Number.isInteger(draftNum(k)) && draftNum(k) >= 1 && draftNum(k) <= LAYOUT_MAX))
+const layoutChanged = computed(() => draftNum('left') !== layout.value.left || draftNum('right') !== layout.value.right)
+// 縮減會移除的位置;其中已設通道代碼的要特別點名,分揀機那邊也得跟著調
+const layoutRemovals = computed(() => {
+  const gone = []
+  for (const side of ['L', 'R']) {
+    const keep = draftNum(side === 'L' ? 'left' : 'right') || 0
+    for (const pos of sideOf(side)) if (posNumber(pos) > keep) gone.push(pos)
+  }
+  return gone
+})
+const layoutRemovalsWithCode = computed(() => layoutRemovals.value.filter(p => (findChannel(p)?.channel_code || '').trim()))
+const saveLayout = async () => {
+  if (!layoutValid.value || !layoutChanged.value || dirty.value.size) return
+  savingLayout.value = true
+  errorMsg.value = ''
+  try {
+    const saved = await sortLayoutSave({ left: draftNum('left'), right: draftNum('right') })
+    layoutDialog.value = false
+    flash(t('page.sort.layout.saved', { l: saved.left, r: saved.right }))
+    await load()
+  } catch (e) {
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingLayout.value = false
+  }
+}
 
 const findChannel = pos => channels.value.find(c => c.position === pos)
 
@@ -74,14 +118,16 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch, uCode, , cfg] = await Promise.all([
+    const [list, dispatch, uCode, , cfg, lay] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
       sortChannelUnassignedGet(),
       reloadStickerHistory(),
       getConfig(),
+      sortLayoutGet(),
     ])
     channels.value = list
+    layout.value = { left: Number(lay?.left) || 0, right: Number(lay?.right) || 0 }
     originalCodes.value = new Map(list.map(c => [c.position, (c.channel_code || '').trim()]))
     dispatchOptions.value = dispatch
     unassignedCode.value = uCode ?? ''
@@ -230,7 +276,7 @@ const saveAll = async () => {
     // 該通道每一件都會「工控機收 200、統計與袋核對記已印,實體卻沒印」的靜默漏印。
     // 這是印表機必填的唯一把關處(「指派物流」頁不再檢查),不可省略。
     if (isDirectPrintMode.value && code && ch.dispatch_codes?.length && !ch.printer_name) {
-      errors.push(t('page.sort.printerRequired', { pos: POSITION_LABELS.value[pos] }))
+      errors.push(t('page.sort.printerRequired', { pos: posLabel(pos) }))
       continue // 保留 dirty 供修正
     }
     try {
@@ -268,7 +314,7 @@ const togglePause = async (pos, val) => {
   try {
     await sortChannelSetEnabled(pos, val)
     toast(
-      t(val ? 'page.sort.pause.resumedFlash' : 'page.sort.pause.pausedFlash', { pos: POSITION_LABELS.value[pos] }),
+      t(val ? 'page.sort.pause.resumedFlash' : 'page.sort.pause.pausedFlash', { pos: posLabel(pos) }),
       { type: val ? 'success' : 'warning' },
     )
   } catch (e) {
@@ -433,7 +479,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 
 <template>
   <div>
-    <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle')" :subtitle-short="$t('page.sort.subtitleShort')" icon="tabler-route">
+    <AppHeader :title="$t('page.sort.title')" :subtitle="$t('page.sort.subtitle', { l: layout.left, r: layout.right })" :subtitle-short="$t('page.sort.subtitleShort', { l: layout.left, r: layout.right })" icon="tabler-route">
       <template #actions>
         <div class="d-none d-md-flex ga-2">
           <DisplayLauncher
@@ -557,8 +603,106 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             <template v-else>{{ $t('page.sort.status.unset') }}</template>
           </VBtn>
         </div>
+
+        <VDivider vertical class="switch-divider" />
+
+        <!-- 格口配置:桃園左右各 5 格、台中各 3 格,同一支程式依現場設定長出格口卡片 -->
+        <div class="switch-item">
+          <VIcon icon="tabler-layout-columns" size="20" color="primary" class="flex-shrink-0" />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('page.sort.layout.title') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('page.sort.layout.brief', { l: layout.left, r: layout.right }) }}</div>
+          </div>
+          <VBtn
+            color="primary"
+            variant="tonal"
+            size="small"
+            class="flex-shrink-0 font-weight-bold"
+            :disabled="loading"
+            @click="openLayoutDialog"
+          >
+            <VIcon icon="tabler-adjustments" size="15" class="me-1" />
+            {{ $t('page.sort.layout.edit') }}
+          </VBtn>
+        </div>
       </div>
     </VCard>
+
+    <!-- 格口配置 Dialog -->
+    <VDialog v-model="layoutDialog" max-width="460" persistent>
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="layoutDialog = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
+      <VCard>
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-layout-columns'" size="18" color="primary" />
+            {{ $t('page.sort.layout.dialogTitle') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="px-5 pt-4 pb-2">
+          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.layout.hint') }}</div>
+          <VRow dense>
+            <VCol cols="6">
+              <VNumberInput
+                v-model="layoutDraft.left"
+                :min="1"
+                :max="LAYOUT_MAX"
+                :step="1"
+                :label="$t('page.sort.layout.left')"
+                control-variant="stacked"
+                density="compact"
+                hide-details
+                autofocus
+              />
+            </VCol>
+            <VCol cols="6">
+              <VNumberInput
+                v-model="layoutDraft.right"
+                :min="1"
+                :max="LAYOUT_MAX"
+                :step="1"
+                :label="$t('page.sort.layout.right')"
+                control-variant="stacked"
+                density="compact"
+                hide-details
+              />
+            </VCol>
+          </VRow>
+          <VAlert v-if="dirty.size" type="warning" variant="tonal" density="compact" class="mt-3">
+            {{ $t('page.sort.layout.dirtyWarn') }}
+          </VAlert>
+          <VAlert v-else-if="layoutRemovals.length" type="warning" variant="tonal" density="compact" class="mt-3">
+            <div>{{ $t('page.sort.layout.removeWarn', { list: layoutRemovals.map(posLabel).join('、') }) }}</div>
+            <div v-if="layoutRemovalsWithCode.length" class="mt-1 font-weight-medium">
+              {{ $t('page.sort.layout.removeWarnCode', { list: layoutRemovalsWithCode.map(p => `${posLabel(p)} (${findChannel(p).channel_code})`).join('、') }) }}
+            </div>
+          </VAlert>
+        </VCardText>
+        <VCardActions class="px-5 pb-4">
+          <VSpacer />
+          <VBtn variant="text" @click="layoutDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn
+            :color="layoutRemovals.length ? 'warning' : 'primary'"
+            variant="elevated"
+            :loading="savingLayout"
+            :disabled="!layoutValid || !layoutChanged || dirty.size > 0"
+            @click="saveLayout"
+          >
+            {{ $t('page.sort.layout.save') }}
+          </VBtn>
+        </VCardActions>
+      </VCard>
+      </div>
+    </VDialog>
 
     <!-- 未設定指派物流 fallback 設定 Dialog -->
     <VDialog v-model="unassignedDialog" max-width="420" persistent>
@@ -573,11 +717,14 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
       <VCard>
-        <VCardTitle class="d-flex align-center ga-2 pt-4 px-5">
-          <VIcon icon="tabler-question-mark" size="18" color="secondary" />
-          {{ $t('page.sort.unassigned.label') }}
-        </VCardTitle>
-        <VCardText class="px-5 pb-2">
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-question-mark'" size="18" color="secondary" />
+            {{ $t('page.sort.unassigned.label') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="px-5 pt-4 pb-2">
           <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.unassigned.hint') }}</div>
           <VTextField
             v-model="unassignedDraft"
@@ -620,7 +767,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             <template v-if="findChannel(pos)">
               <div class="channel-card__head">
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-left" size="18" color="primary" />
-                <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
+                <span class="channel-card__title">{{ posLabel(pos) }}</span>
                 <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip">{{ $t('page.sort.status.unsaved') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code && !findChannel(pos).enabled" size="x-small" color="warning" variant="flat" class="channel-card__chip">{{ $t('page.sort.status.paused') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.enabled') }}</VChip>
@@ -736,7 +883,7 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           >
             <template v-if="findChannel(pos)">
               <div class="channel-card__head">
-                <span class="channel-card__title">{{ POSITION_LABELS[pos] }}</span>
+                <span class="channel-card__title">{{ posLabel(pos) }}</span>
                 <VChip v-if="dirty.has(pos)" size="x-small" color="warning" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.unsaved') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code && !findChannel(pos).enabled" size="x-small" color="warning" variant="flat" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.paused') }}</VChip>
                 <VChip v-else-if="findChannel(pos).channel_code" size="x-small" color="success" variant="tonal" class="channel-card__chip" style="margin-left: auto;">{{ $t('page.sort.status.enabled') }}</VChip>

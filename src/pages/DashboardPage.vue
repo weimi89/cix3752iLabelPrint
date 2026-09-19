@@ -393,19 +393,43 @@ const formatBytes = bytes => {
     </VAlert>
 
     <!-- 重置本場累計 — 與 PrintStatsPage 同對話框語意 -->
-    <VDialog v-model="resetDialog" max-width="420">
+    <VDialog v-model="resetDialog" max-width="440">
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="resetDialog = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
       <VCard>
-        <VCardTitle>{{ $t('page.printStats.resetDialogTitle') }}</VCardTitle>
-        <VCardText>
-          {{ $t('page.printStats.resetDialogBody') }}
-          <VAlert v-if="resetError" type="error" variant="tonal" class="mt-2">{{ resetError }}</VAlert>
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon icon="tabler-restore" size="18" color="warning" />
+            {{ $t('page.printStats.resetDialogTitle') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="px-5 pt-4 pb-2">
+          <div class="text-body-medium mb-3">{{ $t('page.printStats.resetDialogBody') }}</div>
+          <div class="d-flex align-center ga-2 text-body-small text-medium-emphasis">
+            <VIcon icon="tabler-clock-play" size="15" />
+            <span>{{ $t('page.printStats.sinceLabel') }} {{ summarySinceLabel }}</span>
+          </div>
+          <VAlert v-if="resetError" type="error" variant="tonal" density="compact" class="mt-3">{{ resetError }}</VAlert>
         </VCardText>
-        <VCardActions>
+        <VCardActions class="px-5 pb-4">
           <VSpacer />
           <VBtn variant="text" @click="resetDialog = false">{{ $t('common.cancel') }}</VBtn>
-          <VBtn color="primary" variant="flat" @click="confirmReset">{{ $t('page.printStats.resetConfirm') }}</VBtn>
+          <VBtn color="warning" variant="elevated" @click="confirmReset">
+            <VIcon icon="tabler-restore" size="16" class="me-1" />
+            {{ $t('page.printStats.resetConfirm') }}
+          </VBtn>
         </VCardActions>
       </VCard>
+      </div>
     </VDialog>
   </div>
 </template>

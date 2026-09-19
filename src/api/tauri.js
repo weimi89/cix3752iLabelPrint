@@ -556,6 +556,15 @@ export const sortChannelUnassignedSave = (code) => {
   if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_unassigned_save', { code: code || null })
 }
+// 格口配置(左右各幾格):後端以 sort_channels 現有的列為準,改配置會補建／移除位置列
+export const sortLayoutGet = async () => {
+  if (!hasBackend) return { left: 5, right: 5 }
+  return await invoke('sort_layout_get')
+}
+export const sortLayoutSave = layout => {
+  if (!hasBackend) return Promise.resolve({ ...layout })
+  return invoke('sort_layout_save', { layout })
+}
 export const stickerHistoryList = async () => {
   if (!hasBackend) return ['王小明', '陳大華', '林美麗']
   return await invoke('sticker_history_list')
@@ -583,6 +592,21 @@ const MOCK_PARCEL_QUERY_LOG = Array.from({ length: 60 }, (_, i) => ({
   // 每 3 筆有一張讀碼站快照(獨立 captures 目錄,key 無前綴;預覽模式檔案不存在,VImg 落 error 樣板)
   photo_path: i % 3 === 0 ? `${16021200 - i}_20260626001425.jpg` : null,
 }))
+// 讀碼失敗照片回顧:某天的 NoRead 存證照 + 原因標記 + 各原因件數
+export const NOREAD_TAGS = ['label_back', 'glare', 'damaged', 'small', 'position', 'no_label', 'other']
+export const noreadReviewList = async ({ day, tag = null, untaggedOnly = false, limit = 60, offset = 0 }) => {
+  if (!hasBackend) {
+    const items = MOCK_PARCEL_QUERY_LOG.filter(r => r.photo_path).slice(0, 12).map((r, i) => ({ response_id: -(i + 1), created_at: r.created_at, photo_path: r.photo_path, tag: i % 4 === 0 ? 'glare' : null, note: null }))
+    const filtered = items.filter(r => (tag ? r.tag === tag : true) && (untaggedOnly ? !r.tag : true))
+    return { items: filtered.slice(offset, offset + limit), total: filtered.length, day_total: items.length, tagged: items.filter(r => r.tag).length, tag_counts: NOREAD_TAGS.map(t => ({ tag: t, count: items.filter(r => r.tag === t).length })) }
+  }
+  return await invoke('noread_review_list', { req: { day, tag, untagged_only: untaggedOnly, limit, offset } })
+}
+export const noreadReviewTag = async (responseId, tag, note = null) => {
+  if (!hasBackend) return
+  return await invoke('noread_review_tag', { responseId, tag, note })
+}
+
 export const parcelQueryLogList = async ({ queryNo = null, trackingNo = null, msField = null, minMs = null, limit = 25, offset = 0 } = {}) => {
   if (!hasBackend) {
     let list = MOCK_PARCEL_QUERY_LOG

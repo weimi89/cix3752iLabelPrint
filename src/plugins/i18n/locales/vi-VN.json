@@ -67,6 +67,7 @@
     "eventLog": "Nhật ký sự kiện",
     "queueLog": "Lịch sử hàng đợi",
     "parcelQueryLog": "Lịch sử yêu cầu",
+    "noreadReview": "Lỗi đọc mã",
     "alertLog": "Cảnh báo tra cứu",
     "printStats": "Thống kê in nhãn"
   },
@@ -879,6 +880,30 @@
         "message": "Thông báo"
       }
     },
+    "noreadReview": {
+      "title": "Lỗi đọc mã",
+      "subtitleShort": "Xem ảnh NoRead và gắn nguyên nhân",
+      "subtitle": "Ảnh trạm đọc mã chụp khi máy công nghiệp không đọc được mã; gắn nguyên nhân từng ảnh, thống kê loại nào nhiều nhất để biết cần chỉnh gì ở trạm đọc mã",
+      "day": "Ngày",
+      "dayTotal": "Đọc mã thất bại trong ngày",
+      "tagged": "Đã gắn",
+      "untaggedOnly": "Chỉ xem chưa gắn",
+      "allTags": "Tất cả nguyên nhân",
+      "noPhoto": "Không có ảnh (camera chưa lấy được hình lúc đó)",
+      "noItems": "Ngày này không có ghi nhận đọc mã thất bại",
+      "clearTag": "Xóa gắn",
+      "tagSaved": "Đã gắn",
+      "tag": {
+        "label_back": "Nhãn úp xuống / mặt sau",
+        "glare": "Chói sáng",
+        "damaged": "Rách nhăn",
+        "small": "Kiện hoặc nhãn quá nhỏ",
+        "position": "Lệch khỏi tầm nhìn",
+        "no_label": "Chưa dán nhãn",
+        "other": "Khác"
+      },
+      "hint": "Bấm ảnh để phóng to; nút bên dưới gắn nguyên nhân, bấm lại cùng nút để xóa"
+    },
     "parcelQueryLog": {
       "title": "Lịch sử yêu cầu",
       "subtitleShort": "Lịch sử tra cứu của máy công nghiệp",
@@ -914,13 +939,25 @@
       "unassigned": "Chưa gán kênh"
     },
     "sort": {
-      "pos": {
-        "L1": "Trái 1", "L2": "Trái 2", "L3": "Trái 3", "L4": "Trái 4", "L5": "Trái 5",
-        "R1": "Phải 1", "R2": "Phải 2", "R3": "Phải 3", "R4": "Phải 4", "R5": "Phải 5"
-      },
+      "posLeft": "Trái {n}",
+      "posRight": "Phải {n}",
       "title": "Kênh phân loại",
-      "subtitleShort": "Cài đặt 10 kênh trái / phải",
-      "subtitle": "5 kênh trái / 5 kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
+      "subtitleShort": "Cài đặt {l} kênh trái / {r} kênh phải",
+      "subtitle": "{l} kênh trái / {r} kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
+      "layout": {
+        "title": "Bố trí cửa phân loại",
+        "brief": "Trái {l} cửa / Phải {r} cửa",
+        "edit": "Điều chỉnh",
+        "dialogTitle": "Điều chỉnh bố trí cửa phân loại",
+        "hint": "Đặt theo số cửa thực tế của máy phân loại tại hiện trường, trái phải có thể khác nhau. Cửa thêm mới sẽ hiện thành thẻ trống; cửa bị giảm sẽ bị xóa cùng mã kênh, hãng vận chuyển, nhân viên dán nhãn và máy in của nó.",
+        "left": "Số cửa bên trái",
+        "right": "Số cửa bên phải",
+        "removeWarn": "Sau khi áp dụng sẽ xóa: {list}",
+        "removeWarnCode": "Trong đó {list} đã đặt mã kênh, cũng cần điều chỉnh cửa tương ứng trên máy phân loại",
+        "dirtyWarn": "Có thay đổi kênh chưa lưu, hãy lưu hoặc tải lại trước khi điều chỉnh bố trí",
+        "save": "Áp dụng bố trí",
+        "saved": "Đã đổi bố trí thành trái {l} cửa / phải {r} cửa"
+      },
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
       "saveAll": "Lưu tất cả thay đổi ({n})",
       "savedFlash": "Đã lưu hàng loạt {n} mục",
@@ -993,7 +1030,7 @@
       "orderHint": "Số càng nhỏ càng đứng trước",
       "confirmDelete": "Xác nhận xoá",
       "confirmDeleteBody": "Bạn có chắc muốn xoá \"{name}\" ({code}) không?",
-      "confirmDeleteHint": "Các kênh đã chỉ định hãng này sẽ tự động xoá dispatch_code.",
+      "confirmDeleteHint": "Các kênh đã gán hãng này sẽ tự động bỏ gán hãng này.",
       "col": {
         "order": "Thứ tự",
         "code": "Mã",
@@ -1190,7 +1227,7 @@
       "noData": "Không có dữ liệu",
       "resetBtn": "Đặt lại ca này",
       "resetDialogTitle": "Đặt lại ca này?",
-      "resetDialogBody": "Sau khi reset, \"Ca này\" sẽ về 0, thích hợp cho mỗi ca làm việc / mỗi nhân viên thời vụ kết toán. Lịch sử in không bị xoá, chỉ là thời điểm bắt đầu KPI đổi sang hiện tại.",
+      "resetDialogBody": "Sau khi đặt lại, \"Ca này\" sẽ tính lại từ 0, thích hợp dùng trước hoặc sau khi kết toán mỗi ca làm việc hay mỗi nhân viên thời vụ. Lịch sử in không bị xoá, chỉ thời điểm bắt đầu tính đổi sang hiện tại.",
       "resetConfirm": "Xác nhận reset"
     }
   }

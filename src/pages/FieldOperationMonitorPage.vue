@@ -324,9 +324,25 @@ const applyDates = () => {
 
     <!-- 日期區間設定 -->
     <VDialog v-model="dlg" max-width="420">
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="dlg = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
       <VCard>
-        <VCardTitle class="text-body-large">{{ $t('page.fieldOperationMonitor.setRange') }}</VCardTitle>
-        <VCardText>
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-calendar'" size="18" color="primary" />
+            {{ $t('page.fieldOperationMonitor.setRange') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="pt-4">
           <div class="text-body-small text-medium-emphasis mb-3">{{ $t('page.fieldOperationMonitor.rangeHint') }}</div>
           <div class="date-range">
             <div class="date-range__field"><AppDatePicker v-model="dFrom" density="compact" /></div>
@@ -340,6 +356,7 @@ const applyDates = () => {
           <VBtn color="primary" variant="flat" :loading="loading" @click="applyDates">{{ $t('common.search') }}</VBtn>
         </VCardActions>
       </VCard>
+      </div>
     </VDialog>
   </div>
 </template>

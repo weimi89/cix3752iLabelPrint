@@ -192,8 +192,14 @@ const confirmDelete = async () => {
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
       <VCard>
-        <VCardTitle>{{ $t(editingOriginalCode === null ? 'page.dispatch.create' : 'common.edit') }}</VCardTitle>
-        <VCardText>
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="editingOriginalCode === null ? 'tabler-plus' : 'tabler-pencil'" size="18" color="primary" />
+            {{ $t(editingOriginalCode === null ? 'page.dispatch.create' : 'common.edit') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="pt-4">
           <div class="search-field mb-3">
             <label>{{ $t('page.dispatch.col.code') }}</label>
             <VTextField
@@ -256,8 +262,14 @@ const confirmDelete = async () => {
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
       <VCard>
-        <VCardTitle>{{ $t('page.dispatch.confirmDelete') }}</VCardTitle>
-        <VCardText v-if="deleteTarget">
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-trash'" size="18" color="error" />
+            {{ $t('page.dispatch.confirmDelete') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText v-if="deleteTarget" class="pt-4">
           <i18n-t keypath="page.dispatch.confirmDeleteBody" tag="span">
             <template #name><span class="font-weight-bold">{{ deleteTarget.name }}</span></template>
             <template #code>{{ deleteTarget.code }}</template>

@@ -187,12 +187,25 @@ const copyAddr = async addr => {
 
     <!-- 手機遙控連線 Dialog(QR + URL) -->
     <VDialog v-model="remoteDialog" max-width="440">
+      <div style="position: relative;">
+        <VBtn
+          icon
+          variant="elevated"
+          size="x-small"
+          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
+          @click="remoteDialog = false"
+        >
+          <VIcon icon="tabler-x" size="14" />
+        </VBtn>
       <VCard>
-        <VCardTitle class="d-flex align-center ga-2 pt-4 px-5">
-          <VIcon icon="tabler-device-mobile" size="20" color="info" />
-          {{ $t('page.sort.remote.title') }}
-        </VCardTitle>
-        <VCardText class="px-5 pb-2">
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-device-mobile'" size="18" color="info" />
+            {{ $t('page.sort.remote.title') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="px-5 pt-4 pb-2">
           <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.remote.hint') }}</div>
 
           <div v-if="remoteLoading" class="d-flex justify-center py-8">
@@ -224,15 +237,19 @@ const copyAddr = async addr => {
           <VBtn color="primary" variant="elevated" @click="remoteDialog = false">{{ $t('common.close') }}</VBtn>
         </VCardActions>
       </VCard>
+      </div>
     </VDialog>
 
     <VDialog v-model="showUpdateDialog" max-width="480" persistent>
       <VCard>
-        <VCardTitle class="d-flex align-center px-4 py-3 bg-grey-300">
-          <VIcon icon="tabler-arrow-up-circle" color="warning" class="me-2" />
-          {{ $t('updater.title') }}
-        </VCardTitle>
-        <VCardText class="pa-4">
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon :icon="'tabler-arrow-up-circle'" size="18" color="warning" />
+            {{ $t('updater.title') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="px-5 pt-4 pb-2">
           <div class="mb-2">
             <span class="text-body-medium text-medium-emphasis">{{ $t('updater.current') }}</span>
             <strong class="ms-1">v{{ updateInfo?.currentVersion }}</strong>

@@ -209,8 +209,14 @@ const onDragStart = e => {
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
         <VCard>
-        <VCardTitle class="text-body-large">{{ t('page.clearanceProgress.setRange') }}</VCardTitle>
-        <VCardText>
+        <VCardItem class="px-5 py-3">
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
+            <VIcon icon="tabler-calendar" size="18" color="primary" />
+            {{ t('page.clearanceProgress.setRange') }}
+          </VCardTitle>
+        </VCardItem>
+        <VDivider />
+        <VCardText class="pt-4">
           <div class="text-body-small text-medium-emphasis mb-3">{{ t('page.clearanceProgress.rangeHint') }}</div>
           <div class="date-range">
             <div class="date-range__field"><AppDatePicker v-model="dFrom" density="compact" /></div>

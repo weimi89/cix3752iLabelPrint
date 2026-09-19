@@ -4,9 +4,138 @@ use tauri::State;
 
 use crate::{db::DbPool, AppError, AppResult, SharedState};
 
-pub const POSITIONS: [&str; 10] = [
-    "L1", "L2", "L3", "L4", "L5", "R1", "R2", "R3", "R4", "R5",
-];
+/// 每側最多幾格。格口配置對應現場分揀機的實體格口數,超過這個數多半是填錯。
+pub const MAX_SIDE_COUNT: i64 = 10;
+
+/// 格口配置:左右各幾格。以 `sort_channels` 現有的列為準、不另存設定 ——
+/// 列在就是有這一格,設定頁、手機遙控、看板、分配全從同一份列讀,不會出現「設定說 3 格、列還有 5 格」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortLayout {
+    pub left: i64,
+    pub right: i64,
+}
+
+/// 拆位置代碼:`L3` → ('L', 3)。格式不對回 None,各入口靠它擋掉亂填的位置。
+pub fn parse_position(pos: &str) -> Option<(char, i64)> {
+    let mut chars = pos.chars();
+    let side = chars.next()?;
+    if side != 'L' && side != 'R' {
+        return None;
+    }
+    let n: i64 = chars.as_str().parse().ok()?;
+    (n >= 1).then_some((side, n))
+}
+
+/// 目前的格口配置:各側取最大的位置號(套用配置時位置一定連號,最大號就是格數)。
+pub async fn load_layout(db: &DbPool) -> AppResult<SortLayout> {
+    let rows = sqlx::query("SELECT position FROM sort_channels").fetch_all(db).await?;
+    let mut layout = SortLayout { left: 0, right: 0 };
+    for r in rows {
+        let pos: String = r.try_get("position").unwrap_or_default();
+        match parse_position(&pos) {
+            Some(('L', n)) => layout.left = layout.left.max(n),
+            Some(('R', n)) => layout.right = layout.right.max(n),
+            _ => {}
+        }
+    }
+    Ok(layout)
+}
+
+/// 位置是否存在於目前的格口配置。桌面與手機所有「依位置操作」的入口都靠這個擋:
+/// 縮減配置後被移除的位置不能再被暫停／指派,否則會憑空寫出一列。
+pub async fn position_exists(db: &DbPool, position: &str) -> bool {
+    if parse_position(position).is_none() {
+        return false;
+    }
+    sqlx::query("SELECT 1 FROM sort_channels WHERE position = ?")
+        .bind(position)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+/// 套用格口配置:補建缺少的位置列、移除超出的位置(連同它的物流指派)。回傳被移除的位置。
+/// 被移除位置的通道代碼、貼標人員、印表機設定跟著消失 —— 呼叫端要先讓使用者確認過。
+pub async fn apply_layout(db: &DbPool, layout: SortLayout) -> AppResult<Vec<String>> {
+    for (side, n) in [("左", layout.left), ("右", layout.right)] {
+        if !(1..=MAX_SIDE_COUNT).contains(&n) {
+            return Err(AppError::Server(format!(
+                "{side}側格數必須在 1 到 {MAX_SIDE_COUNT} 之間"
+            )));
+        }
+    }
+    let mut tx = db.begin().await?;
+    let mut removed = Vec::new();
+    for (side, count) in [('L', layout.left), ('R', layout.right)] {
+        for n in 1..=count {
+            // updated_at 明寫 localtime:0003 建表時的預設值是 UTC,沿用會讓新列比其他列少 8 小時
+            sqlx::query(
+                "INSERT OR IGNORE INTO sort_channels (position, updated_at) VALUES (?, datetime('now','localtime'))",
+            )
+            .bind(format!("{side}{n}"))
+            .execute(&mut *tx)
+            .await?;
+        }
+        let extra = sqlx::query(
+            "SELECT position FROM sort_channels
+              WHERE substr(position,1,1) = ? AND CAST(substr(position,2) AS INTEGER) > ?
+              ORDER BY CAST(substr(position,2) AS INTEGER)",
+        )
+        .bind(side.to_string())
+        .bind(count)
+        .fetch_all(&mut *tx)
+        .await?;
+        for r in extra {
+            let pos: String = r.try_get("position").unwrap_or_default();
+            sqlx::query("DELETE FROM sort_channel_dispatch WHERE position = ?")
+                .bind(&pos)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM sort_channels WHERE position = ?")
+                .bind(&pos)
+                .execute(&mut *tx)
+                .await?;
+            removed.push(pos);
+        }
+    }
+    tx.commit().await?;
+    Ok(removed)
+}
+
+#[tauri::command]
+pub async fn sort_layout_get(state: State<'_, SharedState>) -> AppResult<SortLayout> {
+    load_layout(&state.db).await
+}
+
+/// 改格口配置(桌面與手機 /rpc 共用)。記事件並廣播,看板與設定頁重拉清單。
+#[tauri::command]
+pub async fn sort_layout_save(
+    state: State<'_, SharedState>,
+    app: tauri::AppHandle,
+    layout: SortLayout,
+) -> AppResult<SortLayout> {
+    let removed = apply_layout(&state.db, layout).await?;
+    let detail = if removed.is_empty() {
+        String::new()
+    } else {
+        format!(",移除 {}", removed.join("、"))
+    };
+    crate::event_log::log_bg(
+        state.db.clone(),
+        "info",
+        "server",
+        "格口配置",
+        format!("格口配置改為左 {} 格／右 {} 格{detail}", layout.left, layout.right),
+    );
+    let _ = crate::event_bridge::emit(
+        &app,
+        "sort-layout-updated",
+        serde_json::json!({ "left": layout.left, "right": layout.right, "removed": removed }),
+    );
+    load_layout(&state.db).await
+}
 
 /// 將人員姓名寫入共用歷史名單(操作 / 貼單 / 貼標人員三者共用同一份),
 /// 已存在則只更新 used_at。空字串不寫入。
@@ -47,7 +176,7 @@ fn default_true() -> bool {
 
 #[tauri::command]
 pub async fn sort_channel_list(state: State<'_, SharedState>) -> AppResult<Vec<SortChannel>> {
-    // 用 CASE 排序保證 L1..L5, R1..R5 順序
+    // 用 CASE 排序保證先左後右、號碼由小到大(L10 不會排在 L2 前面)
     let rows = sqlx::query(
         "SELECT position, channel_code, job_sticker, printer_name, enabled
          FROM sort_channels
@@ -116,7 +245,7 @@ pub async fn sort_channel_save(
     state: State<'_, SharedState>,
     req: SortChannelSaveReq,
 ) -> AppResult<()> {
-    if !POSITIONS.contains(&req.position.as_str()) {
+    if !position_exists(&state.db, &req.position).await {
         return Err(AppError::Server(format!("無效的通道位置: {}", req.position)));
     }
 
@@ -221,8 +350,7 @@ pub async fn sort_channel_set_enabled(
     position: String,
     enabled: bool,
 ) -> AppResult<()> {
-    
-    if !POSITIONS.contains(&position.as_str()) {
+    if !position_exists(&state.db, &position).await {
         return Err(AppError::Server(format!("無效的通道位置: {position}")));
     }
     sqlx::query(
@@ -235,6 +363,14 @@ pub async fn sort_channel_set_enabled(
     .execute(&state.db)
     .await?;
     // 廣播給所有視窗(及讓手機輪詢一致):桌面與手機任一端切換,兩邊都同步
+    // 記進事件記錄:格口件數突然掛零時要查得到是誰何時關的(手機遙控那條在 server::set_channel_enabled)
+    crate::event_log::log_bg(
+        state.db.clone(),
+        "info",
+        "server",
+        "分揀通道切換",
+        format!("通道 {position} 已{}(桌面)", if enabled { "啟用" } else { "暫停" }),
+    );
     let _ = crate::event_bridge::emit(
         &app,
         "sort-channel-updated",
