@@ -882,27 +882,13 @@
     },
     "noreadReview": {
       "title": "讀碼異常",
-      "subtitleShort": "翻看 NoRead 存證照並標原因",
-      "subtitle": "工控機讀不到單號時讀碼站拍下的存證照;逐張標記讀不到的原因,統計哪種最多,才知道讀碼站要調什麼",
+      "subtitleShort": "翻看 NoRead 存證照",
+      "subtitle": "工控機讀不到單號時讀碼站拍下的存證照;翻照片看是投料還是讀碼站的問題(讀碼失敗的原因由分揀控制程式從讀碼站回應判定)",
       "day": "日期",
       "dayTotal": "當天讀碼失敗",
-      "tagged": "已標記",
-      "untaggedOnly": "只看未標記",
-      "allTags": "全部原因",
       "noPhoto": "沒有照片(當時相機未取到畫面)",
       "noItems": "這一天沒有讀碼失敗的紀錄",
-      "clearTag": "清除標記",
-      "tagSaved": "已標記",
-      "tag": {
-        "label_back": "標籤朝下／背面",
-        "glare": "反光",
-        "damaged": "破損皺褶",
-        "small": "包裹或標籤太小",
-        "position": "偏出視野",
-        "no_label": "沒貼標",
-        "other": "其他"
-      },
-      "hint": "點照片放大;下方按鈕直接標原因,再按一次同一個就清除"
+      "hint": "點照片放大"
     },
     "parcelQueryLog": {
       "title": "請求記錄",

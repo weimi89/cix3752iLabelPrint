@@ -188,7 +188,6 @@ async fn dispatch(app: &tauri::AppHandle, cmd: &str, args: Value) -> Result<Valu
         "ping" => v(commands::ping())?,
         "parcel_alert_list" => v(commands::parcel_alert_commands::parcel_alert_list(app.state(), arg(&args, "req")?).await?)?,
         "noread_review_list" => v(commands::noread_review_commands::noread_review_list(app.state(), arg(&args, "req")?).await?)?,
-        "noread_review_tag" => v(commands::noread_review_commands::noread_review_tag(app.state(), arg(&args, "responseId")?, arg(&args, "tag")?, arg(&args, "note")?).await?)?,
         "parcel_query_log_list" => v(commands::parcel_query_log_commands::parcel_query_log_list(app.state(), arg(&args, "req")?).await?)?,
         "print_stats_by_channel" => v(commands::print_stats_commands::print_stats_by_channel(app.state(), arg(&args, "req")?).await?)?,
         "print_stats_by_provider" => v(commands::print_stats_commands::print_stats_by_provider(app.state(), arg(&args, "req")?).await?)?,

@@ -23,6 +23,7 @@ declare module 'vue' {
     MultiNoField: typeof import('./components/MultiNoField.vue')['default']
     NetworkStatusIndicator: typeof import('./components/NetworkStatusIndicator.vue')['default']
     PersonnelCombobox: typeof import('./components/PersonnelCombobox.vue')['default']
+    PhotoViewer: typeof import('./components/PhotoViewer.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SoundSettingsDialog: typeof import('./components/SoundSettingsDialog.vue')['default']

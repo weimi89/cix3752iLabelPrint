@@ -882,27 +882,13 @@
     },
     "noreadReview": {
       "title": "Lỗi đọc mã",
-      "subtitleShort": "Xem ảnh NoRead và gắn nguyên nhân",
-      "subtitle": "Ảnh trạm đọc mã chụp khi máy công nghiệp không đọc được mã; gắn nguyên nhân từng ảnh, thống kê loại nào nhiều nhất để biết cần chỉnh gì ở trạm đọc mã",
+      "subtitleShort": "Xem ảnh NoRead",
+      "subtitle": "Ảnh bằng chứng do trạm đọc mã chụp khi máy công nghiệp không đọc được mã; xem ảnh để biết là do đưa hàng hay do trạm đọc mã",
       "day": "Ngày",
       "dayTotal": "Đọc mã thất bại trong ngày",
-      "tagged": "Đã gắn",
-      "untaggedOnly": "Chỉ xem chưa gắn",
-      "allTags": "Tất cả nguyên nhân",
       "noPhoto": "Không có ảnh (camera chưa lấy được hình lúc đó)",
       "noItems": "Ngày này không có ghi nhận đọc mã thất bại",
-      "clearTag": "Xóa gắn",
-      "tagSaved": "Đã gắn",
-      "tag": {
-        "label_back": "Nhãn úp xuống / mặt sau",
-        "glare": "Chói sáng",
-        "damaged": "Rách nhăn",
-        "small": "Kiện hoặc nhãn quá nhỏ",
-        "position": "Lệch khỏi tầm nhìn",
-        "no_label": "Chưa dán nhãn",
-        "other": "Khác"
-      },
-      "hint": "Bấm ảnh để phóng to; nút bên dưới gắn nguyên nhân, bấm lại cùng nút để xóa"
+      "hint": "Nhấn vào ảnh để phóng to"
     },
     "parcelQueryLog": {
       "title": "Lịch sử yêu cầu",

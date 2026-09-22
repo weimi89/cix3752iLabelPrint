@@ -4,6 +4,8 @@ import { listen } from '@/api/events'
 import AppHeader from '@/components/AppHeader.vue'
 import TablePagination from '@/components/TablePagination.vue'
 import MultiNoField from '@/components/MultiNoField.vue'
+import PhotoViewer from '@/components/PhotoViewer.vue'
+import { toast } from 'vue3-toastify'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
 import { hasBackend } from '@/api/runtime'
@@ -26,16 +28,14 @@ const errorMsg = ref('')
 const serverPort = ref(18080)
 const mediaUrl = (route, key) => (key ? buildMediaUrl(`/${route}/${encodeURI(key)}`, serverPort.value) : '')
 const viewer = ref({ open: false, title: '', key: '', url: '' })
-// 圖片載入失敗旗標(404 / 檔案已被清理):每次開新圖前歸零,<img> @error 時設 true → 顯示「圖案已遺失」
-const viewerError = ref(false)
 const openSnapshot = row => {
-  viewerError.value = false
   viewer.value = { open: true, title: t('page.parcelQueryLog.snapshotTitle'), key: row.photo_path, url: mediaUrl('captures', row.photo_path) }
 }
 const openLabel = row => {
-  viewerError.value = false
   viewer.value = { open: true, title: t('page.parcelQueryLog.labelTitle'), key: row.label_key, url: mediaUrl('images', row.label_key) }
 }
+// 圖片載不到(404 / 檔案已被清理)：檢視器不開,提示「圖案已遺失」
+const imageMissing = () => toast(t('page.parcelQueryLog.imageLoadFailed'), { type: 'warning', autoClose: 3000 })
 
 const MS_FIELDS = computed(() => [
   { title: t('page.parcelQueryLog.msFieldAny'), value: null },
@@ -112,12 +112,6 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
   }
 }
 
-.viewer-img {
-  display: block;
-  max-width: 100%;
-  max-height: 70vh;
-  margin: 0 auto;
-}
 </style>
 
 <template>
@@ -278,42 +272,6 @@ const formatDate = s => s ? s.replace('T', ' ').slice(0, 19) : ''
     </VCard>
 
     <!-- 通用圖片檢視器:存證快照 / 面單原圖共用 -->
-    <VDialog v-model="viewer.open" max-width="760">
-      <div v-if="viewer.key" style="position: relative;">
-        <VBtn
-          icon
-          variant="elevated"
-          size="x-small"
-          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
-          @click="viewer.open = false"
-        >
-          <VIcon icon="tabler-x" size="14" />
-        </VBtn>
-        <VCard>
-        <VCardItem>
-          <VCardTitle>{{ viewer.title }}</VCardTitle>
-        </VCardItem>
-        <VDivider />
-        <VCardText class="text-center">
-          <img
-            v-if="viewer.url && !viewerError"
-            :src="viewer.url"
-            class="viewer-img"
-            alt=""
-            @error="viewerError = true"
-          />
-          <div
-            v-else
-            class="d-flex flex-column align-center justify-center text-disabled"
-            style="min-height: 180px;"
-          >
-            <VIcon icon="tabler-photo-off" size="40" class="mb-2" />
-            <div>{{ $t('page.parcelQueryLog.imageLoadFailed') }}</div>
-          </div>
-          <div class="text-body-small text-disabled mt-2"><code>{{ viewer.key }}</code></div>
-        </VCardText>
-        </VCard>
-      </div>
-    </VDialog>
+    <PhotoViewer v-model="viewer.open" :url="viewer.url" :title="viewer.title" @error="imageMissing" />
   </div>
 </template>

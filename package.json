@@ -37,6 +37,7 @@
     "overlayscrollbars-vue": "^0.5.10",
     "pinia": "^4.0.2",
     "qrcode": "^1.5.4",
+    "viewerjs": "1.13.0",
     "vue": "^3.5.40",
     "vue-echarts": "^8.0.1",
     "vue-i18n": "^11.4.8",

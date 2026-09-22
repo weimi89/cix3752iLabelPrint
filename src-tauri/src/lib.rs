@@ -165,7 +165,6 @@ pub fn run() {
             commands::health_commands::network_health_check,
             commands::parcel_query_log_commands::parcel_query_log_list,
             commands::noread_review_commands::noread_review_list,
-            commands::noread_review_commands::noread_review_tag,
             commands::print_stats_commands::print_stats_summary,
             commands::print_stats_commands::print_stats_daily,
             commands::print_stats_commands::print_stats_hourly,
