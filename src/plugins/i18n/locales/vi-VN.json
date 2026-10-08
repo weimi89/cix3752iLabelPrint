@@ -998,6 +998,14 @@
         "current": "Kênh mặc định: {code}",
         "save": "Lưu",
         "saved": "Đã lưu"
+      },
+      "exception": {
+        "title": "Kênh bất thường",
+        "brief": "Mã trả về cho kiện bất thường",
+        "label": "Kiện bất thường — Mã kênh",
+        "hint": "Kiện đọc mã thất bại, tra cứu bất thường (cửa hàng đóng/chuyển, không tìm thấy đơn, không kết nối được đám mây…) và kiện có hai số cuối trùng với kiện trước ở mọi ô có thể nhận, đều trả về mã này. Kiện trùng số không in phiếu, hãy nhặt ra và cho chạy lại qua máy. Không được trùng với mã của ô thường.",
+        "placeholder": "VD: RS (để trống = không trả mã)",
+        "save": "Lưu"
       }
     },
     "dispatch": {

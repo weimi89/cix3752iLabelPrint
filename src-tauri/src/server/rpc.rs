@@ -218,6 +218,8 @@ async fn dispatch(app: &tauri::AppHandle, cmd: &str, args: Value) -> Result<Valu
         "sort_channel_set_enabled" => v(commands::sort_channel_commands::sort_channel_set_enabled(app.state(), app.clone(), arg(&args, "position")?, arg(&args, "enabled")?).await?)?,
         "sort_channel_unassigned_get" => v(commands::sort_channel_commands::sort_channel_unassigned_get(app.state()).await?)?,
         "sort_channel_unassigned_save" => v(commands::sort_channel_commands::sort_channel_unassigned_save(app.state(), arg(&args, "code")?).await?)?,
+        "sort_channel_exception_get" => v(commands::sort_channel_commands::sort_channel_exception_get(app.state()).await?)?,
+        "sort_channel_exception_save" => v(commands::sort_channel_commands::sort_channel_exception_save(app.state(), arg(&args, "code")?).await?)?,
         "sort_layout_get" => v(commands::sort_channel_commands::sort_layout_get(app.state()).await?)?,
         "sort_layout_save" => v(commands::sort_channel_commands::sort_layout_save(app.state(), app.clone(), arg(&args, "layout")?).await?)?,
         "sticker_history_add" => v(commands::sort_channel_commands::sticker_history_add(app.state(), arg(&args, "name")?).await?)?,

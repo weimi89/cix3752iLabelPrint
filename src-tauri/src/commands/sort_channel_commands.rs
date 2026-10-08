@@ -264,13 +264,7 @@ pub async fn sort_channel_save(
         .await?
         .and_then(|r| r.try_get::<Option<String>, _>("channel_code").ok().flatten());
         if current.as_deref() != Some(code) {
-            let ok = code.chars().count() <= 16
-                && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-            if !ok {
-                return Err(AppError::Server(format!(
-                    "通道代碼 \"{code}\" 格式不符:僅允許英數字與 - _(長度 ≤ 16),請勿填入人名等文字"
-                )));
-            }
+            check_channel_code_format(code)?;
         }
     }
     let job_sticker = normalize(req.job_sticker);
@@ -284,19 +278,16 @@ pub async fn sort_channel_save(
         }
     }
 
-    // channel_code 若有值，檢查是否被其他 position 佔用
+    // channel_code 若有值，檢查是否被其他 position 或異常通道佔用
     if let Some(code) = channel_code.as_deref() {
-        let row = sqlx::query(
-            "SELECT position FROM sort_channels WHERE channel_code = ? AND position <> ?",
-        )
-        .bind(code)
-        .bind(&req.position)
-        .fetch_optional(&state.db)
-        .await?;
-        if let Some(r) = row {
-            let conflict: String = r.try_get("position").unwrap_or_default();
-            return Err(AppError::Server(format!(
+        if let Some(conflict) = position_using_code(&state.db, code, Some(&req.position)).await? {
+            return Err(AppError::Other(format!(
                 "通道代碼 \"{code}\" 已被 {conflict} 使用"
+            )));
+        }
+        if read_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL).await?.as_deref() == Some(code) {
+            return Err(AppError::Other(format!(
+                "通道代碼 \"{code}\" 已設為異常通道,請改用其他代碼"
             )));
         }
     }
@@ -379,22 +370,68 @@ pub async fn sort_channel_set_enabled(
     Ok(())
 }
 
-const SETTING_UNASSIGNED_CHANNEL: &str = "unassigned_channel_code";
+/// 物流商沒有指派任何格口時回給工控機的代碼。
+pub const SETTING_UNASSIGNED_CHANNEL: &str = "unassigned_channel_code";
+/// 異常件(讀碼失敗、查件異常、每一格都撞號)回給工控機的代碼。
+pub const SETTING_EXCEPTION_CHANNEL: &str = "exception_channel_code";
+
+/// 讀設定頁的格口代碼(未指派 / 異常),未設定或留空回 None。
+pub async fn read_channel_setting(db: &DbPool, key: &str) -> AppResult<Option<String>> {
+    let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(db)
+        .await?;
+    Ok(row
+        .and_then(|r| r.try_get::<String, _>("value").ok())
+        .filter(|s| !s.is_empty()))
+}
+
+/// 格口代碼是工控機拿來對實體格口的機器碼:只收英數與 - _、長度 ≤ 16。
+/// 擋下把人名等中文、長字串誤填進來 —— 工控機會把它當格口碼,統計也會被污染。
+fn check_channel_code_format(code: &str) -> AppResult<()> {
+    let ok = code.chars().count() <= 16
+        && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "通道代碼 \"{code}\" 格式不符:僅允許英數字與 - _(長度 ≤ 16),請勿填入人名等文字"
+        )))
+    }
+}
+
+/// 存設定頁的格口代碼(傳 None / 空字串表示清除)。
+async fn write_channel_setting(db: &DbPool, key: &str, code: Option<String>) -> AppResult<()> {
+    let code = code.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    match code {
+        Some(c) => {
+            check_channel_code_format(&c)?;
+            sqlx::query(
+                "INSERT INTO settings (key, value, updated_at)
+                 VALUES (?, ?, datetime('now','localtime'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            )
+            .bind(key)
+            .bind(c)
+            .execute(db)
+            .await?;
+        }
+        None => {
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(key)
+                .execute(db)
+                .await?;
+        }
+    }
+    Ok(())
+}
 
 /// 讀取「未設定指派物流」的 fallback 通道代碼
 #[tauri::command]
 pub async fn sort_channel_unassigned_get(
     state: State<'_, SharedState>,
 ) -> AppResult<Option<String>> {
-    let row = sqlx::query(
-        "SELECT value FROM settings WHERE key = ?",
-    )
-    .bind(SETTING_UNASSIGNED_CHANNEL)
-    .fetch_optional(&state.db)
-    .await?;
-    Ok(row
-        .and_then(|r| r.try_get::<String, _>("value").ok())
-        .filter(|s| !s.is_empty()))
+    read_channel_setting(&state.db, SETTING_UNASSIGNED_CHANNEL).await
 }
 
 /// 儲存「未設定指派物流」的 fallback 通道代碼（傳 None / 空字串表示清除）
@@ -403,27 +440,45 @@ pub async fn sort_channel_unassigned_save(
     state: State<'_, SharedState>,
     code: Option<String>,
 ) -> AppResult<()> {
-    let code = code.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    match code {
-        Some(c) => {
-            sqlx::query(
-                "INSERT INTO settings (key, value, updated_at)
-                 VALUES (?, ?, datetime('now','localtime'))
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            )
-            .bind(SETTING_UNASSIGNED_CHANNEL)
-            .bind(c)
-            .execute(&state.db)
-            .await?;
-        }
-        None => {
-            sqlx::query("DELETE FROM settings WHERE key = ?")
-                .bind(SETTING_UNASSIGNED_CHANNEL)
-                .execute(&state.db)
-                .await?;
+    write_channel_setting(&state.db, SETTING_UNASSIGNED_CHANNEL, code).await
+}
+
+/// 讀取異常通道代碼
+#[tauri::command]
+pub async fn sort_channel_exception_get(
+    state: State<'_, SharedState>,
+) -> AppResult<Option<String>> {
+    read_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL).await
+}
+
+/// 儲存異常通道代碼（傳 None / 空字串表示清除）。
+/// 不可與任一格口的通道代碼相同:異常件不印面單,送進一般格口會變成那格多一件沒單的包裹。
+#[tauri::command]
+pub async fn sort_channel_exception_save(
+    state: State<'_, SharedState>,
+    code: Option<String>,
+) -> AppResult<()> {
+    let trimmed = code.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(c) = trimmed {
+        if let Some(pos) = position_using_code(&state.db, c, None).await? {
+            return Err(AppError::Other(format!(
+                "異常通道代碼 \"{c}\" 已被格口 {pos} 使用,請改用分揀機上專收異常件的格口代碼"
+            )));
         }
     }
-    Ok(())
+    write_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL, code).await
+}
+
+/// 哪個格口(位置)用了這個通道代碼;`except` 指定要略過的位置(存檔自己那一列時用)。
+async fn position_using_code(db: &DbPool, code: &str, except: Option<&str>) -> AppResult<Option<String>> {
+    let row = sqlx::query(
+        "SELECT position FROM sort_channels WHERE channel_code = ? AND position <> COALESCE(?, '')",
+    )
+    .bind(code)
+    .bind(except)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.and_then(|r| r.try_get::<String, _>("position").ok()))
 }
 
 /// 前端主動把人員姓名加入歷史名單(掃描/自動列印頁送出時呼叫)。

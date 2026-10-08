@@ -556,6 +556,15 @@ export const sortChannelUnassignedSave = (code) => {
   if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_unassigned_save', { code: code || null })
 }
+// 異常通道:讀碼失敗、查件異常、每一格都撞號的包裹回給工控機的格口代碼
+export const sortChannelExceptionGet = async () => {
+  if (!hasBackend) return null
+  return await invoke('sort_channel_exception_get')
+}
+export const sortChannelExceptionSave = (code) => {
+  if (!hasBackend) return Promise.resolve()
+  return invoke('sort_channel_exception_save', { code: code || null })
+}
 // 格口配置(左右各幾格):後端以 sort_channels 現有的列為準,改配置會補建／移除位置列
 export const sortLayoutGet = async () => {
   if (!hasBackend) return { left: 5, right: 5 }

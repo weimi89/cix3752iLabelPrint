@@ -5,6 +5,8 @@ import {
   sortChannelSetEnabled,
   sortChannelUnassignedGet,
   sortChannelUnassignedSave,
+  sortChannelExceptionGet,
+  sortChannelExceptionSave,
   sortLayoutGet,
   sortLayoutSave,
   dispatchProviderList,
@@ -38,25 +40,32 @@ const savingAll = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
-// 未設定指派物流的 fallback 通道代碼
-const unassignedCode = ref('')
-const unassignedDialog = ref(false)
-const unassignedDraft = ref('')
+// 回給工控機的兩個特殊格口代碼:物流沒指派格口的件(未指派)、異常件(異常)。
+// 設定完幾乎不會再動,共用同一個編輯對話框
+const CODE_KINDS = ['unassigned', 'exception']
+const CODE_SAVERS = { unassigned: sortChannelUnassignedSave, exception: sortChannelExceptionSave }
+const codes = ref({ unassigned: '', exception: '' })
+const codeDialog = ref(false)
+const codeKind = ref('unassigned')
+const codeDraft = ref('')
+const codeError = ref('')
+const savingCode = ref(false)
 
 // 純分揀模式總開關(存於 AppConfig.sort_only.enabled;獨立於面單路徑模式)。
 // 放這頁而非「面單路徑」卡片,因純分揀是分揀行為而非面單呈現拓撲。
 const sortOnly = ref(false)
 const savingSortOnly = ref(false)
-const savingUnassigned = ref(false)
 
 // 錯誤面單總開關(存於 AppConfig.error_label.enabled)。關閉時工控機查件遇雲端錯誤只收到
 // 錯誤代碼,不出提示面單也不回分揀通道。與純分揀並列在這頁:兩者都是工控機查件的回應行為。
 const errorLabelOn = ref(false)
 const savingErrorLabel = ref(false)
 
-const openUnassignedDialog = () => {
-  unassignedDraft.value = unassignedCode.value
-  unassignedDialog.value = true
+const openCodeDialog = kind => {
+  codeKind.value = kind
+  codeDraft.value = codes.value[kind]
+  codeError.value = ''
+  codeDialog.value = true
 }
 
 // 位置代碼 L3 → 「左 3」;格數不固定,標籤由代碼算,不寫死一張表
@@ -118,10 +127,11 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch, uCode, , cfg, lay] = await Promise.all([
+    const [list, dispatch, uCode, eCode, , cfg, lay] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
       sortChannelUnassignedGet(),
+      sortChannelExceptionGet(),
       reloadStickerHistory(),
       getConfig(),
       sortLayoutGet(),
@@ -130,7 +140,7 @@ const load = async () => {
     layout.value = { left: Number(lay?.left) || 0, right: Number(lay?.right) || 0 }
     originalCodes.value = new Map(list.map(c => [c.position, (c.channel_code || '').trim()]))
     dispatchOptions.value = dispatch
-    unassignedCode.value = uCode ?? ''
+    codes.value = { unassigned: uCode ?? '', exception: eCode ?? '' }
     sortOnly.value = !!cfg?.sort_only?.enabled
     errorLabelOn.value = !!cfg?.error_label?.enabled
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
@@ -156,16 +166,19 @@ const loadPrinters = async () => {
   }
 }
 
-const saveUnassigned = async () => {
-  savingUnassigned.value = true
+// 存檔失敗(格式不對、跟格口代碼重複)時錯誤留在對話框裡,畫面後方的提示會被對話框擋住
+const saveCode = async () => {
+  savingCode.value = true
+  codeError.value = ''
   try {
-    await sortChannelUnassignedSave(unassignedDraft.value || null)
-    unassignedCode.value = unassignedDraft.value
-    unassignedDialog.value = false
+    const draft = (codeDraft.value || '').trim()
+    await CODE_SAVERS[codeKind.value](draft || null)
+    codes.value = { ...codes.value, [codeKind.value]: draft }
+    codeDialog.value = false
   } catch (e) {
-    errorMsg.value = errorMessageFromException(e)
+    codeError.value = errorMessageFromException(e)
   } finally {
-    savingUnassigned.value = false
+    savingCode.value = false
   }
 }
 
@@ -579,32 +592,34 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 
         <VDivider vertical class="switch-divider" />
 
-        <!-- 未指派物流的 fallback 通道:設定完幾乎不會再動,跟兩個開關併成同一列 -->
-        <div class="switch-item">
-          <VIcon
-            :icon="unassignedCode ? 'tabler-check' : 'tabler-alert-triangle'"
-            size="20"
-            :color="unassignedCode ? 'primary' : 'warning'"
-            class="flex-shrink-0"
-          />
-          <div class="flex-grow-1">
-            <div class="text-body-medium font-weight-medium">{{ $t('page.sort.unassigned.title') }}</div>
-            <div class="text-body-small text-medium-emphasis">{{ $t('page.sort.unassigned.brief') }}</div>
+        <!-- 未指派、異常兩個特殊格口代碼:設定完幾乎不會再動,跟兩個開關併成同一列 -->
+        <template v-for="kind in CODE_KINDS" :key="kind">
+          <div class="switch-item">
+            <VIcon
+              :icon="codes[kind] ? 'tabler-check' : 'tabler-alert-triangle'"
+              size="20"
+              :color="codes[kind] ? 'primary' : 'warning'"
+              class="flex-shrink-0"
+            />
+            <div class="flex-grow-1">
+              <div class="text-body-medium font-weight-medium">{{ $t(`page.sort.${kind}.title`) }}</div>
+              <div class="text-body-small text-medium-emphasis">{{ $t(`page.sort.${kind}.brief`) }}</div>
+            </div>
+            <VBtn
+              :color="codes[kind] ? 'primary' : 'warning'"
+              variant="tonal"
+              size="small"
+              class="flex-shrink-0 font-weight-bold"
+              @click="openCodeDialog(kind)"
+            >
+              <VIcon :icon="codes[kind] ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-1" />
+              <template v-if="codes[kind]">{{ codes[kind] }}</template>
+              <template v-else>{{ $t('page.sort.status.unset') }}</template>
+            </VBtn>
           </div>
-          <VBtn
-            :color="unassignedCode ? 'primary' : 'warning'"
-            variant="tonal"
-            size="small"
-            class="flex-shrink-0 font-weight-bold"
-            @click="openUnassignedDialog"
-          >
-            <VIcon :icon="unassignedCode ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-1" />
-            <template v-if="unassignedCode">{{ unassignedCode }}</template>
-            <template v-else>{{ $t('page.sort.status.unset') }}</template>
-          </VBtn>
-        </div>
 
-        <VDivider vertical class="switch-divider" />
+          <VDivider vertical class="switch-divider" />
+        </template>
 
         <!-- 格口配置:桃園左右各 5 格、台中各 3 格,同一支程式依現場設定長出格口卡片 -->
         <div class="switch-item">
@@ -704,15 +719,15 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
       </div>
     </VDialog>
 
-    <!-- 未設定指派物流 fallback 設定 Dialog -->
-    <VDialog v-model="unassignedDialog" max-width="420" persistent>
+    <!-- 未指派／異常通道代碼設定 Dialog -->
+    <VDialog v-model="codeDialog" max-width="420" persistent>
       <div style="position: relative;">
         <VBtn
           icon
           variant="elevated"
           size="x-small"
           style="position: absolute; top: -12px; right: -12px; z-index: 10;"
-          @click="unassignedDialog = false"
+          @click="codeDialog = false"
         >
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
@@ -720,27 +735,28 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
         <VCardItem class="px-5 py-3">
           <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
             <VIcon :icon="'tabler-question-mark'" size="18" color="secondary" />
-            {{ $t('page.sort.unassigned.label') }}
+            {{ $t(`page.sort.${codeKind}.label`) }}
           </VCardTitle>
         </VCardItem>
         <VDivider />
         <VCardText class="px-5 pt-4 pb-2">
-          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.unassigned.hint') }}</div>
+          <div class="text-body-small text-medium-emphasis mb-4">{{ $t(`page.sort.${codeKind}.hint`) }}</div>
           <VTextField
-            v-model="unassignedDraft"
-            :label="$t('page.sort.unassigned.placeholder')"
+            v-model="codeDraft"
+            :label="$t(`page.sort.${codeKind}.placeholder`)"
             density="compact"
             variant="outlined"
             autofocus
             clearable
-            @keyup.enter="saveUnassigned"
+            @keyup.enter="saveCode"
           />
+          <VAlert v-if="codeError" type="error" variant="tonal" density="compact" class="mt-1 mb-2">{{ codeError }}</VAlert>
         </VCardText>
         <VCardActions class="px-5 pb-4">
           <VSpacer />
-          <VBtn variant="text" @click="unassignedDialog = false">{{ $t('common.cancel') }}</VBtn>
-          <VBtn color="secondary" variant="elevated" :loading="savingUnassigned" @click="saveUnassigned">
-            {{ $t('page.sort.unassigned.save') }}
+          <VBtn variant="text" @click="codeDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="secondary" variant="elevated" :loading="savingCode" @click="saveCode">
+            {{ $t(`page.sort.${codeKind}.save`) }}
           </VBtn>
         </VCardActions>
       </VCard>
