@@ -254,6 +254,7 @@ struct ServerState {
 }
 
 /// DirectPrint 一筆待列印工作(下載 + 浮水印 + 送本機印表機所需的最小資料)
+#[derive(Clone)]
 struct DirectPrintJob {
     label_key: String,
     image_url: String,
@@ -274,7 +275,52 @@ struct DirectPrintJob {
     tracking_no: String,
     /// 入列當下解析到的貼標人員(與 print_event 同一份來源,確保兩張表對得起來)
     job_sticker: Option<String>,
+    /// 雲端回的袋號與訂單號:**真的送印成功後**才記印單統計、標件數核對已印要用
+    package_sn: Option<String>,
+    order_sn: String,
 }
+
+/// 直印背景工作需要的共用資源
+#[derive(Clone)]
+struct DirectPrintCtx {
+    cache: CacheManager,
+    watermark: WatermarkRenderer,
+    db: DbPool,
+    app: tauri::AppHandle,
+    queue: QueueManager,
+    resolver: LabelPathResolver,
+    bag_check: BagCheckState,
+}
+
+/// 已交給 Windows 列印佇列、還沒確認印完的面單
+struct TrackedPrint {
+    job_id: u32,
+    submitted: std::time::Instant,
+    /// 送印成功時寫的那筆印單統計;卡住被取消時要刪掉
+    print_event_id: Option<i64>,
+    job: DirectPrintJob,
+}
+
+/// 直印 worker 的追蹤狀態(只有 worker 自己用,不必上鎖)
+#[derive(Default)]
+struct PrintTracker {
+    jobs: Vec<TrackedPrint>,
+    /// 每台印表機上一次「有面單印完」或「從沒有追蹤中的面單變成有」的時間
+    last_progress: HashMap<String, std::time::Instant>,
+    /// 每台印表機上一次檢查的時間與結果;送印前的檢查剛做過就沿用
+    last_check: HashMap<String, (std::time::Instant, Option<String>)>,
+}
+
+/// 一台印表機有面單在佇列、卻這麼久都沒有任何一張印完,就當作卡住:取消它的面單、改回未印、暫停格口。
+/// 看的是「多久沒有進展」而不是單張等多久 —— 包裹一多,後面的面單光排隊就可能超過這個時間。
+/// 標籤印表機一張約 1～2 秒;缺紙時不取消的話,換好紙會一次吐出一疊包裹早已離開的面單。
+const PRINT_STUCK_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+/// 巡檢已送出面單的間隔:沒有新件進來時,也要能發現卡住的面單
+const PRINT_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// 送印前的檢查在這段時間內做過就沿用,不必每張都問一次列印服務
+const PRINT_PRECHECK_REUSE: std::time::Duration = std::time::Duration::from_secs(3);
+/// 一直查不出狀態的面單追蹤這麼久就放棄(當成已印出,記一筆警告),避免追蹤清單無限增長
+const PRINT_UNKNOWN_GIVE_UP: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub struct ServerHandle {
     pub bind_addr: String,
@@ -367,17 +413,33 @@ async fn start_inner(
     // DirectPrint 有序列印 worker:單一 FIFO consumer,逐筆 await(下載→浮水印→列印)。
     // 保證列印順序 = 請求入列順序(工控機一件件刷即一件件入列),且同一時間只送印一筆,
     // 不並發打印表機 spooler(Windows GDI 對並發 stale-state 敏感)。
+    // 同一個 worker 也定時巡檢已送出的面單:印完的移出追蹤,卡住的取消並改回未印。
     let (direct_print_tx, mut direct_print_rx) = mpsc::unbounded_channel::<DirectPrintJob>();
     {
-        let cache = cache.clone();
-        let watermark = watermark.clone();
-        let db = db.clone();
-        let app = app.clone();
-        let queue = queue.clone();
-        let resolver = label_resolver.clone();
+        let ctx = DirectPrintCtx {
+            cache: cache.clone(),
+            watermark: watermark.clone(),
+            db: db.clone(),
+            app: app.clone(),
+            queue: queue.clone(),
+            resolver: label_resolver.clone(),
+            bag_check: bag_check.clone(),
+        };
         tokio::spawn(async move {
-            while let Some(job) = direct_print_rx.recv().await {
-                run_direct_print_job(&cache, &watermark, &db, &app, &queue, &resolver, job).await;
+            let mut tracker = PrintTracker::default();
+            let mut sweep = tokio::time::interval(PRINT_SWEEP_INTERVAL);
+            sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    job = direct_print_rx.recv() => {
+                        let Some(job) = job else {
+                            drain_tracked_prints(&ctx, &mut tracker).await;
+                            break;
+                        };
+                        run_direct_print_job(&ctx, &mut tracker, job).await;
+                    }
+                    _ = sweep.tick() => sweep_tracked_prints(&ctx, &mut tracker).await,
+                }
             }
         });
     }
@@ -1805,73 +1867,62 @@ fn emit_device_alert(app: &tauri::AppHandle, alert_type: &str, message: &str) {
 /// DirectPrint 模式:把一筆面單排入有序列印佇列(不阻塞工控機回應)。
 /// 此模式下工控機拿到的回應不含 `label_path`(由中介機列印),圖檔處理全在背景 worker 進行;
 /// 入列即代表確定要印,單一 worker 會照入列順序逐筆下載+列印,保證列印順序 = 請求順序。
-#[allow(clippy::too_many_arguments)]
-fn enqueue_direct_print(
-    state: &ServerState,
-    label_key: String,
-    image_url: String,
-    provider: String,
-    channel_code: String,
-    printer_name: String,
-    print_num: u32,
-    query_no: String,
-    response_id: Option<i64>,
-    tracking_no: String,
-    job_sticker: Option<String>,
-) {
-    let job = DirectPrintJob {
-        label_key,
-        image_url,
-        provider,
-        channel_code,
-        printer_name,
-        print_num,
-        query_no: query_no.clone(),
-        response_id,
-        tracking_no,
-        job_sticker,
-    };
+fn enqueue_direct_print(state: &ServerState, job: DirectPrintJob) {
     if let Err(e) = state.direct_print_tx.send(job) {
-        let DirectPrintJob { response_id, tracking_no, .. } = e.0;
+        let job = e.0;
         tracing::warn!("direct_print 列印佇列已關閉,無法排入");
         // 入列失敗 = 此件確定不會被印(worker 已死),與下載/列印失敗同屬
         // 「工控機已收 200 但實體沒印」的靜默缺口,必須走同一條通報
         report_direct_print_failed(
-            &state.app, &state.db, &state.queue, &query_no, "print_failed",
-            response_id, Some(tracking_no.as_str()),
+            &state.app, &state.db, &state.queue, &state.bag_check, &job, "print_failed", "列印佇列已關閉",
         );
     }
 }
 
 /// DirectPrint 失敗通報:emit `direct-print-failed`(前端 useParcelAlert 播音 + toast)+ 寫 event_log,
-/// 並**攔下這件的雲端回報**(面單沒印出來,雲端不該記成完成)。
+/// 件數核對把這件記成「沒印出」,並**攔下這件的雲端回報**(面單沒印出來,雲端不該記成完成)。
 ///
-/// **DirectPrint 的失敗不可靜默**:工控機在入列當下已拿到成功回應、print_event 已記、袋核對已標已印,
-/// 若這裡只 tracing::warn,分揀線整批漏印卻所有畫面都顯示正常(現場最難察覺的靜默故障)。
+/// **DirectPrint 的失敗不可靜默**:工控機在入列當下已拿到成功回應,若這裡只 tracing::warn,
+/// 分揀線整批漏印卻所有畫面都顯示正常(現場最難察覺的靜默故障)。
+/// 雲端在查件當下就把這件記成已印並廣播,件數核對不擋的話會把它顯示成已印。
 ///
-/// `response_id` / `tracking_no` 為 None 時只通報不攔截(雲端本就沒有對應列印記錄可回報)。
+/// `detail` 是給人看的原因(印表機的錯誤內容、缺紙…),寫進事件紀錄與通知;
+/// `response_id` 為 None 時只通報不攔截(雲端本就沒有對應列印記錄可回報)。
 fn report_direct_print_failed(
     app: &tauri::AppHandle,
     db: &DbPool,
     queue: &QueueManager,
-    query_no: &str,
+    bag_check: &BagCheckState,
+    job: &DirectPrintJob,
     reason: &str,
-    response_id: Option<i64>,
-    tracking_no: Option<&str>,
+    detail: &str,
 ) {
-    
-    let payload = serde_json::json!({ "query_no": query_no, "reason": reason });
+    let query_no = job.query_no.as_str();
+    let payload = serde_json::json!({
+        "query_no": query_no,
+        "reason": reason,
+        "channel_code": job.channel_code,
+        "detail": detail,
+    });
     if let Err(e) = crate::event_bridge::emit(app, "direct-print-failed", payload) {
         tracing::warn!(?e, "emit direct-print-failed 失敗");
     }
+    let place = if job.printer_name.is_empty() {
+        format!("格口 {}", job.channel_code)
+    } else {
+        format!("格口 {}／印表機 {}", job.channel_code, job.printer_name)
+    };
+    let detail_part = if detail.is_empty() { String::new() } else { format!(":{detail}") };
     event_log::log_bg(db.clone(), "error", "printer", "直印失敗",
-        format!("DirectPrint 列印失敗 query_no={query_no} reason={reason}(工控機已收到成功回應,此件實際未印出)"));
+        format!("DirectPrint 列印失敗 query_no={query_no} reason={reason}{detail_part}({place};工控機已收到成功回應,此件實際未印出)"));
+
+    bag_check.mark_not_printed(job.package_sn.clone(), &job.order_sn, &job.tracking_no, &job.provider);
 
     // 攔截雲端回報:工控機可能在列印完成前就回報過(它只知道自己分揀完了,不知道面單沒印出來),
     // 也可能稍後才回報 —— 兩種都要擋,故即使目前沒有對應佇列項也會先立一筆墓碑。
-    let (Some(rid), Some(tno)) = (response_id, tracking_no) else { return };
+    let Some(rid) = job.response_id else { return };
     let (queue, db, tno, reason, qn) = (
-        queue.clone(), db.clone(), tno.to_string(), reason.to_string(), query_no.to_string(),
+        queue.clone(), db.clone(), job.tracking_no.clone(), reason.to_string(), query_no.to_string(),
     );
     tokio::spawn(async move {
         match queue.cancel_report_on_print_failure(rid, &tno, &reason).await {
@@ -1897,125 +1948,333 @@ fn report_direct_print_failed(
     });
 }
 
-/// DirectPrint worker 逐筆執行的單元:下載面單 → 套列印次數浮水印 → 送本機印表機。
-/// **整個 await 到列印送出才回傳**,讓 worker 在處理下一筆前確保本筆已送印,保證順序且不並發打 spooler。
-async fn run_direct_print_job(
-    cache: &CacheManager,
-    watermark: &WatermarkRenderer,
-    db: &DbPool,
-    app: &tauri::AppHandle,
-    queue: &QueueManager,
-    resolver: &LabelPathResolver,
-    job: DirectPrintJob,
-) {
-    let DirectPrintJob {
-        label_key,
-        image_url,
-        provider,
-        channel_code,
-        printer_name: pname,
-        print_num,
-        query_no,
-        response_id,
-        tracking_no,
-        job_sticker,
-    } = job;
-    let cache_base = cache.base_dir();
+/// 袋號正規化:散單(空 / "0")存 NULL,否則空字串會被 COUNT(DISTINCT package_sn) 當成一個假袋、灌高袋數。
+/// 與 bag_check 同規則。
+fn normalize_package_sn(package_sn: Option<&str>) -> Option<String> {
+    package_sn
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "0")
+        .map(str::to_string)
+}
 
-    // 1. 確保原圖(對應這次 image_url)已在本地快取;由 fetch_now 比對 source_url 決定命中或重抓
-    let original_ok = match cache.fetch_now(&label_key, &image_url).await {
-        Ok(FetchOutcome::Hit) => {
-            let _ = cache.record_hit(&label_key).await;
-            true
+/// 送印成功後才記帳:印單統計寫一筆、件數核對標已印。回傳印單統計那筆的 id(卡住被取消時要刪)。
+async fn record_print_success(ctx: &DirectPrintCtx, job: &DirectPrintJob) -> Option<i64> {
+    let id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code, package_sn)
+         VALUES ('ipc', ?, ?, ?, ?, ?) RETURNING id",
+    )
+    .bind(&job.tracking_no)
+    .bind(&job.provider)
+    .bind(&job.job_sticker)
+    .bind(&job.channel_code)
+    .bind(normalize_package_sn(job.package_sn.as_deref()))
+    .fetch_one(&ctx.db)
+    .await
+    .map_err(|e| tracing::warn!(?e, query_no = %job.query_no, "印單統計寫入失敗"))
+    .ok();
+    if id.is_some() {
+        crate::commands::print_stats_commands::emit_print_stats_updated(&ctx.app, "ipc", &job.tracking_no);
+    }
+    ctx.bag_check.on_parcel(job.package_sn.clone(), &job.order_sn, &job.tracking_no, &job.provider);
+    id
+}
+
+/// 印出來了才補回報:直印模式下工控機沒有列印動作、實務上多半不會 POST /api/report,
+/// 這是貼標人員唯一能送到雲端的路。先留寬限時間給工控機回報,它若在期間內回報就以它為準立即送出
+/// (詳見 QueueManager::enqueue_direct_print);`elapsed` 是送印到現在已經等了多久,從寬限中扣掉。
+/// 列印失敗或卡住的件一律不補記:沒印出來的東西不該回報成完成。
+async fn send_print_report(ctx: &DirectPrintCtx, job: &DirectPrintJob, elapsed: std::time::Duration) {
+    let Some(rid) = job.response_id else { return };
+    let delay = ctx.resolver.report_delay_secs().saturating_sub(elapsed.as_secs());
+    if let Err(e) = ctx
+        .queue
+        .enqueue_direct_print(rid, &job.tracking_no, Some(job.channel_code.as_str()), job.job_sticker.as_deref(), delay)
+        .await
+    {
+        tracing::warn!(?e, query_no = %job.query_no, "直印自補回報入列失敗");
+        event_log::log_bg(ctx.db.clone(), "warn", "queue", "自補回報失敗",
+            format!("直印已印出但補記回報失敗 query_no={}(雲端不會收到這筆的貼標人員)", job.query_no));
+    }
+}
+
+/// 暫停使用這台印表機的格口,讓之後的包裹分到其他格口;用「印表機異常」語音廣播提醒現場。
+/// 已經暫停的格口不重複記錄。恢復一律由現場人員換好紙後手動按啟用。
+async fn auto_pause_printer_channels(ctx: &DirectPrintCtx, printer_name: &str, why: &str) {
+    let paused: Vec<String> = sqlx::query_scalar(
+        "UPDATE sort_channels SET enabled = 0, updated_at = datetime('now','localtime')
+          WHERE printer_name = ? AND enabled = 1
+          RETURNING position",
+    )
+    .bind(printer_name)
+    .fetch_all(&ctx.db)
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(?e, printer_name, "自動暫停格口失敗");
+        Vec::new()
+    });
+    for position in paused {
+        event_log::log_bg(ctx.db.clone(), "warn", "server", "分揀通道切換",
+            format!("通道 {position} 已暫停(印表機{why},自動暫停;換好紙或排除後請手動啟用)"));
+        let _ = crate::event_bridge::emit(
+            &ctx.app,
+            "sort-channel-updated",
+            serde_json::json!({ "position": position, "enabled": false }),
+        );
+        emit_device_alert(&ctx.app, "PRINTER_ERROR", &format!("{position} 印表機{why},已自動暫停"));
+    }
+}
+
+/// 一張卡在列印佇列沒印出的面單:刪掉當初記的印單統計,當成直印失敗通報(件數核對改回未印、攔下回報)。
+async fn handle_stuck_print(ctx: &DirectPrintCtx, t: &TrackedPrint, cancelled: bool, status: Option<&str>) {
+    if let Some(id) = t.print_event_id {
+        match sqlx::query("DELETE FROM print_event WHERE id = ?").bind(id).execute(&ctx.db).await {
+            Ok(_) => crate::commands::print_stats_commands::emit_print_stats_updated(&ctx.app, "ipc", &t.job.tracking_no),
+            Err(e) => event_log::log_bg(ctx.db.clone(), "warn", "printer", "印單統計扣回失敗",
+                format!("面單卡住已判定沒印出,但印單統計沒扣回 query_no={}:{e}", t.job.query_no)),
         }
-        Ok(FetchOutcome::Downloaded) => {
-            let _ = cache.record_miss().await;
-            true
+    }
+    let why = status.unwrap_or("卡住沒出紙");
+    let secs = t.submitted.elapsed().as_secs();
+    let detail = if cancelled {
+        format!("印表機{why},面單送出 {secs} 秒仍未印出,已從列印佇列取消")
+    } else {
+        format!("印表機{why},面單送出 {secs} 秒仍未印完、沒有取消;它可能已經印出,也可能在印表機恢復後才吐出,請到格口對照單號確認")
+    };
+    report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &t.job, "printer_stuck", &detail);
+}
+
+/// 查一台印表機:印完的面單移出追蹤並補回報;太久沒進展就取消它的面單、記成沒印出。
+/// 回傳這台現在能不能印:None = 可以;Some(原因) = 狀態顯示印不出來,或剛剛有面單卡住。
+/// 查詢本身失敗(列印服務暫時沒回應)不算印不出來 —— 照常送印,真的送不出去會在送印時失敗。
+/// `reuse_recent`:送印前的檢查若 [`PRINT_PRECHECK_REUSE`] 內做過就沿用上次結果。
+async fn reconcile_printer(
+    ctx: &DirectPrintCtx,
+    tracker: &mut PrintTracker,
+    printer: &str,
+    reuse_recent: bool,
+) -> Option<String> {
+    if reuse_recent {
+        if let Some((at, result)) = tracker.last_check.get(printer) {
+            if at.elapsed() < PRINT_PRECHECK_REUSE {
+                return result.clone();
+            }
+        }
+    }
+    let now = std::time::Instant::now();
+    let stalled = tracker
+        .last_progress
+        .get(printer)
+        .is_some_and(|t| now.duration_since(*t) >= PRINT_STUCK_AFTER);
+    let probe: Vec<(u32, bool)> = tracker
+        .jobs
+        .iter()
+        .filter(|t| t.job.printer_name == printer)
+        .map(|t| (t.job_id, stalled))
+        .collect();
+    let pname = printer.to_string();
+    let inspected = match tokio::task::spawn_blocking(move || crate::printer::inspect(&pname, &probe)).await {
+        Ok(Ok(i)) => i,
+        Ok(Err(e)) => {
+            tracing::warn!(printer, error = %e, "查印表機狀態失敗,照常送印");
+            give_up_unverified(ctx, tracker, printer, None).await;
+            tracker.last_check.insert(printer.to_string(), (now, None));
+            return None;
         }
         Err(e) => {
-            let _ = cache.record_miss().await;
-            tracing::warn!(label_key = %label_key, ?e, "direct_print 背景下載快取失敗");
-            false
+            tracing::warn!(printer, error = %e, "查印表機狀態的工作失敗,照常送印");
+            give_up_unverified(ctx, tracker, printer, None).await;
+            tracker.last_check.insert(printer.to_string(), (now, None));
+            return None;
         }
     };
-    if !original_ok {
-        report_direct_print_failed(app, db, queue, &query_no, "download_failed",
-            response_id, Some(tracking_no.as_str()));
-        return;
+
+    // 印完的:移出追蹤、補回報,並記下這台有進展
+    if !inspected.gone.is_empty() {
+        tracker.last_progress.insert(printer.to_string(), now);
+    }
+    let mut finished = Vec::new();
+    tracker.jobs.retain_mut(|t| {
+        let done = t.job.printer_name == printer && inspected.gone.contains(&t.job_id);
+        if done {
+            finished.push((t.job.clone(), t.submitted.elapsed()));
+        }
+        !done
+    });
+    for (job, elapsed) in &finished {
+        send_print_report(ctx, job, *elapsed).await;
+    }
+
+    // 一直查不出狀態的:追蹤太久就放棄,當成已印出
+    give_up_unverified(ctx, tracker, printer, Some(&inspected.unknown)).await;
+
+    // 卡住的:取消(或取消失敗)的都記成沒印出
+    let mut had_stuck = false;
+    for (ids, cancelled) in [(&inspected.cancelled, true), (&inspected.stuck, false)] {
+        for id in ids {
+            if let Some(pos) = tracker.jobs.iter().position(|t| t.job.printer_name == printer && t.job_id == *id) {
+                let t = tracker.jobs.remove(pos);
+                handle_stuck_print(ctx, &t, cancelled, inspected.problem).await;
+                had_stuck = true;
+            }
+        }
+    }
+    if !tracker.jobs.iter().any(|t| t.job.printer_name == printer) {
+        tracker.last_progress.remove(printer);
+    }
+
+    let result = match (inspected.problem, had_stuck) {
+        (Some(p), _) => Some(p.to_string()),
+        (None, true) => Some("卡住沒出紙".to_string()),
+        (None, false) => None,
+    };
+    tracker.last_check.insert(printer.to_string(), (now, result.clone()));
+    result
+}
+
+/// 查不出列印狀態、已追蹤超過 [`PRINT_UNKNOWN_GIVE_UP`] 的面單:停止追蹤,當成已印出並補回報,記一筆警告。
+/// `only` 為 None 時套用到這台印表機所有追蹤中的面單(整台查不到的情況)。
+async fn give_up_unverified(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, printer: &str, only: Option<&[u32]>) {
+    let mut given_up = Vec::new();
+    tracker.jobs.retain(|t| {
+        let drop = t.job.printer_name == printer
+            && only.is_none_or(|ids| ids.contains(&t.job_id))
+            && t.submitted.elapsed() >= PRINT_UNKNOWN_GIVE_UP;
+        if drop {
+            given_up.push((t.job.clone(), t.submitted.elapsed()));
+        }
+        !drop
+    });
+    for (job, elapsed) in &given_up {
+        event_log::log_bg(ctx.db.clone(), "warn", "printer", "無法確認是否印出",
+            format!("面單送出後一直查不到列印狀態,已停止追蹤並當成已印出 query_no={}(印表機 {printer})", job.query_no));
+        send_print_report(ctx, job, *elapsed).await;
+    }
+    if !tracker.jobs.iter().any(|t| t.job.printer_name == printer) {
+        tracker.last_progress.remove(printer);
+    }
+}
+
+/// 伺服器關閉(改設定重啟、App 結束)前收尾:最後查一次各印表機,印完的照常補回報;
+/// 還沒確認的不能再追蹤了(新的 worker 從空清單開始),當成已印出並補回報,記一筆警告讓現場留意。
+async fn drain_tracked_prints(ctx: &DirectPrintCtx, tracker: &mut PrintTracker) {
+    sweep_tracked_prints(ctx, tracker).await;
+    let left: Vec<TrackedPrint> = std::mem::take(&mut tracker.jobs);
+    for t in &left {
+        send_print_report(ctx, &t.job, t.submitted.elapsed()).await;
+    }
+    if !left.is_empty() {
+        let list: Vec<&str> = left.iter().map(|t| t.job.query_no.as_str()).collect();
+        event_log::log_bg(ctx.db.clone(), "warn", "printer", "無法確認是否印出",
+            format!("伺服器關閉時仍有 {} 張面單未確認印出,已當成印出並補回報:{}", left.len(), list.join("、")));
+    }
+}
+
+/// 定時巡檢:每台還有面單在追蹤的印表機查一次;發現印不出來就暫停它的格口
+async fn sweep_tracked_prints(ctx: &DirectPrintCtx, tracker: &mut PrintTracker) {
+    let mut printers: Vec<String> = tracker.jobs.iter().map(|t| t.job.printer_name.clone()).collect();
+    printers.sort();
+    printers.dedup();
+    for printer in printers {
+        if let Some(why) = reconcile_printer(ctx, tracker, &printer, false).await {
+            auto_pause_printer_channels(ctx, &printer, &why).await;
+        }
+    }
+}
+
+/// DirectPrint worker 逐筆執行的單元:下載面單 → 套列印次數浮水印 → 檢查印表機 → 送印。
+/// **整個 await 到列印送出才回傳**,讓 worker 在處理下一筆前確保本筆已送印,保證順序且不並發打 spooler。
+/// 送印成功只代表 Windows 收下了這張:印單統計與件數核對在此記帳,同時把這張放進追蹤,
+/// 之後巡檢確認它真的離開佇列;卡住就取消並改回未印(見 [`reconcile_printer`])。
+async fn run_direct_print_job(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, job: DirectPrintJob) {
+    let cache_base = ctx.cache.base_dir();
+
+    // 1. 確保原圖(對應這次 image_url)已在本地快取;由 fetch_now 比對 source_url 決定命中或重抓
+    match ctx.cache.fetch_now(&job.label_key, &job.image_url).await {
+        Ok(FetchOutcome::Hit) => {
+            let _ = ctx.cache.record_hit(&job.label_key).await;
+        }
+        Ok(FetchOutcome::Downloaded) => {
+            let _ = ctx.cache.record_miss().await;
+        }
+        Err(e) => {
+            let _ = ctx.cache.record_miss().await;
+            tracing::warn!(label_key = %job.label_key, ?e, "direct_print 背景下載快取失敗");
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "download_failed", &e.to_string());
+            return;
+        }
     }
 
     // 2. 列印次數浮水印(print_num > 1);失敗 fallback 回原圖
-    let effective_key = if print_num > 1 {
-        let repeat_key = derive_repeat_key(&label_key, &provider);
-        let src = cache.local_path_for_key(&label_key);
+    let effective_key = if job.print_num > 1 {
+        let repeat_key = derive_repeat_key(&job.label_key, &job.provider);
+        let src = ctx.cache.local_path_for_key(&job.label_key);
         let dst = cache_base.join(&repeat_key);
-        match watermark.apply(&src, &dst, print_num, &provider) {
+        match ctx.watermark.apply(&src, &dst, job.print_num, &job.provider) {
             Ok(()) => repeat_key,
             Err(e) => {
-                tracing::warn!(label_key = %label_key, print_num, %e, "direct_print 浮水印生成失敗,回原圖");
-                label_key.clone()
+                tracing::warn!(label_key = %job.label_key, print_num = job.print_num, %e, "direct_print 浮水印生成失敗,回原圖");
+                job.label_key.clone()
             }
         }
     } else {
-        label_key.clone()
+        job.label_key.clone()
     };
 
-    // 3. 讀圖 → 送印(印表機已於入列當下解析,見 DirectPrintJob::printer_name)
-    tracing::debug!(channel_code = %channel_code, printer = %pname, "direct_print 送印");
-
+    // 3. 讀圖(印表機已於入列當下解析,見 DirectPrintJob::printer_name)
+    tracing::debug!(channel_code = %job.channel_code, printer = %job.printer_name, "direct_print 送印");
     let img_path = cache_base.join(&effective_key);
     let bytes = match tokio::fs::read(&img_path).await {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(?e, "讀取面單圖失敗，無法列印");
-            report_direct_print_failed(app, db, queue, &query_no, "read_failed",
-                response_id, Some(tracking_no.as_str()));
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "read_failed", &e.to_string());
             return;
         }
     };
-    // await 此筆送印完成,才讓 worker 取下一筆 → 嚴格順序 + 不並發打 spooler
-    let qn = query_no.clone();
+
+    // 4. 送印前先問印表機:缺紙、卡紙、離線,或前面的面單卡住 → 這張不送,暫停這台的格口
+    if let Some(why) = reconcile_printer(ctx, tracker, &job.printer_name, true).await {
+        report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "printer_not_ready",
+            &format!("印表機{why},這張沒有送印"));
+        auto_pause_printer_channels(ctx, &job.printer_name, &why).await;
+        return;
+    }
+
+    // 5. 送印;await 此筆送出完成,才讓 worker 取下一筆 → 嚴格順序 + 不並發打 spooler
+    let pname = job.printer_name.clone();
     let printed = tokio::task::spawn_blocking(move || {
-        crate::printer::print_image_bytes(&pname, &bytes)
+        crate::printer::print_image_bytes_tracked(&pname, &bytes)
     })
     .await;
     match printed {
-        Ok(Ok(())) => {
-            // 印出來了才補回報:直印模式下工控機沒有列印動作、實務上多半不會 POST /api/report,
-            // 這是貼標人員唯一能送到雲端的路。刻意不立刻送 —— 先留寬限時間給工控機回報,
-            // 它若在期間內回報就以它為準立即送出(詳見 QueueManager::enqueue_direct_print)。
-            // 列印失敗的分支一律不補記:沒印出來的東西不該回報成完成。
-            if let Some(rid) = response_id {
-                let delay = resolver.report_delay_secs();
-                match queue
-                    .enqueue_direct_print(
-                        rid,
-                        &tracking_no,
-                        Some(channel_code.as_str()),
-                        job_sticker.as_deref(),
-                        delay,
-                    )
-                    .await
-                {
-                    // 已存在時不重複建立(工控機搶先回報過);先前被攔下的則會在此解除攔截
-                    Ok(()) => {}
-                    Err(e) => {
-                        tracing::warn!(?e, query_no = %qn, "直印自補回報入列失敗");
-                        event_log::log_bg(db.clone(), "warn", "queue", "自補回報失敗",
-                            format!("直印已印出但補記回報失敗 query_no={qn}(雲端不會收到這筆的貼標人員)"));
+        Ok(Ok(spool_job_id)) => {
+            let print_event_id = record_print_success(ctx, &job).await;
+            match spool_job_id {
+                // Windows 給了工作編號:追蹤到它真的離開佇列才補回報;卡住被取消就不回報
+                Some(job_id) => {
+                    let printer = job.printer_name.clone();
+                    if !tracker.jobs.iter().any(|t| t.job.printer_name == printer) {
+                        tracker.last_progress.insert(printer.clone(), std::time::Instant::now());
                     }
+                    tracker.last_check.remove(&printer);
+                    tracker.jobs.push(TrackedPrint {
+                        job_id,
+                        submitted: std::time::Instant::now(),
+                        print_event_id,
+                        job,
+                    });
                 }
+                // 沒有工作編號可追蹤(非 Windows):送出就當印出
+                None => send_print_report(ctx, &job, std::time::Duration::ZERO).await,
             }
         }
         Ok(Err(e)) => {
-            tracing::warn!(?e, query_no = %qn, "直接列印失敗");
-            report_direct_print_failed(app, db, queue, &qn, "print_failed",
-                response_id, Some(tracking_no.as_str()));
+            tracing::warn!(?e, query_no = %job.query_no, "直接列印失敗");
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string());
         }
         Err(e) => {
-            tracing::warn!(?e, query_no = %qn, "直接列印 task 失敗");
-            report_direct_print_failed(app, db, queue, &qn, "print_failed",
-                response_id, Some(tracking_no.as_str()));
+            tracing::warn!(?e, query_no = %job.query_no, "直接列印 task 失敗");
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string());
         }
     }
 }
@@ -2242,6 +2501,9 @@ async fn get_parcel(
             // DirectPrint 模式:工控機拿到 label_path=null(由中介機列印),不需要圖檔本身 ──
             // 立即回應,圖檔下載 + 浮水印 + 列印全部丟背景,不讓工控機等雲端(設計原則 #2)。
             // 其餘模式(local/share/http):工控機要讀檔,必須同步下載到完成才回(設計原則 #3)。
+            // 直印模式由背景 worker 印成功後才記印單統計、標件數核對(見 run_direct_print_job),
+            // 這裡就不能先記;未設印表機時同樣沒有印出,也不記。
+            let mut print_recorded_by_worker = false;
             let (label_path, label_ms) =
                 if is_sort_only {
                     // 純分揀:只回分揀通道,不產出面單 —— 不下載、不浮水印、不列印、不入 DirectPrint 佇列。
@@ -2259,28 +2521,31 @@ async fn get_parcel(
                     // **印表機在此當場解析**(而非丟給背景 worker 反查):查不到就立即通報,
                     // 讓「通道漏設印表機」在第一件就被聽見,而不是整批靜默積在佇列裡才發現。
                     let cc = channel_code.clone().unwrap_or_default();
+                    let mut job = DirectPrintJob {
+                        label_key: label_key.clone(),
+                        image_url: info.shipping_image.clone(),
+                        provider: info.shipping_provider.clone(),
+                        channel_code: cc.clone(),
+                        printer_name: String::new(),
+                        print_num,
+                        query_no: query_no.clone(),
+                        response_id: info.response_id,
+                        tracking_no: info.shipping_no.clone(),
+                        job_sticker: sticker_user.clone(),
+                        package_sn: info.package_sn.clone(),
+                        order_sn: info.order_sn.clone(),
+                    };
+                    print_recorded_by_worker = true;
                     match fetch_channel_printer(&state.db, &cc).await {
                         Some(pname) => {
-                            enqueue_direct_print(
-                                &state,
-                                label_key.clone(),
-                                info.shipping_image.clone(),
-                                info.shipping_provider.clone(),
-                                cc,
-                                pname,
-                                print_num,
-                                query_no.clone(),
-                                info.response_id,
-                                info.shipping_no.clone(),
-                                sticker_user.clone(),
-                            );
+                            job.printer_name = pname;
+                            enqueue_direct_print(&state, job);
                         }
                         None => {
                             tracing::warn!(channel_code = %cc, provider = %info.shipping_provider,
                                 "direct_print 模式但分揀通道未設定印表機,此件不會印出");
                             report_direct_print_failed(
-                                &state.app, &state.db, &state.queue, &query_no, "no_printer",
-                                info.response_id, Some(info.shipping_no.as_str()),
+                                &state.app, &state.db, &state.queue, &state.bag_check, &job, "no_printer", "",
                             );
                         }
                     }
@@ -2455,16 +2720,10 @@ async fn get_parcel(
               // 失敗不影響 API 回應(統計次要,不能干擾正常出單)。
               // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,不可記 print_event(同「未指派通道」原則)。
               // 純分揀模式(is_sort_only):完全不出面單 → 一律不記印單統計,但下方件核對仍照常(包裹實體仍過機分揀)。
-              if !is_sort_only && has_image {
+              if !is_sort_only && has_image && !print_recorded_by_worker {
                 // package_sn(袋號)由雲端 v2 回應帶出:記入 print_event 讓印單統計的「袋數」
-                // 反映工控機分揀的分袋量。與 bag_check 同規則正規化:散單(空 / "0")存 NULL,
-                // 否則空字串會被 COUNT(DISTINCT package_sn) 當成一個假袋、灌高袋數。
-                let package_sn = info
-                    .package_sn
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty() && *s != "0")
-                    .map(str::to_string);
+                // 反映工控機分揀的分袋量。
+                let package_sn = normalize_package_sn(info.package_sn.as_deref());
                 let insert_res = sqlx::query(
                     "INSERT INTO print_event (source, shipping_no, provider_code, sticker_user, channel_code, package_sn)
                      VALUES ('ipc', ?, ?, ?, ?, ?)",
@@ -2487,15 +2746,20 @@ async fn get_parcel(
 
               // 分揀袋件核對:新袋背景 examine 取整袋清單,舊袋就地更新列印時間(非阻塞,不讓工控機等雲端)。
               // 一般模式需有面單印出(has_image)才標已印;純分揀模式無面單,只要分到通道即代表過機分揀 → 照標。
-              if is_sort_only || has_image {
+              if (is_sort_only || has_image) && !print_recorded_by_worker {
                 state.bag_check.on_parcel(
                     info.package_sn.clone(),
                     &info.order_sn,
                     &info.shipping_no,
                     &info.shipping_provider,
                 );
+              } else if !is_sort_only && !has_image {
+                // 雲端沒給面單:實體沒印出,擋下雲端查件當下的已印廣播
+                state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
               }
             } else {
+                // 雲端查件當下已把這件記成已印並廣播;實際沒有格口、沒有印出,件數核對要顯示成缺件
+                state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
                 // 未指派通道(!has_assigned):此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None;
                 // 純分揀模式本就不出面單),且無格口可分揀 → 不記 print_event、不做件核對,統計必須與實物一致
                 // (否則儀表板全綠、現場卻累積一批無面單包裹)。event_log 節流告警(同 provider 20s 一次,防洪),

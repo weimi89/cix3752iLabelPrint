@@ -100,7 +100,9 @@
     "download_failed": "In trực tiếp thất bại: tải nhãn thất bại, kiện này thực tế chưa được in",
     "no_printer": "In trực tiếp thất bại: kênh phân loại chưa cài máy in, kiện này thực tế chưa được in",
     "read_failed": "In trực tiếp thất bại: đọc ảnh nhãn thất bại, kiện này thực tế chưa được in",
-    "print_failed": "In trực tiếp thất bại: gửi lệnh in thất bại, kiện này thực tế chưa được in"
+    "print_failed": "In trực tiếp thất bại: gửi lệnh in thất bại, kiện này thực tế chưa được in",
+    "printer_not_ready": "In trực tiếp thất bại: máy in của kênh {channel} hết giấy, kẹt giấy hoặc mất kết nối, kiện này chưa được in; kênh đã tự động tạm dừng, vui lòng bật lại sau khi xử lý xong",
+    "printer_stuck": "In trực tiếp thất bại: nhãn của kênh {channel} bị kẹt trong máy in, có thể chưa được in; kênh đã tự động tạm dừng, vui lòng kiểm tra mã đơn tại kênh rồi bật lại sau khi xử lý xong"
   },
   "soundSettings": {
     "title": "Cài đặt âm báo",

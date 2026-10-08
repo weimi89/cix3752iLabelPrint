@@ -35,13 +35,227 @@ pub fn list_printers() -> Vec<LocalPrinter> {
 ///   熱感 / 小票印表機(ESC-POS、TSPL)不認 PNG 檔頭,spooler 會卡在「列印中」。
 ///   解法:自己解 PNG → DIB → `StretchDIBits` 印出,任何 Windows 印表機驅動皆吃。
 pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<()> {
+    print_image_bytes_tracked(printer_name, bytes).map(|_| ())
+}
+
+/// 同 [`print_image_bytes`],另外回傳 Windows 列印佇列給這張的工作編號(其他平台回 None)。
+///
+/// 送印成功只代表 Windows 收下了這張,不代表印表機已經印出來 —— 缺紙、卡紙、離線時
+/// 工作會留在佇列,換好紙後一次吐出。呼叫端用這個編號配合 [`inspect`] 追蹤它有沒有真的印完。
+pub fn print_image_bytes_tracked(printer_name: &str, bytes: &[u8]) -> AppResult<Option<u32>> {
     #[cfg(windows)]
     {
-        windows_gdi::print_image_bytes(printer_name, bytes)
+        windows_gdi::print_image_bytes(printer_name, bytes).map(Some)
     }
     #[cfg(not(windows))]
     {
-        unix_path::print_image_bytes(printer_name, bytes)
+        unix_path::print_image_bytes(printer_name, bytes).map(|_| None)
+    }
+}
+
+/// 印表機狀態旗標裡代表「現在印不出來」的那幾種,轉成現場看得懂的原因。
+/// 旗標值對應 Windows winspool.h 的 `PRINTER_STATUS_*`;同時有多種時回第一種。
+/// 忙碌、列印中、預熱、碳粉偏低這類「還能印」的狀態不算。
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn status_problem(status: u32) -> Option<&'static str> {
+    const FLAGS: [(u32, &str); 11] = [
+        (0x0000_0010, "缺紙"),
+        (0x0000_0008, "卡紙"),
+        (0x0000_0040, "紙張異常"),
+        (0x0040_0000, "機蓋沒關"),
+        (0x0000_0080, "離線"),
+        (0x0000_1000, "無法使用"),
+        (0x0000_0800, "出紙口滿了"),
+        (0x0004_0000, "沒有色帶或碳粉"),
+        (0x0010_0000, "需要人員處理"),
+        (0x0000_0001, "被暫停"),
+        (0x0000_0002, "發生錯誤"),
+    ];
+    FLAGS.iter().find(|(bit, _)| status & bit != 0).map(|(_, why)| *why)
+}
+
+/// 一次檢查的結果
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Inspection {
+    /// 印表機狀態顯示印不出來的原因;讀不到狀態時為 None(不因讀不到就判定故障)
+    pub problem: Option<&'static str>,
+    /// 追蹤中、已經不在佇列裡的工作(印完了)
+    pub gone: Vec<u32>,
+    /// 卡太久、這次被取消的工作 —— 這些面單**沒有**印出來
+    pub cancelled: Vec<u32>,
+    /// 卡太久但沒有取消的工作:取消失敗,或卡住時正在列印(取消也收不回已送進印表機的資料,
+    /// 可能其實已經印出)。這些的實體結果不確定,印表機恢復後也可能吐出
+    pub stuck: Vec<u32>,
+    /// 這次查不出狀態的工作(列印服務暫時沒回應等):不當成印完,也不當成卡住
+    pub unknown: Vec<u32>,
+}
+
+/// 查印表機狀態,並逐一確認追蹤中的工作:不在佇列或已標印完 → 印完了;查不出來 → 放進 `unknown`。
+/// `stale=true` 的工作還在佇列時才取消 —— 但只要這次有任何一張印完(印表機有進展),整批都不取消:
+/// 呼叫端的「多久沒進展」是查詢前算的,worker 忙著下載時可能好一陣子沒查,不能憑舊的判斷砍掉正常排隊的面單。
+/// 正在列印的那張不取消,放進 `stuck`(取消收不回已送進印表機的資料,硬砍可能讓現場以為沒印而重印)。
+/// `tracked` 是 (工作編號, 是否已超過可接受的等待時間)。非 Windows 平台一律回「正常、全部印完」。
+pub fn inspect(printer_name: &str, tracked: &[(u32, bool)]) -> AppResult<Inspection> {
+    #[cfg(windows)]
+    {
+        windows_spool::inspect(printer_name, tracked)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = printer_name;
+        Ok(Inspection {
+            gone: tracked.iter().map(|(id, _)| *id).collect(),
+            ..Default::default()
+        })
+    }
+}
+
+#[cfg(windows)]
+mod windows_spool {
+    use std::ffi::c_void;
+    use std::os::raw::c_int;
+
+    use super::{status_problem, Inspection};
+    use crate::{AppError, AppResult};
+
+    type HANDLE = *mut c_void;
+    type BOOL = c_int;
+
+    /// GetJobW 對已不存在的工作編號回的錯誤碼
+    const ERROR_INVALID_PARAMETER: u32 = 87;
+    const JOB_CONTROL_DELETE: u32 = 5;
+    /// 工作已印完。印表機若勾了「保留列印過的文件」,印完的工作會留在佇列,要靠這兩個旗標認出來,
+    /// 否則會被誤判成卡住、把已印的件改回未印
+    const JOB_STATUS_PRINTED: u32 = 0x0000_0080;
+    const JOB_STATUS_COMPLETE: u32 = 0x0000_1000;
+    const JOB_STATUS_PRINTING: u32 = 0x0000_0010;
+
+    #[repr(C)]
+    struct SYSTEMTIME {
+        wYear: u16,
+        wMonth: u16,
+        wDayOfWeek: u16,
+        wDay: u16,
+        wHour: u16,
+        wMinute: u16,
+        wSecond: u16,
+        wMilliseconds: u16,
+    }
+
+    /// winspool.h 的 JOB_INFO_1W(只讀 Status,其餘欄位為了位置正確照抄)
+    #[repr(C)]
+    pub(super) struct JOB_INFO_1W {
+        JobId: u32,
+        pPrinterName: *mut u16,
+        pMachineName: *mut u16,
+        pUserName: *mut u16,
+        pDocument: *mut u16,
+        pDatatype: *mut u16,
+        pStatus: *mut u16,
+        pub(super) Status: u32,
+        Priority: u32,
+        Position: u32,
+        TotalPages: u32,
+        PagesPrinted: u32,
+        Submitted: SYSTEMTIME,
+    }
+
+    /// GetJobW 第一次(不給緩衝)在工作還在時回的錯誤碼
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+
+    enum JobState {
+        /// 已不在佇列,或還在但已標印完(保留列印過的文件)
+        Done,
+        /// 還在佇列、尚未開始列印
+        Queued,
+        /// 正在列印
+        Printing,
+        /// 這次查不出來
+        Unknown,
+    }
+
+    unsafe fn job_state(h: HANDLE, job_id: u32) -> JobState {
+        let mut needed: u32 = 0;
+        if GetJobW(h, job_id, 1, std::ptr::null_mut(), 0, &mut needed) == 0 {
+            match GetLastError() {
+                ERROR_INVALID_PARAMETER => return JobState::Done,
+                ERROR_INSUFFICIENT_BUFFER => {}
+                _ => return JobState::Unknown,
+            }
+        }
+        if (needed as usize) < std::mem::size_of::<JOB_INFO_1W>() {
+            return JobState::Unknown;
+        }
+        // 用 u64 配置確保對齊;GetJobW 會把字串接在結構後面,所以要給足 needed 個位元組
+        let mut buf = vec![0u64; (needed as usize).div_ceil(8)];
+        if GetJobW(h, job_id, 1, buf.as_mut_ptr().cast(), needed, &mut needed) == 0 {
+            return if GetLastError() == ERROR_INVALID_PARAMETER { JobState::Done } else { JobState::Unknown };
+        }
+        let status = (*(buf.as_ptr() as *const JOB_INFO_1W)).Status;
+        if status & (JOB_STATUS_PRINTED | JOB_STATUS_COMPLETE) != 0 {
+            JobState::Done
+        } else if status & JOB_STATUS_PRINTING != 0 {
+            JobState::Printing
+        } else {
+            JobState::Queued
+        }
+    }
+
+    #[link(name = "winspool")]
+    extern "system" {
+        fn OpenPrinterW(pPrinterName: *const u16, phPrinter: *mut HANDLE, pDefault: *const c_void) -> BOOL;
+        fn ClosePrinter(hPrinter: HANDLE) -> BOOL;
+        fn GetPrinterW(hPrinter: HANDLE, Level: u32, pPrinter: *mut u8, cbBuf: u32, pcbNeeded: *mut u32) -> BOOL;
+        fn GetJobW(hPrinter: HANDLE, JobId: u32, Level: u32, pJob: *mut u8, cbBuf: u32, pcbNeeded: *mut u32) -> BOOL;
+        fn SetJobW(hPrinter: HANDLE, JobId: u32, Level: u32, pJob: *const u8, Command: u32) -> BOOL;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLastError() -> u32;
+    }
+
+    pub fn inspect(printer_name: &str, tracked: &[(u32, bool)]) -> AppResult<Inspection> {
+        let name: Vec<u16> = printer_name.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut out = Inspection::default();
+        unsafe {
+            let mut h: HANDLE = std::ptr::null_mut();
+            if OpenPrinterW(name.as_ptr(), &mut h, std::ptr::null()) == 0 {
+                let code = GetLastError();
+                return Err(AppError::Printer(format!(
+                    "開啟印表機失敗 (OpenPrinterW,錯誤碼 {code}): {printer_name}"
+                )));
+            }
+
+            // PRINTER_INFO_6 只有一個 DWORD(dwStatus),不必配置可變長度緩衝
+            let mut status: u32 = 0;
+            let mut needed: u32 = 0;
+            if GetPrinterW(h, 6, (&mut status as *mut u32).cast(), std::mem::size_of::<u32>() as u32, &mut needed) != 0 {
+                out.problem = status_problem(status);
+            }
+
+            let states: Vec<(u32, bool, JobState)> =
+                tracked.iter().map(|&(id, stale)| (id, stale, job_state(h, id))).collect();
+            let progressed = states.iter().any(|(_, _, st)| matches!(st, JobState::Done));
+            for (job_id, stale, state) in states {
+                match state {
+                    JobState::Done => out.gone.push(job_id),
+                    JobState::Unknown => out.unknown.push(job_id),
+                    _ if !stale || progressed => {}
+                    JobState::Printing => out.stuck.push(job_id),
+                    JobState::Queued => {
+                        if SetJobW(h, job_id, 0, std::ptr::null(), JOB_CONTROL_DELETE) != 0 {
+                            out.cancelled.push(job_id);
+                        } else {
+                            out.stuck.push(job_id);
+                        }
+                    }
+                }
+            }
+
+            ClosePrinter(h);
+        }
+        Ok(out)
     }
 }
 
@@ -164,7 +378,7 @@ mod windows_gdi {
     ///   2.88MB → 120KB),driver 不必轉色彩空間、送 USB 的資料量也極小
     /// - **bottom-up(`biHeight = +ih`)**:老 driver 對 top-down DIB 會卡
     /// - **pre-scale 到印表機物理 DPI**:`StretchDIBits` dest=src 不縮放,driver 不必再 scale
-    pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<()> {
+    pub fn print_image_bytes(printer_name: &str, bytes: &[u8]) -> AppResult<u32> {
         let img = image::load_from_memory(bytes)
             .map_err(|e| AppError::Printer(format!("圖片解碼失敗: {e}")))?;
         let luma = img.to_luma8();
@@ -256,7 +470,9 @@ mod windows_gdi {
                 lpszDatatype: std::ptr::null(),
                 fwType: 0,
             };
-            if StartDocW(hdc, &docinfo) <= 0 {
+            // StartDocW 成功時回的就是這張在列印佇列裡的工作編號
+            let job_id = StartDocW(hdc, &docinfo);
+            if job_id <= 0 {
                 DeleteDC(hdc);
                 return Err(AppError::Printer("StartDocW 失敗".into()));
             }
@@ -314,8 +530,30 @@ mod windows_gdi {
             if !end_doc_ok {
                 return Err(AppError::Printer("EndDoc 失敗".into()));
             }
+            Ok(job_id as u32)
         }
+    }
+}
 
-        Ok(())
+#[cfg(test)]
+mod tests {
+    use super::status_problem;
+
+    #[test]
+    fn status_flags_that_stop_printing_are_reported() {
+        assert_eq!(status_problem(0), None);
+        assert_eq!(status_problem(0x10), Some("缺紙"));
+        assert_eq!(status_problem(0x08), Some("卡紙"));
+        assert_eq!(status_problem(0x80), Some("離線"));
+        // 同時缺紙又錯誤:講最具體的缺紙
+        assert_eq!(status_problem(0x10 | 0x02), Some("缺紙"));
+    }
+
+    #[test]
+    fn busy_printing_or_warming_up_is_not_a_problem() {
+        // 忙碌 0x200、列印中 0x400、預熱 0x10000、碳粉偏低 0x20000、省電 0x1000000
+        for ok in [0x200u32, 0x400, 0x1_0000, 0x2_0000, 0x100_0000, 0x400 | 0x200] {
+            assert_eq!(status_problem(ok), None, "{ok:#x}");
+        }
     }
 }

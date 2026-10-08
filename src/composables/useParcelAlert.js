@@ -86,7 +86,7 @@ export function useParcelAlert() {
       lastDirectPrintSoundAt = now
       playSound('effect_2')
     }
-    let text = t(`directPrintFailed.${reason}`)
+    let text = t(`directPrintFailed.${reason}`, { channel: payload?.channel_code || '' })
     if (queryNo) text += `(${queryNo})`
     // vue3-toastify 對已存在的 toastId 是「丟棄後續呼叫」而非更新 —— 必須顯式 update,
     // 否則後續失敗件的單號不會顯示,操作員只看得到第一件

@@ -15,7 +15,7 @@
 //! examine_package 在背景 task 執行,不阻塞工控機 `GET /api/parcel` 的回應
 //!(維持「不讓工控機等雲端」原則)。
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -35,6 +35,9 @@ pub struct BagOrder {
     pub shipping_provider: Option<String>,
     /// 列印時間;有值代表設備已成功要過圖(已列印),空 = 缺漏(尚未跑過)
     pub last_print_time: Option<String>,
+    /// 列印時間來自雲端(清單或跨機廣播)而非本機印成功 —— 雲端時間只能跟雲端時間比
+    #[serde(skip)]
+    pub from_cloud: bool,
 }
 
 impl BagOrder {
@@ -81,6 +84,15 @@ impl BagEntry {
     }
 }
 
+/// 本機判定沒印出之後這麼多秒內收到的雲端「已印」廣播,當成那次查件本身的廣播而忽略。
+/// 用的是**本機收到的時間**,不拿雲端的列印時間比 —— 兩台電腦時鐘差幾分鐘就會判錯。
+/// 雲端在查件當下就廣播,本機要等背景列印結束才知道成敗,兩者相差通常只有幾秒;
+/// 別台補印、之後重跑則是幾分鐘以後的事。
+const NOT_PRINTED_GRACE_SECS: i64 = 60;
+/// 「本機確定沒印出」清單的上限與保留時間:超過就丟掉最舊的,避免長班無限增長
+const NOT_PRINTED_CAP: usize = 5000;
+const NOT_PRINTED_KEEP_HOURS: i64 = 24;
+
 /// `recently_completed` 保留上限:記住最近被 prune 淘汰的「已完成袋號」,供辨識「回補已被淘汰的完成袋」。
 /// 有界環形,滿了淘汰最舊,避免長班無限增長。
 const RECENTLY_COMPLETED_CAP: usize = 128;
@@ -102,6 +114,30 @@ struct BagCheckInner {
     /// 最近被 prune 淘汰的「已完成」袋號(有界環形,上限 [`RECENTLY_COMPLETED_CAP`])。
     /// 用於辨識「回補已被淘汰的完成袋」:此類袋不在 bags 內,單看 bags 會誤判成開新袋而打斷進行中的袋。
     recently_completed: VecDeque<String>,
+    /// 本機確定**沒有印出面單**的件:單號 → 判定當時的本地時間。
+    /// 雲端在查件當下就把件記成已印並廣播,不擋的話直印失敗、未指派格口的件都會被顯示成已印,
+    /// 件數核對就抓不到漏印。之後同一件在本機印成功、或雲端出現明顯較晚的「已印」(別台補印)才移除。
+    not_printed: HashMap<String, NotPrinted>,
+}
+
+/// 「本機確定沒印出」的一筆
+#[derive(Debug, Clone)]
+struct NotPrinted {
+    /// 本機判定的時間(本機時鐘)
+    marked_at: String,
+    /// 認定為那次查件廣播的雲端列印時間(雲端時鐘);比它新的雲端時間才算真的另外印出
+    echo_time: Option<String>,
+}
+
+/// 雲端說某件印過時,對照「本機確定沒印出」清單的結論
+#[derive(Debug, PartialEq, Eq)]
+enum CloudPrint {
+    /// 不在清單,照常採用
+    NotTracked,
+    /// 是那次查件自己的廣播,忽略
+    Echo,
+    /// 判定之後真的另外印出(別台補印、重跑),採用並移出清單
+    Genuine,
 }
 
 #[derive(Clone)]
@@ -133,8 +169,21 @@ impl BagCheckState {
             g.active_bag = None;
             g.abandoned.clear();
             g.recently_completed.clear();
+            g.not_printed.clear();
         }
         self.emit();
+    }
+
+    /// 本機確定這件**沒有印出面單**(直印失敗、印表機卡住被取消、物流商未指派格口、雲端沒給面單)。
+    /// 記進「沒印出」清單擋住雲端的已印廣播,並照常載入它的袋 —— 整袋都沒印成功時,
+    /// 現場仍要看得到這一袋與缺件數,不能因為沒有一件印成功就整袋不見。
+    pub fn mark_not_printed(&self, package_sn: Option<String>, order_sn: &str, shipping_no: &str, provider: &str) {
+        let shipping_no = shipping_no.trim();
+        if shipping_no.is_empty() {
+            return;
+        }
+        remember_not_printed(&mut self.inner.lock().not_printed, shipping_no, &now_local());
+        self.track(package_sn, order_sn, shipping_no, provider, false);
     }
 
     fn emit(&self) {
@@ -144,7 +193,7 @@ impl BagCheckState {
         }
     }
 
-    /// 工控機 `GET /api/parcel` 成功後呼叫 — 非阻塞(內部 spawn 背景處理),
+    /// 這件確定印出了(或純分揀模式下分到格口)— 非阻塞(內部 spawn 背景處理),
     /// package_sn 為空(散單/雲端未回袋號)直接忽略,不納入核對。
     pub fn on_parcel(
         &self,
@@ -153,6 +202,14 @@ impl BagCheckState {
         shipping_no: &str,
         provider: &str,
     ) {
+        let shipping_no = shipping_no.trim();
+        // 本機剛印成功:先前若判定過沒印出(失敗後重跑),那個結論已被推翻
+        self.inner.lock().not_printed.remove(shipping_no);
+        self.track(package_sn, order_sn, shipping_no, provider, true);
+    }
+
+    /// 把一件(已印或確定沒印出)記進它的袋:連續性判定同步做,整袋清單載入丟背景
+    fn track(&self, package_sn: Option<String>, order_sn: &str, shipping_no: &str, provider: &str, printed: bool) {
         // 無袋號(散單)不納入袋核對:對齊雲端 !empty() 慣例,空字串 / "0" 皆視為散單。
         // 真實袋號可能以 0 開頭(如 0STTJX9B1694),故只排除「剛好等於 0」者。
         let package_sn = match package_sn {
@@ -167,7 +224,7 @@ impl BagCheckState {
         let shipping_no = shipping_no.to_string();
         let provider = provider.to_string();
         tokio::spawn(async move {
-            this.handle(package_sn, order_sn, shipping_no, provider).await;
+            this.handle(package_sn, order_sn, shipping_no, provider, printed).await;
         });
     }
 
@@ -191,18 +248,19 @@ impl BagCheckState {
         order_sn: String,
         shipping_no: String,
         provider: String,
+        printed: bool,
     ) {
-        let printed_at = now_local();
+        let at = now_local();
 
-        // 1. 袋已存在 → 就地更新列印時間,不打雲端
-        if self.update_existing(&package_sn, &shipping_no, &order_sn, &provider, &printed_at) {
+        // 1. 袋已存在 → 就地更新這件的狀態,不打雲端
+        if self.update_existing(&package_sn, &shipping_no, &order_sn, &provider, &at, printed) {
             self.emit();
             return;
         }
 
         // 2. 新袋 → 在 lock 外呼叫 examine_package 取整袋清單(失敗回 None)
         let entry = self
-            .build_entry(&package_sn, &order_sn, &shipping_no, &provider, &printed_at)
+            .build_entry(&package_sn, &order_sn, &shipping_no, &provider, printed.then_some(at.as_str()))
             .await;
         // double-check 用的 key:成功用雲端回的 package_sn,失敗則用傳入的
         let key = entry
@@ -213,23 +271,26 @@ impl BagCheckState {
         // 3. 重新 lock,double-check 防並發期間別的請求已建立同袋
         {
             let mut g = self.inner.lock();
-            if let Some(bag) = g.bags.iter_mut().find(|b| b.package_sn == key) {
-                // 並發期間別的請求已建此袋 → 就地標記已印
-                bag.last_request_at = printed_at.clone();
-                mark_printed(bag, &shipping_no, &order_sn, &provider, &printed_at);
+            let inner = &mut *g;
+            if let Some(bag) = inner.bags.iter_mut().find(|b| b.package_sn == key) {
+                // 並發期間別的請求已建此袋 → 就地更新(以這段等待期間的最新結論為準)
+                bag.last_request_at = at.clone();
+                apply_local_result(bag, &mut inner.not_printed, &shipping_no, &order_sn, &provider, &at, printed);
             } else if let Some(mut entry) = entry {
+                // 雲端清單裡的列印時間可能只是查件當下的廣播:本機確定沒印出的件改回未印
+                suppress_not_printed(&mut entry.orders, &mut inner.not_printed, &now_local());
                 // 載入成功才推入清單。
                 // 此袋號若先前在 recently_completed(完成後被淘汰),現在以新 entry 回到清單 →
                 // 必須移出 recently_completed,否則同一袋號被重用為新的未完成袋時會被永久
                 // 當成「回補已完成袋」,連續性偵測漏掉它。
                 entry.recount();
-                g.recently_completed.retain(|s| s != &key);
-                g.bags.push_front(entry);
-                prune(&mut g);
+                inner.recently_completed.retain(|s| s != &key);
+                inner.bags.push_front(entry);
+                prune(inner);
             } else {
                 // 載入失敗(散單 / 未登入 / 雲端失敗)且無既有袋 → 不建卡,清單不變。
                 // 此袋不會有卡,延後補標已無意義 → 移出 abandoned,確保集合有界(不因反覆失敗而累積)。
-                g.abandoned.remove(&key);
+                inner.abandoned.remove(&key);
                 return;
             }
             // 此袋 entry 剛建立/更新 → 若它先前「被切走」時 entry 尚未建立而漏標,現在補標。
@@ -238,19 +299,21 @@ impl BagCheckState {
         self.emit();
     }
 
-    /// 袋已在清單時就地更新;回傳是否命中
+    /// 袋已在清單時就地更新這件;回傳是否命中
     fn update_existing(
         &self,
         package_sn: &str,
         shipping_no: &str,
         order_sn: &str,
         provider: &str,
-        printed_at: &str,
+        at: &str,
+        printed: bool,
     ) -> bool {
         let mut g = self.inner.lock();
-        if let Some(bag) = g.bags.iter_mut().find(|b| b.package_sn == package_sn) {
-            bag.last_request_at = printed_at.to_string();
-            mark_printed(bag, shipping_no, order_sn, provider, printed_at);
+        let inner = &mut *g;
+        if let Some(bag) = inner.bags.iter_mut().find(|b| b.package_sn == package_sn) {
+            bag.last_request_at = at.to_string();
+            apply_local_result(bag, &mut inner.not_printed, shipping_no, order_sn, provider, at, printed);
             true
         } else {
             false
@@ -265,7 +328,7 @@ impl BagCheckState {
         order_sn: &str,
         shipping_no: &str,
         _provider: &str,
-        printed_at: &str,
+        printed_at: Option<&str>,
     ) -> Option<BagEntry> {
         match self.cloud.examine_package(order_sn).await {
             Ok(res) if res.respond_code == "FIND-PACKAGE-ORDER" => {
@@ -280,17 +343,19 @@ impl BagCheckState {
                     .iter()
                     .map(|o| {
                         let sn = o.shipping_no.clone().unwrap_or_default();
-                        // 當下這件設備剛請求成功 → 標記已印;其餘沿用雲端 last_print_time
+                        // 當下這件依本機實際結果(印成功 → 現在;沒印出 → 空);其餘沿用雲端 last_print_time
                         let last_print_time = if sn == shipping_no {
-                            Some(printed_at.to_string())
+                            printed_at.map(str::to_string)
                         } else {
                             o.last_print_time.clone()
                         };
+                        let from_cloud = sn != shipping_no;
                         BagOrder {
                             shipping_no: sn,
                             order_sn: o.order_sn.clone(),
                             shipping_provider: o.shipping_provider.clone(),
                             last_print_time,
+                            from_cloud,
                         }
                     })
                     .collect();
@@ -308,7 +373,7 @@ impl BagCheckState {
                     printed: 0,
                     missing: 0,
                     interrupted: false,
-                    last_request_at: printed_at.to_string(),
+                    last_request_at: now_local(),
                 })
             }
             Ok(res) => {
@@ -332,7 +397,12 @@ impl BagCheckState {
     /// 時間字串同格式("Y-m-d H:i:s")可字典序比較;只有實際造成變動才 emit。
     pub fn apply_remote_print(&self, package_sn: &str, shipping_no: &str, print_time: &str) {
         let changed = {
+            let shipping_no = shipping_no.trim();
             let mut g = self.inner.lock();
+            if judge_cloud_print(&mut g.not_printed, shipping_no, print_time, &now_local(), false) == CloudPrint::Echo {
+                // 這件本機確定沒印出,這個「已印」只是查件當下的廣播
+                return;
+            }
             apply_remote_to(&mut g.bags, package_sn, shipping_no, print_time)
         };
         if changed {
@@ -369,22 +439,29 @@ impl BagCheckState {
                 return;
             }
         };
+        let now = now_local();
         let changed = {
             let mut g = self.inner.lock();
-            let Some(bag) = g.bags.iter_mut().find(|b| b.package_sn == package_sn) else {
+            // 經由一般可變參考取欄位,才能同時改 bags、讀 not_printed
+            let inner = &mut *g;
+            let Some(bag) = inner.bags.iter_mut().find(|b| b.package_sn == package_sn) else {
                 return;
             };
             let mut any = false;
             for o in &res.orders {
                 let sn = o.shipping_no.clone().unwrap_or_default();
                 let cloud_t = o.last_print_time.clone().unwrap_or_default();
-                if sn.is_empty() || cloud_t.trim().is_empty() {
+                if sn.is_empty()
+                    || cloud_t.trim().is_empty()
+                    || judge_cloud_print(&mut inner.not_printed, sn.trim(), &cloud_t, &now, true) == CloudPrint::Echo
+                {
                     continue;
                 }
                 if let Some(ord) = bag.orders.iter_mut().find(|x| x.shipping_no == sn) {
                     let cur = ord.last_print_time.clone().unwrap_or_default();
                     if cur.trim().is_empty() || cloud_t.as_str() > cur.as_str() {
                         ord.last_print_time = Some(cloud_t);
+                        ord.from_cloud = true;
                         any = true;
                     }
                 }
@@ -448,12 +525,14 @@ fn mark_printed(
 ) {
     if let Some(ord) = bag.orders.iter_mut().find(|o| o.shipping_no == shipping_no) {
         ord.last_print_time = Some(printed_at.to_string());
+        ord.from_cloud = false;
     } else {
         bag.orders.push(BagOrder {
             shipping_no: shipping_no.to_string(),
             order_sn: Some(order_sn.to_string()),
             shipping_provider: Some(provider.to_string()),
             last_print_time: Some(printed_at.to_string()),
+            from_cloud: false,
         });
     }
     bag.recount();
@@ -480,6 +559,7 @@ fn apply_remote_to(
     };
     if newer {
         ord.last_print_time = Some(print_time.to_string());
+        ord.from_cloud = true;
         bag.recount();
     }
     newer
@@ -554,9 +634,279 @@ fn now_local() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+const TIME_FMT: &str = "%Y-%m-%d %H:%M:%S";
+
+/// 記一筆「本機確定沒印出」。超過保留時間的順手清掉,滿了丟最舊的。
+fn remember_not_printed(map: &mut HashMap<String, NotPrinted>, shipping_no: &str, now: &str) {
+    if let Ok(now_t) = chrono::NaiveDateTime::parse_from_str(now, TIME_FMT) {
+        let cutoff = now_t - chrono::Duration::hours(NOT_PRINTED_KEEP_HOURS);
+        map.retain(|_, np| chrono::NaiveDateTime::parse_from_str(&np.marked_at, TIME_FMT).is_ok_and(|t| t >= cutoff));
+    }
+    if map.len() >= NOT_PRINTED_CAP && !map.contains_key(shipping_no) {
+        if let Some(oldest) = map.iter().min_by(|a, b| a.1.marked_at.cmp(&b.1.marked_at)).map(|(k, _)| k.clone()) {
+            map.remove(&oldest);
+        }
+    }
+    // 同一件再次失敗:沿用已認定的廣播時間(那次查件的廣播只會有一個)
+    let echo_time = map.get(shipping_no).and_then(|np| np.echo_time.clone());
+    map.insert(shipping_no.to_string(), NotPrinted { marked_at: now.to_string(), echo_time });
+}
+
+/// 本機判定沒印出之後,是否仍在「雲端廣播可能晚到」的時間內(以本機時間比較)。
+/// 時間讀不懂時當成仍在 —— 寧可多顯示一件缺件,也不要把沒印出的件顯示成已印。
+fn echo_window_open(marked_at: &str, now: &str) -> bool {
+    match (
+        chrono::NaiveDateTime::parse_from_str(marked_at, TIME_FMT),
+        chrono::NaiveDateTime::parse_from_str(now, TIME_FMT),
+    ) {
+        (Ok(at), Ok(now)) => now <= at + chrono::Duration::seconds(NOT_PRINTED_GRACE_SECS),
+        _ => true,
+    }
+}
+
+/// 雲端說 `shipping_no` 在 `cloud_time` 印過:對照「本機確定沒印出」清單判斷要不要採用。
+///
+/// 雲端時間只跟雲端時間比(兩台電腦時鐘可能差幾分鐘):清單裡第一次見到的雲端時間,
+/// 若來自雲端清單(`from_manifest`),或是判定後 [`NOT_PRINTED_GRACE_SECS`] 內收到的廣播,
+/// 就記成「那次查件的廣播時間」;之後比它新的雲端時間才算真的另外印出(別台補印、重跑)。
+/// 判定後隔了很久才第一次收到的廣播,直接當成真的印出。
+fn judge_cloud_print(
+    map: &mut HashMap<String, NotPrinted>,
+    shipping_no: &str,
+    cloud_time: &str,
+    now: &str,
+    from_manifest: bool,
+) -> CloudPrint {
+    let Some(np) = map.get_mut(shipping_no) else {
+        return CloudPrint::NotTracked;
+    };
+    let genuine = match np.echo_time.as_deref() {
+        Some(echo) => cloud_time > echo,
+        None if from_manifest || echo_window_open(&np.marked_at, now) => {
+            np.echo_time = Some(cloud_time.to_string());
+            false
+        }
+        None => true,
+    };
+    if genuine {
+        map.remove(shipping_no);
+        CloudPrint::Genuine
+    } else {
+        CloudPrint::Echo
+    }
+}
+
+/// 新袋載入時:雲端清單裡本機確定沒印出的件,列印時間若只是那次查件的廣播就改回未印。
+fn suppress_not_printed(orders: &mut [BagOrder], not_printed: &mut HashMap<String, NotPrinted>, now: &str) {
+    for o in orders.iter_mut() {
+        let sn = o.shipping_no.trim().to_string();
+        match o.last_print_time.clone() {
+            Some(t) if o.from_cloud => {
+                if judge_cloud_print(not_printed, &sn, &t, now, true) == CloudPrint::Echo {
+                    o.last_print_time = None;
+                }
+            }
+            // 本機設的時間(這次帶袋進來的那件)或沒有時間:在清單裡就是沒印出
+            _ if not_printed.contains_key(&sn) => o.last_print_time = None,
+            _ => {}
+        }
+    }
+}
+
+/// 把本機這次的結果(印成功 / 沒印出)寫進已持有的袋,以清單裡**最新**的結論為準:
+/// - 印成功,但等待期間又被判定沒印出(面單卡住被取消)→ 未印
+/// - 沒印出,但等待期間已經重跑印成功(清單已移除)→ 不動,以那次成功為準
+/// - 沒印出時,這件若帶著雲端時間:是那次查件的廣播 → 改回未印;比廣播新(別台真的印出)→ 保留已印
+fn apply_local_result(
+    bag: &mut BagEntry,
+    not_printed: &mut HashMap<String, NotPrinted>,
+    shipping_no: &str,
+    order_sn: &str,
+    provider: &str,
+    at: &str,
+    printed: bool,
+) {
+    let failed_now = not_printed.contains_key(shipping_no);
+    if printed && !failed_now {
+        mark_printed(bag, shipping_no, order_sn, provider, at);
+        return;
+    }
+    if !failed_now {
+        return;
+    }
+    if let Some(ord) = bag.orders.iter().find(|o| o.shipping_no == shipping_no) {
+        if let (true, Some(t)) = (ord.from_cloud, ord.last_print_time.clone()) {
+            if judge_cloud_print(not_printed, shipping_no, &t, at, true) == CloudPrint::Genuine {
+                return;
+            }
+        }
+        unmark_printed(bag, shipping_no);
+    } else {
+        bag.orders.push(BagOrder {
+            shipping_no: shipping_no.to_string(),
+            order_sn: Some(order_sn.to_string()),
+            shipping_provider: Some(provider.to_string()),
+            last_print_time: None,
+            from_cloud: false,
+        });
+        bag.recount();
+    }
+}
+
+/// 把袋內某件改回未印;回傳是否真的有變
+fn unmark_printed(bag: &mut BagEntry, shipping_no: &str) -> bool {
+    let Some(ord) = bag.orders.iter_mut().find(|o| o.shipping_no == shipping_no) else {
+        return false;
+    };
+    if !ord.printed() {
+        return false;
+    }
+    ord.last_print_time = None;
+    bag.recount();
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn order(sn: &str, printed_at: Option<&str>) -> BagOrder {
+        BagOrder {
+            shipping_no: sn.to_string(),
+            order_sn: None,
+            shipping_provider: None,
+            last_print_time: printed_at.map(str::to_string),
+            from_cloud: printed_at.is_some(),
+        }
+    }
+
+    fn bag_of(orders: Vec<BagOrder>) -> BagEntry {
+        let mut b = BagEntry {
+            package_sn: "P1".into(),
+            orders,
+            total: 0,
+            printed: 0,
+            missing: 0,
+            interrupted: false,
+            last_request_at: String::new(),
+        };
+        b.recount();
+        b
+    }
+
+    #[test]
+    fn echo_window_uses_local_time_since_marking() {
+        assert!(echo_window_open("2026-10-07 20:00:10", "2026-10-07 20:01:10"));
+        assert!(!echo_window_open("2026-10-07 20:00:10", "2026-10-07 20:01:11"));
+        assert!(echo_window_open("不是時間", "2026-10-07 20:01:11"));
+    }
+
+    #[test]
+    fn cloud_times_are_only_compared_with_cloud_times() {
+        // 本機 20:00:10 判定沒印出。雲端時鐘比本機快 2 分鐘,查件廣播寫 20:02:05
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "S1", "2026-10-07 20:00:10");
+        // 判定後 5 秒收到 → 認定為廣播,記下它的雲端時間
+        assert_eq!(judge_cloud_print(&mut map, "S1", "2026-10-07 20:02:05", "2026-10-07 20:00:15", false), CloudPrint::Echo);
+        // 同一個雲端時間再出現(重連補抓清單)仍是廣播,不受本機時間影響
+        assert_eq!(judge_cloud_print(&mut map, "S1", "2026-10-07 20:02:05", "2026-10-07 20:30:00", true), CloudPrint::Echo);
+        // 30 秒後別台真的補印(雲端時間比廣播新)→ 即使還在 60 秒窗口內也要採用
+        assert_eq!(judge_cloud_print(&mut map, "S1", "2026-10-07 20:02:35", "2026-10-07 20:00:40", false), CloudPrint::Genuine);
+        assert!(!map.contains_key("S1"), "真的印出後移出清單");
+        // 不在清單的件照常採用
+        assert_eq!(judge_cloud_print(&mut map, "S9", "2026-10-07 20:00:00", "2026-10-07 20:00:00", false), CloudPrint::NotTracked);
+    }
+
+    #[test]
+    fn first_broadcast_long_after_marking_counts_as_real_print() {
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "S1", "2026-10-07 20:00:10");
+        // 判定 10 分鐘後才第一次收到廣播:不可能是那次查件的,是別台或重跑印出
+        assert_eq!(judge_cloud_print(&mut map, "S1", "2026-10-07 20:10:00", "2026-10-07 20:10:01", false), CloudPrint::Genuine);
+    }
+
+    #[test]
+    fn not_printed_list_drops_old_entries_and_stays_bounded() {
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "OLD", "2026-10-06 19:00:00");
+        remember_not_printed(&mut map, "NEW", "2026-10-07 20:00:00");
+        assert!(!map.contains_key("OLD"), "超過 24 小時的要清掉");
+        assert!(map.contains_key("NEW"));
+
+        let mut full: HashMap<String, NotPrinted> = (0..NOT_PRINTED_CAP)
+            .map(|i| (format!("S{i}"), NotPrinted { marked_at: "2026-10-07 20:00:00".into(), echo_time: None }))
+            .collect();
+        full.insert("S0".into(), NotPrinted { marked_at: "2026-10-07 19:00:00".into(), echo_time: None });
+        remember_not_printed(&mut full, "X", "2026-10-07 20:00:01");
+        assert_eq!(full.len(), NOT_PRINTED_CAP);
+        assert!(!full.contains_key("S0"), "滿了丟最舊的");
+    }
+
+    #[test]
+    fn loading_a_bag_keeps_unprinted_parcels_missing() {
+        // S2 本機沒印出(未指派格口),雲端清單照樣寫了查件當下的時間 → 改回未印
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "S2", "2026-10-07 20:00:10");
+        let mut orders = vec![order("S1", Some("2026-10-07 20:05:00")), order("S2 ", Some("2026-10-07 20:00:06")), order("S3", None)];
+        suppress_not_printed(&mut orders, &mut map, "2026-10-07 20:06:00");
+        let printed: Vec<bool> = orders.iter().map(|o| o.printed()).collect();
+        assert_eq!(printed, [true, false, false], "單號前後空白也要對得上");
+    }
+
+    #[test]
+    fn late_failure_result_does_not_undo_a_later_success() {
+        // 先失敗(進清單)→ 重跑印成功(移出清單、袋內已印)→ 失敗那次的結果才晚到
+        let mut map = HashMap::new();
+        let mut b = bag_of(vec![order("S1", None)]);
+        apply_local_result(&mut b, &mut map, "S1", "O1", "C", "2026-10-07 20:03:00", true);
+        assert_eq!(b.missing, 0);
+        apply_local_result(&mut b, &mut map, "S1", "O1", "C", "2026-10-07 20:03:05", false);
+        assert_eq!(b.missing, 0, "清單裡已經沒有它,代表後來印成功了,不可蓋回未印");
+    }
+
+    #[test]
+    fn success_revoked_while_loading_ends_up_missing() {
+        // 印成功的結果還在處理,面單就被判定卡住取消(進清單)
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "S1", "2026-10-07 20:00:20");
+        let mut b = bag_of(vec![order("S1", None), order("S2", Some("2026-10-07 20:00:00"))]);
+        apply_local_result(&mut b, &mut map, "S1", "O1", "C", "2026-10-07 20:00:21", true);
+        assert_eq!((b.printed, b.missing), (1, 1));
+    }
+
+    #[test]
+    fn failure_keeps_a_parcel_that_was_really_printed_elsewhere() {
+        // 本機判定沒印出;袋內這件帶的雲端時間比認定的廣播新 → 是別台真的印出,保留已印
+        let mut map = HashMap::new();
+        remember_not_printed(&mut map, "S1", "2026-10-07 20:00:10");
+        map.get_mut("S1").unwrap().echo_time = Some("2026-10-07 20:00:05".into());
+        let mut b = bag_of(vec![order("S1", Some("2026-10-07 20:04:00"))]);
+        apply_local_result(&mut b, &mut map, "S1", "O1", "C", "2026-10-07 20:04:30", false);
+        assert_eq!(b.missing, 0);
+        // 袋內沒有這件、又沒印出:補一筆未印,缺件數要算到
+        remember_not_printed(&mut map, "S9", "2026-10-07 20:05:00");
+        apply_local_result(&mut b, &mut map, "S9", "O9", "C", "2026-10-07 20:05:00", false);
+        assert_eq!((b.total, b.missing), (2, 1));
+    }
+
+    #[test]
+    fn unmark_printed_turns_a_printed_parcel_back_to_missing() {
+        let mut b = BagEntry {
+            package_sn: "P1".into(),
+            orders: vec![order("S1", Some("2026-10-07 20:00:00")), order("S2", Some("2026-10-07 20:00:01"))],
+            total: 0,
+            printed: 0,
+            missing: 0,
+            interrupted: false,
+            last_request_at: String::new(),
+        };
+        b.recount();
+        assert_eq!(b.missing, 0);
+        assert!(unmark_printed(&mut b, "S2"));
+        assert_eq!((b.printed, b.missing), (1, 1));
+        assert!(!unmark_printed(&mut b, "S2"), "已經是未印就不算變動");
+        assert!(!unmark_printed(&mut b, "S9"), "袋內沒有這件");
+    }
 
     /// 建測試袋:missing 決定是否「有未印件」;sn 當 package_sn 方便斷言保留結果
     fn bag(sn: &str, missing: usize) -> BagEntry {
@@ -616,6 +966,7 @@ mod tests {
     /// 建一筆訂單(last_print_time 空=未印)
     fn ord(sn: &str, printed_at: Option<&str>) -> BagOrder {
         BagOrder {
+            from_cloud: false,
             shipping_no: sn.to_string(),
             order_sn: Some(format!("O-{sn}")),
             shipping_provider: Some("EXPRESS".to_string()),
@@ -683,6 +1034,7 @@ mod tests {
             active_bag: active.map(|s| s.to_string()),
             abandoned: HashSet::new(),
             recently_completed: VecDeque::new(),
+            not_printed: HashMap::new(),
         }
     }
     fn find_bag<'a>(inner: &'a BagCheckInner, sn: &str) -> &'a BagEntry {
