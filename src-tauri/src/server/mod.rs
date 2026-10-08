@@ -219,6 +219,12 @@ struct SortRouting {
     seq: i64,
     /// 是否已從列印記錄推回「當輪已收過的格口」。只做一次,之後全靠記憶體累計。
     seeded: bool,
+    /// 上一件分到的格口位置(不分物流)。輪流從它的下一格接著找,它自己排在最後 ——
+    /// 每次都從左1找起的話,剛收過件的格口只要排在前面就會連收兩件。
+    last_position: Option<String>,
+    /// 分配時看到是暫停中的格口代碼。恢復後第一次分配把它的次數拉進其他格口的範圍:
+    /// 暫停期間沒收件不算欠量,不拉的話一恢復就被連續灌件、其他格口乾等。
+    paused: std::collections::HashSet<String>,
 }
 
 type SortRoutingState = Arc<tokio::sync::Mutex<SortRouting>>;
@@ -1273,6 +1279,9 @@ async fn seed_round(db: &DbPool, routing: &mut SortRouting, ring: &[String]) {
         let (Ok(code), Ok(pos)) = (r.try_get::<String, _>("channel_code"), r.try_get::<String, _>("position")) else {
             break;
         };
+        if routing.last_position.is_none() {
+            routing.last_position = Some(pos.clone());
+        }
         let idx = ring_index(ring, &pos);
         if idx >= prev {
             break;
@@ -1285,17 +1294,42 @@ async fn seed_round(db: &DbPool, routing: &mut SortRouting, ring: &[String]) {
     }
 }
 
-/// 全場啟用中且有代碼的格口數。一個格口超過這麼多件都沒輪到,就視為閒置。
-async fn count_enabled_channels(db: &DbPool) -> i64 {
-    sqlx::query(
-        "SELECT COUNT(*) AS n FROM sort_channels
-          WHERE enabled = 1 AND channel_code IS NOT NULL AND channel_code <> ''",
+/// 全場有代碼的格口:回傳啟用中的數量(一個格口超過這麼多件都沒輪到,就視為閒置)
+/// 與暫停中的通道代碼。
+async fn load_channel_states(db: &DbPool) -> (i64, Vec<String>) {
+    let rows = sqlx::query(
+        "SELECT channel_code, enabled FROM sort_channels
+          WHERE channel_code IS NOT NULL AND channel_code <> ''",
     )
-    .fetch_one(db)
+    .fetch_all(db)
     .await
-    .ok()
-    .and_then(|r| r.try_get::<i64, _>("n").ok())
-    .unwrap_or(0)
+    .unwrap_or_else(|e| {
+        tracing::warn!(?e, "讀格口啟用狀態失敗,本次不判斷暫停與閒置");
+        Vec::new()
+    });
+    let mut enabled = 0;
+    let mut disabled = Vec::new();
+    for r in rows {
+        let Ok(code) = r.try_get::<String, _>("channel_code") else { continue };
+        if r.try_get::<i64, _>("enabled").unwrap_or(1) == 1 {
+            enabled += 1;
+        } else {
+            disabled.push(code);
+        }
+    }
+    (enabled, disabled)
+}
+
+/// 每一格的上一件尾碼都已知時,00～99 裡有幾組尾碼會跟所有格口都撞號(下一件若是這些尾碼就無處可避)。
+/// 有任一格沒有上一件就回 0:那一格什麼尾碼都能收。數字越小,下一件越容易找到不撞號的格口。
+fn forced_tail_count(tails: &[Option<String>]) -> usize {
+    if tails.iter().any(Option::is_none) {
+        return 0;
+    }
+    (0..100)
+        .map(|i| format!("{i:02}"))
+        .filter(|x| tails.iter().flatten().all(|t| tails_overlap(x, t)))
+        .count()
 }
 
 /// 消耗一次該通道的「跳過本輪」額度。回傳 true 代表這次真的扣到、該通道本輪不參與分配。
@@ -1310,8 +1344,9 @@ async fn consume_skip(db: &DbPool, position: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// 依物流商代碼解析分揀通道:有指派通道時挑收件次數最少的那個,平手照 ring_order 算出的固定順序
-/// (左右交替、同側隔格,依目前格口配置長出);未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
+/// 依物流商代碼解析分揀通道:有指派通道時先避開撞尾碼的格口,再在收件次數相近的格口裡挑,
+/// 平手從上一件的下一格照 ring_order 的固定順序(左右交替、同側隔格,依目前格口配置長出)接著輪;
+/// 未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
 /// 回傳 `(channel_code, has_assigned)`,`has_assigned=false` 代表該物流商沒有任何指派通道。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
 ///
@@ -1377,6 +1412,24 @@ async fn resolve_channel_code(
             states.push(channel_last(db, &mut rt, code).await);
         }
 
+        // 暫停過又恢復的格口:次數拉進其他格口的範圍。暫停時沒收件是因為不能收,不是欠量;
+        // 不拉的話,程式沒重開時暫停一整天的格口,一恢復就連續收件追量,其他格口乾等。
+        let (enabled_total, disabled) = load_channel_states(db).await;
+        let resumed: Vec<bool> = candidates.iter().map(|(_, code)| rt.paused.contains(code)).collect();
+        let settled = (0..n).filter(|&j| !resumed[j]).map(|j| states[j].count);
+        if let (Some(lo), Some(hi)) = (settled.clone().min(), settled.max()) {
+            for i in (0..n).filter(|&i| resumed[i]) {
+                states[i].count = states[i].count.clamp(lo, hi);
+                if let Some(entry) = rt.last.get_mut(&candidates[i].1) {
+                    entry.count = states[i].count;
+                }
+            }
+        }
+        for (_, code) in &candidates {
+            rt.paused.remove(code);
+        }
+        rt.paused.extend(disabled);
+
         // 收件次數看的是格口實際收了什麼,不分物流。共用格口(例如同時掛 7-11 與全家)
         // 被別家多收了幾件,就會被讓開到其他格口追上為止,現場各格口的量才會平均。
         //
@@ -1385,7 +1438,7 @@ async fn resolve_channel_code(
         // 被別家灌爆的格口在別家停下、閒置一輪之後也不用等其他格口慢慢追上。
         // 正在收件的格口不動 —— 它落後或超前都是真的,得靠分配去平衡。
         if n >= 2 {
-            let enabled = count_enabled_channels(db).await.max(n as i64);
+            let enabled = enabled_total.max(n as i64);
             let now_seq = RUNTIME_SEQ_BASE + rt.seq;
             let snapshot: Vec<i64> = states.iter().map(|s| s.count).collect();
             for i in 0..n {
@@ -1406,18 +1459,48 @@ async fn resolve_channel_code(
             }
         }
 
-        // 先避開尾碼撞號的格口(後兩碼有任一數字與該格上一件重疊),再挑收件次數最少的,平手照輪流順序。
-        // 撞尾碼的排在最後而不是排除:繞完一圈每個候選都撞,就照原順序給出去 —— 否則這件會無格口可去。
-        // 「跳過本輪」的額度只在真的輪到它時才扣,排在後面的撞尾碼格口沒被輪到就不會扣。
-        let collides: Vec<bool> = states
+        // 排序分三組,「跳過本輪」照這個順序往下找:
+        // 1. 不撞尾碼、且收件次數不超過「不撞號格口裡最少的 + 1」:剛收過件的排最後 →
+        //    給了之後各格上一件尾碼最分散(下一件最不容易無處可避)→ 次數少 → 從上一件的下一格接著輪。
+        // 2. 不撞尾碼但次數已多出 2 件以上:只在第 1 組都被跳過時才輪到,量不會被避號拖垮。
+        // 3. 撞尾碼(後兩碼有任一數字與該格上一件重疊):排最後而不是排除 —— 每格都撞時這件仍要有格口去,
+        //    挑最久沒收件的那格,作業員最可能已經貼完上一張。
+        // 撞尾碼的格口沒被輪到就不會扣「跳過本輪」的額度。
+        let prev_tails: Vec<Option<String>> = states.iter().map(|s| s.no.as_deref().and_then(tail2)).collect();
+        let collides: Vec<bool> = prev_tails
             .iter()
-            .map(|s| match tail.as_deref() {
-                Some(t) => s.no.as_deref().and_then(tail2).is_some_and(|prev| tails_overlap(t, &prev)),
-                None => false,
+            .map(|prev| match (tail.as_deref(), prev.as_deref()) {
+                (Some(t), Some(p)) => tails_overlap(t, p),
+                _ => false,
             })
             .collect();
+        let least_free = (0..n).filter(|&i| !collides[i]).map(|i| states[i].count).min().unwrap_or(0);
+        let ring_len = ring.len();
+        let after_last = rt.last_position.as_deref().map(|p| ring_index(&ring, p)).filter(|&i| i < ring_len);
+        let ring_distance = |pos: &str| {
+            let idx = ring_index(&ring, pos);
+            match after_last {
+                Some(last) if idx < ring_len => (idx + ring_len - last - 1) % ring_len,
+                _ => idx,
+            }
+        };
+        let order_key = |i: usize| {
+            let is_last = rt.last_position.as_deref() == Some(candidates[i].0.as_str());
+            let dist = ring_distance(&candidates[i].0);
+            if collides[i] {
+                (2, false, states[i].seq, 0_i64, 0_usize)
+            } else if states[i].count > least_free + 1 {
+                (1, is_last, states[i].count, dist as i64, 0_usize)
+            } else {
+                let mut after: Vec<Option<String>> = prev_tails.clone();
+                if tail.is_some() {
+                    after[i] = tail.clone();
+                }
+                (0, is_last, forced_tail_count(&after) as i64, states[i].count, dist)
+            }
+        };
         let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by_key(|&i| (collides[i], states[i].count, ring_index(&ring, &candidates[i].0), i));
+        order.sort_by_cached_key(|&i| (order_key(i), i));
 
         let mut picked: Option<usize> = None;
         for &i in &order {
@@ -1432,6 +1515,7 @@ async fn resolve_channel_code(
         // 記住這格口這次收到誰、以及它是最新收件的那個。以「分配」為準而非列印結果:
         // 包裹已經滾進那個格口,後面印不印得出來都不影響作業員看到的順序。
         if let Some(i) = picked {
+            rt.last_position = Some(candidates[i].0.clone());
             rt.seq += 1;
             let seq = RUNTIME_SEQ_BASE + rt.seq;
             let no = shipping_no
@@ -3110,11 +3194,13 @@ mod tests {
         resolve_channel_code(&db, &routing, "F", Some("SF00000000044")).await; // 左2 收全家,尾碼 44
         resolve_channel_code(&db, &routing, "7", Some("SF00000000011")).await; // 左1
         resolve_channel_code(&db, &routing, "7", Some("SF00000000022")).await; // 左3
-        // 此時三格次數平手、照固定順序輪到左1;左2 上一件尾碼正是 44,即使輪到它也得讓開
+        // 此時三格次數平手;左2 上一件尾碼正是 44,即使輪到它也得讓開
         let (d, _) = resolve_channel_code(&db, &routing, "7", Some("SF99999999944")).await;
         assert_eq!(d.as_deref(), Some("L1"), "撞到別家物流留下的尾碼一樣要讓開");
+        // 55 不撞左2(44)也不撞左3(22):給左3 的話三格上一件變成 44、44、55,
+        // 下一件只要是 45 或 54 就每格都撞;給左2 則三格是 44、55、22,沒有尾碼會無處可避
         let (e, _) = resolve_channel_code(&db, &routing, "7", Some("SF88888888855")).await;
-        assert_eq!(e.as_deref(), Some("L3"), "左2 撞尾碼讓過後,下一件照固定順序輪到左3");
+        assert_eq!(e.as_deref(), Some("L2"), "被讓過的左2 補回,且讓各格尾碼較分散");
     }
 
     #[tokio::test]
@@ -3268,10 +3354,12 @@ mod tests {
         // 第 11 件尾碼 7A 與左1 上一件(後兩碼 AB)有 A 重疊 → 改給右2(上一件 CD 不撞)
         let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF7777777777A")).await;
         assert_eq!(a.as_deref(), Some("R2"));
-        let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777711")).await;
-        assert_eq!(b.as_deref(), Some("L1"), "被讓過的左1 下一件就要補回");
-        let (c, _) = resolve_channel_code(&db, &routing, "C", Some("SF77777777722")).await;
-        assert_eq!(c.as_deref(), Some("L3"), "補回之後照固定順序接著走");
+        // 接著從右2 的下一格照固定順序走,被讓過的左1 在這一輪最後補回;
+        // 不從左1 重找,剛收過件的格口就不會因為排在前面而連收兩件
+        let rest: Vec<String> = ["L3", "R4", "L5", "R1", "L2", "R3", "L4", "R5", "L1"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(assign_many(&db, &routing, "C", 9).await, rest);
+        // 補完一輪,順序回到原本的左1 → 右2 → 左3 …(尾碼用跟各格上一件都不撞的)
+        assert_eq!(assign_tails(&db, &routing, &["ST", "UV", "WX"]).await, vec!["R2", "L3", "R4"]);
     }
 
     #[tokio::test]
@@ -3302,9 +3390,10 @@ mod tests {
         let db = shared_channel_db().await;
         let routing = routing_state();
         assign_many(&db, &routing, "F", 3).await;
+        // 左1、左3 追到跟左2 一樣 3 件後,左2 照固定順序(左1 → 左3 → 左2)排回
         assert_eq!(
             assign_many(&db, &routing, "7", 9).await,
-            vec!["L1", "L3", "L1", "L3", "L1", "L3", "L1", "L3", "L2"]
+            vec!["L1", "L3", "L1", "L3", "L1", "L3", "L2", "L1", "L3"]
         );
     }
 
@@ -3317,7 +3406,75 @@ mod tests {
         assign_many(&db, &routing, "F", 10).await;
         assert_eq!(
             assign_many(&db, &routing, "7", 7).await,
-            vec!["L1", "L3", "L1", "L3", "L1", "L3", "L2"]
+            vec!["L1", "L3", "L1", "L3", "L2", "L1", "L3"]
         );
+    }
+
+    /// 十格只開 positions 這幾格,其餘暫停
+    async fn open_only(db: &DbPool, positions: &[&str]) {
+        sqlx::query("UPDATE sort_channels SET enabled = 0").execute(db).await.unwrap();
+        for p in positions {
+            sqlx::query("UPDATE sort_channels SET enabled = 1 WHERE position = ?")
+                .bind(p)
+                .execute(db)
+                .await
+                .unwrap();
+        }
+    }
+
+    async fn assign_tails(db: &DbPool, routing: &SortRoutingState, tails: &[&str]) -> Vec<String> {
+        let mut out = Vec::with_capacity(tails.len());
+        for t in tails {
+            let (code, _) = resolve_channel_code(db, routing, "C", Some(&format!("SF0000000{t}"))).await;
+            out.push(code.expect("每件都應分到格口"));
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn few_channels_do_not_drop_twice_in_a_row() {
+        // 10/3 現場只開四格的單號順序:舊規則最後兩件(24、03)都給左5。
+        // 第 8 件 03 撞左4(01)與左1(53),剩左5 與左2 不撞:左5 剛收過 → 給左2
+        let db = full_ring_db("C").await;
+        open_only(&db, &["L1", "L2", "L4", "L5"]).await;
+        let routing = routing_state();
+        let got = assign_tails(&db, &routing, &["99", "98", "01", "53", "01", "49", "24", "03"]).await;
+        assert_eq!(got, ["L1", "L5", "L2", "L4", "L1", "L2", "L4", "L2"]);
+        assert!(got.windows(2).all(|w| w[0] != w[1]), "同一格不該連收兩件:{got:?}");
+    }
+
+    #[tokio::test]
+    async fn channels_resumed_together_are_not_flooded() {
+        // 四格一起暫停(10/6 現場整天停用左2、左4、右2、右4),其他六格收了 30 件後一起恢復:
+        // 暫停期間沒收件不算欠量,恢復後照固定順序各收一件,不能四格輪流狂收、其他格乾等
+        let db = full_ring_db("C").await;
+        open_only(&db, &["L1", "L3", "L5", "R1", "R3", "R5"]).await;
+        let routing = routing_state();
+        assign_many(&db, &routing, "C", 30).await;
+        sqlx::query("UPDATE sort_channels SET enabled = 1").execute(&db).await.unwrap();
+        assert_eq!(assign_many(&db, &routing, "C", 10).await, ring_sequence(10));
+    }
+
+    #[tokio::test]
+    async fn all_colliding_goes_to_the_longest_idle_channel() {
+        // 開左1、左3、左5。最後一件 41 跟三格的上一件(46、42、19)都撞:
+        // 給最久沒收件的左1(作業員最可能已經貼完),不是次數最少的左5
+        let db = full_ring_db("C").await;
+        open_only(&db, &["L1", "L3", "L5"]).await;
+        let routing = routing_state();
+        let got = assign_tails(&db, &routing, &["78", "47", "46", "42", "19", "41"]).await;
+        assert_eq!(got, ["L1", "L3", "L1", "L5", "L3", "L1"]);
+    }
+
+    #[test]
+    fn forced_tail_count_counts_tails_every_channel_rejects() {
+        // 有一格沒有上一件:什麼尾碼都能去那格
+        assert_eq!(forced_tail_count(&[Some("47".into()), None]), 0);
+        // 47 與 74:任何含 4 或 7 的尾碼兩格都撞 → 00～99 裡含 4 或 7 的有 36 組
+        assert_eq!(forced_tail_count(&[Some("47".into()), Some("74".into())]), 36);
+        // 44、55、22:要同時含 4、5、2 才會三格都撞,兩碼做不到
+        assert_eq!(forced_tail_count(&[Some("44".into()), Some("55".into()), Some("22".into())]), 0);
+        // 44、44、55:45 與 54 三格都撞
+        assert_eq!(forced_tail_count(&[Some("44".into()), Some("44".into()), Some("55".into())]), 2);
     }
 }
