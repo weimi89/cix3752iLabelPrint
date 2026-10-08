@@ -310,12 +310,23 @@ struct PrintTracker {
     last_progress: HashMap<String, std::time::Instant>,
     /// 每台印表機上一次檢查的時間與結果;送印前的檢查剛做過就沿用
     last_check: HashMap<String, (std::time::Instant, Option<String>)>,
+    /// 每台印表機最近一次被看到「超過 [`PRINT_STUCK_AFTER`] 沒進展」的時間(有進展也不清,靠時間自然過期)
+    last_suspect: HashMap<String, std::time::Instant>,
+    /// 上一次記「電腦太忙、先不取消」的時間,同一段期間不重複記
+    host_slow_logged: Option<std::time::Instant>,
 }
 
-/// 一台印表機有面單在佇列、卻這麼久都沒有任何一張印完,就當作卡住:取消它的面單、改回未印、暫停格口。
-/// 看的是「多久沒有進展」而不是單張等多久 —— 包裹一多,後面的面單光排隊就可能超過這個時間。
+/// 一台印表機有面單在佇列、卻這麼久都沒有任何一張印完,而且印表機自己回報缺紙、卡紙、離線等異常,就當作卡住:
+/// 取消它的面單、改回未印、暫停格口。看的是「多久沒有進展」而不是單張等多久 —— 包裹一多,後面的面單光排隊就可能超過這個時間。
 /// 標籤印表機一張約 1～2 秒;缺紙時不取消的話,換好紙會一次吐出一疊包裹早已離開的面單。
 const PRINT_STUCK_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+/// 印表機沒回報異常時,要這麼久沒進展才當成卡住(有些印表機缺紙不會回報,只能靠時間判斷)
+const PRINT_STUCK_SILENT_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+/// 這段時間內有兩台以上印表機都超過 [`PRINT_STUCK_AFTER`] 沒進展,就當成這台電腦太忙(Windows 列印服務跟著慢),
+/// 不是印表機缺紙 —— 兩台同時缺紙極少見,這時取消面單只會讓本來印得出來的面單消失
+const PRINT_HOST_SLOW_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+/// 電腦太忙時最多等這麼久;同一台一直沒進展就還是當成卡住(真的兩台都缺紙也不會無限期堆面單)
+const PRINT_HOST_SLOW_GIVE_UP: std::time::Duration = std::time::Duration::from_secs(90);
 /// 巡檢已送出面單的間隔:沒有新件進來時,也要能發現卡住的面單
 const PRINT_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// 送印前的檢查在這段時間內做過就沿用,不必每張都問一次列印服務
@@ -2092,6 +2103,29 @@ async fn handle_stuck_print(ctx: &DirectPrintCtx, t: &TrackedPrint, cancelled: b
 /// 回傳這台現在能不能印:None = 可以;Some(原因) = 狀態顯示印不出來,或剛剛有面單卡住。
 /// 查詢本身失敗(列印服務暫時沒回應)不算印不出來 —— 照常送印,真的送不出去會在送印時失敗。
 /// `reuse_recent`:送印前的檢查若 [`PRINT_PRECHECK_REUSE`] 內做過就沿用上次結果。
+/// 這台印表機追蹤中的面單要等到什麼程度才當成卡住,並回傳「是不是因為電腦太忙才先不取消」。
+/// 印表機有回報異常時 15 秒就處理;沒回報時要 30 秒,而且這段時間若有別台也沒進展,就當成電腦太忙,
+/// 最多等到 90 秒。會更新 `last_suspect`(呼叫端每次查之前都要呼叫)。
+fn stall_staleness(tracker: &mut PrintTracker, printer: &str, now: std::time::Instant) -> (crate::printer::Staleness, bool) {
+    use crate::printer::Staleness;
+    let Some(stalled_for) = tracker.last_progress.get(printer).map(|t| now.duration_since(*t)) else {
+        return (Staleness::Fresh, false);
+    };
+    if stalled_for < PRINT_STUCK_AFTER {
+        return (Staleness::Fresh, false);
+    }
+    tracker.last_suspect.insert(printer.to_string(), now);
+    let host_slow = tracker
+        .last_suspect
+        .iter()
+        .any(|(p, at)| p != printer && now.duration_since(*at) <= PRINT_HOST_SLOW_WINDOW);
+    if stalled_for >= PRINT_HOST_SLOW_GIVE_UP || (stalled_for >= PRINT_STUCK_SILENT_AFTER && !host_slow) {
+        (Staleness::Now, false)
+    } else {
+        (Staleness::IfProblem, host_slow && stalled_for >= PRINT_STUCK_SILENT_AFTER)
+    }
+}
+
 async fn reconcile_printer(
     ctx: &DirectPrintCtx,
     tracker: &mut PrintTracker,
@@ -2106,15 +2140,24 @@ async fn reconcile_printer(
         }
     }
     let now = std::time::Instant::now();
-    let stalled = tracker
-        .last_progress
-        .get(printer)
-        .is_some_and(|t| now.duration_since(*t) >= PRINT_STUCK_AFTER);
-    let probe: Vec<(u32, bool)> = tracker
+    let (staleness, held_for_host) = stall_staleness(tracker, printer, now);
+    if held_for_host && tracker.host_slow_logged.is_none_or(|t| now.duration_since(t) >= PRINT_HOST_SLOW_WINDOW) {
+        tracker.host_slow_logged = Some(now);
+        let slow: Vec<&str> = tracker
+            .last_suspect
+            .iter()
+            .filter(|(_, at)| now.duration_since(**at) <= PRINT_HOST_SLOW_WINDOW)
+            .map(|(p, _)| p.as_str())
+            .collect();
+        event_log::log_bg(ctx.db.clone(), "warn", "printer", "列印變慢",
+            format!("{} 同時超過 {} 秒沒印完,印表機沒有回報缺紙或卡紙,可能是這台電腦太忙;先不取消面單、不暫停格口,超過 {} 秒仍沒印完才當成卡住",
+                slow.join("、"), PRINT_STUCK_AFTER.as_secs(), PRINT_HOST_SLOW_GIVE_UP.as_secs()));
+    }
+    let probe: Vec<(u32, crate::printer::Staleness)> = tracker
         .jobs
         .iter()
         .filter(|t| t.job.printer_name == printer)
-        .map(|t| (t.job_id, stalled))
+        .map(|t| (t.job_id, staleness))
         .collect();
     let pname = printer.to_string();
     let inspected = match tokio::task::spawn_blocking(move || crate::printer::inspect(&pname, &probe)).await {
@@ -3936,5 +3979,64 @@ mod tests {
         assert_eq!(forced_tail_count(&[Some("44".into()), Some("55".into()), Some("22".into())]), 0);
         // 44、44、55:45 與 54 三格都撞
         assert_eq!(forced_tail_count(&[Some("44".into()), Some("44".into()), Some("55".into())]), 2);
+    }
+
+    // ── 印表機卡住的判斷:電腦太忙 vs 真的缺紙 ──────────────────────────
+    mod stall {
+        use super::super::{stall_staleness, PrintTracker, PRINT_HOST_SLOW_GIVE_UP};
+        use crate::printer::Staleness;
+        use std::time::{Duration, Instant};
+
+        fn tracker(stalled: &[(&str, u64)], now: Instant) -> PrintTracker {
+            let mut t = PrintTracker::default();
+            for (p, secs) in stalled {
+                t.last_progress.insert(p.to_string(), now - Duration::from_secs(*secs));
+            }
+            t
+        }
+
+        #[test]
+        fn within_15_seconds_is_normal_waiting() {
+            let now = Instant::now();
+            let mut t = tracker(&[("R3", 10)], now);
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Fresh, false));
+            assert_eq!(stall_staleness(&mut t, "L1", now), (Staleness::Fresh, false), "沒有追蹤中的面單");
+        }
+
+        #[test]
+        fn one_printer_alone_waits_for_a_reported_problem_then_30_seconds() {
+            let now = Instant::now();
+            let mut t = tracker(&[("R3", 20)], now);
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, false), "20 秒:印表機回報異常才處理");
+            let mut t = tracker(&[("R3", 35)], now);
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false), "只有這台超過 30 秒:當成卡住");
+        }
+
+        #[test]
+        fn two_printers_stalling_together_means_the_computer_is_busy() {
+            // 10/8 23:12:R3 已 32 秒沒印完,R1 剛超過 15 秒 —— 兩台同時,不是缺紙
+            let now = Instant::now();
+            let mut t = tracker(&[("R3", 32), ("R1", 16)], now);
+            assert_eq!(stall_staleness(&mut t, "R1", now), (Staleness::IfProblem, false));
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, true), "先不取消,只在印表機回報異常時處理");
+        }
+
+        #[test]
+        fn a_suspect_that_has_already_recovered_still_counts_within_the_window() {
+            let now = Instant::now();
+            let mut t = tracker(&[("R3", 35)], now);
+            t.last_suspect.insert("L1".into(), now - Duration::from_secs(20)); // L1 20 秒前也沒進展,之後恢復
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, true));
+            t.last_suspect.insert("L1".into(), now - Duration::from_secs(45)); // 45 秒前的不算
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false));
+        }
+
+        #[test]
+        fn even_a_busy_computer_gives_up_after_90_seconds() {
+            let now = Instant::now();
+            let mut t = tracker(&[("R3", PRINT_HOST_SLOW_GIVE_UP.as_secs() + 1), ("R1", 20)], now);
+            stall_staleness(&mut t, "R1", now);
+            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false), "兩台真的都缺紙也不能無限期堆面單");
+        }
     }
 }

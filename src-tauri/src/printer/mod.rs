@@ -90,12 +90,35 @@ pub struct Inspection {
     pub unknown: Vec<u32>,
 }
 
+/// 一張追蹤中的面單等了多久、該不該當成卡住處理(由呼叫端依「多久沒進展」決定)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Staleness {
+    /// 還在正常等待
+    Fresh,
+    /// 等太久了,但只有印表機自己回報缺紙、卡紙、離線等異常時才當成卡住
+    IfProblem,
+    /// 等太久了,不論印表機有沒有回報異常都當成卡住
+    Now,
+}
+
+impl Staleness {
+    /// 依這次讀到的印表機狀態,決定這張要不要當成卡住(只有 Windows 查得到列印佇列)
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn is_stale(self, printer_reports_problem: bool) -> bool {
+        match self {
+            Staleness::Fresh => false,
+            Staleness::IfProblem => printer_reports_problem,
+            Staleness::Now => true,
+        }
+    }
+}
+
 /// 查印表機狀態,並逐一確認追蹤中的工作:不在佇列或已標印完 → 印完了;查不出來 → 放進 `unknown`。
-/// `stale=true` 的工作還在佇列時才取消 —— 但只要這次有任何一張印完(印表機有進展),整批都不取消:
+/// 判定卡住([`Staleness::is_stale`])的工作還在佇列時才取消 —— 但只要這次有任何一張印完(印表機有進展),整批都不取消:
 /// 呼叫端的「多久沒進展」是查詢前算的,worker 忙著下載時可能好一陣子沒查,不能憑舊的判斷砍掉正常排隊的面單。
 /// 正在列印的那張不取消,放進 `stuck`(取消收不回已送進印表機的資料,硬砍可能讓現場以為沒印而重印)。
-/// `tracked` 是 (工作編號, 是否已超過可接受的等待時間)。非 Windows 平台一律回「正常、全部印完」。
-pub fn inspect(printer_name: &str, tracked: &[(u32, bool)]) -> AppResult<Inspection> {
+/// `tracked` 是 (工作編號, 等待程度)。非 Windows 平台一律回「正常、全部印完」。
+pub fn inspect(printer_name: &str, tracked: &[(u32, Staleness)]) -> AppResult<Inspection> {
     #[cfg(windows)]
     {
         windows_spool::inspect(printer_name, tracked)
@@ -115,7 +138,7 @@ mod windows_spool {
     use std::ffi::c_void;
     use std::os::raw::c_int;
 
-    use super::{status_problem, Inspection};
+    use super::{status_problem, Inspection, Staleness};
     use crate::{AppError, AppResult};
 
     type HANDLE = *mut c_void;
@@ -215,7 +238,7 @@ mod windows_spool {
         fn GetLastError() -> u32;
     }
 
-    pub fn inspect(printer_name: &str, tracked: &[(u32, bool)]) -> AppResult<Inspection> {
+    pub fn inspect(printer_name: &str, tracked: &[(u32, Staleness)]) -> AppResult<Inspection> {
         let name: Vec<u16> = printer_name.encode_utf16().chain(std::iter::once(0)).collect();
         let mut out = Inspection::default();
         unsafe {
@@ -234,8 +257,9 @@ mod windows_spool {
                 out.problem = status_problem(status);
             }
 
+            let problem = out.problem.is_some();
             let states: Vec<(u32, bool, JobState)> =
-                tracked.iter().map(|&(id, stale)| (id, stale, job_state(h, id))).collect();
+                tracked.iter().map(|&(id, level)| (id, level.is_stale(problem), job_state(h, id))).collect();
             let progressed = states.iter().any(|(_, _, st)| matches!(st, JobState::Done));
             for (job_id, stale, state) in states {
                 match state {
@@ -537,7 +561,15 @@ mod windows_gdi {
 
 #[cfg(test)]
 mod tests {
-    use super::status_problem;
+    use super::{status_problem, Staleness};
+
+    #[test]
+    fn staleness_needs_a_reported_problem_unless_overdue_for_good() {
+        assert!(!Staleness::Fresh.is_stale(true));
+        assert!(!Staleness::IfProblem.is_stale(false), "印表機沒回報異常,先不當卡住");
+        assert!(Staleness::IfProblem.is_stale(true), "印表機回報缺紙等異常就當卡住");
+        assert!(Staleness::Now.is_stale(false));
+    }
 
     #[test]
     fn status_flags_that_stop_printing_are_reported() {
