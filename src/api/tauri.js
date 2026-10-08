@@ -699,6 +699,15 @@ const MOCK_STATS_STICKERS = [
   { sticker_user: '志強', count: 19 },
 ]
 
+// 導覽列／儀表板常駐的兩個數字。常駐畫面一律用這支:printStatsSummary 每次重算近 30 天,
+// 每 5 秒、每印一張都呼叫會拖慢分揀查格口
+export const printStatsHeader = async () => {
+  if (!hasBackend) {
+    const { since_reset_at, since_reset, past_24h } = MOCK_STATS_SUMMARY
+    return { since_reset_at, since_reset, past_24h }
+  }
+  return await invoke('print_stats_header')
+}
 export const printStatsSummary = async ({ startDate = '', endDate = '' } = {}) => {
   if (!hasBackend) return MOCK_STATS_SUMMARY
   return await invoke('print_stats_summary', { req: { start_date: startDate, end_date: endDate } })

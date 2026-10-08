@@ -1179,7 +1179,8 @@ async fn channel_recent(
 /// GET /control — 手機版分揀通道暫停控制頁(自帶 CSS/JS,離線可用)
 /// 相機即時預覽(單張):回傳記憶體中「最新一幀」JPEG。保留作為串流不可用時的退路。
 async fn camera_preview(State(state): State<ServerState>) -> impl IntoResponse {
-    match state.camera.latest_jpeg() {
+    let camera = state.camera.clone();
+    match tokio::task::spawn_blocking(move || camera.latest_jpeg_blocking()).await.ok().flatten() {
         Some(jpeg) => (
             StatusCode::OK,
             [
@@ -1205,12 +1206,14 @@ async fn camera_preview_stream(State(state): State<ServerState>) -> impl IntoRes
     // 那條路徑是設計來當保底的,不該變成常態。
     let close_rx = state.close_tx.subscribe();
     let stream = futures::stream::unfold((camera, close_rx), |(camera, mut close_rx)| async move {
-        // ~10fps:對位用足夠順;與擷取迴圈同速率,不額外吃 CPU
+        // ~10fps:對位用足夠順。每幀都要解碼壓縮一次,只在設定頁開著預覽時才有這筆開銷
         tokio::select! {
             _ = close_rx.recv() => return None,
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
         }
-        let chunk = match camera.latest_jpeg() {
+        let cam = camera.clone();
+        let latest = tokio::task::spawn_blocking(move || cam.latest_jpeg_blocking()).await.ok().flatten();
+        let chunk = match latest {
             Some(jpeg) if !jpeg.is_empty() => {
                 let mut c = Vec::with_capacity(jpeg.len() + 80);
                 c.extend_from_slice(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ");
@@ -1392,6 +1395,18 @@ fn forced_tail_count(tails: &[Option<String>]) -> usize {
         .map(|i| format!("{i:02}"))
         .filter(|x| tails.iter().flatten().all(|t| tails_overlap(x, t)))
         .count()
+}
+
+/// 目前還有「跳過本輪」額度的格口位置。讀不到就當作都沒有(本件照常分配,不因讀取失敗停分揀)。
+async fn positions_with_skip(db: &DbPool) -> std::collections::HashSet<String> {
+    sqlx::query_scalar::<_, String>("SELECT position FROM sort_channels WHERE skip_count > 0")
+        .fetch_all(db)
+        .await
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_else(|e| {
+            tracing::warn!(?e, "讀跳過額度失敗,本件不套用跳過");
+            Default::default()
+        })
 }
 
 /// 消耗一次該通道的「跳過本輪」額度。回傳 true 代表這次真的扣到、該通道本輪不參與分配。
@@ -1579,9 +1594,13 @@ async fn resolve_channel_code(
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by_cached_key(|&i| (order_key(i), i));
 
+        // 先讀哪些格口有「跳過本輪」額度,有額度才做扣減的寫入:
+        // 每件包裹都對每個候選格口下 UPDATE 的話,就算額度是 0 也要搶資料庫的寫入權,
+        // 旁邊有別的寫入或重查詢時,查格口會被拖慢。扣減本身仍是條件 UPDATE,額度被別人先用掉照樣判得出來。
+        let with_skip = positions_with_skip(db).await;
         let mut picked: Option<usize> = None;
         for &i in &order {
-            if consume_skip(db, &candidates[i].0).await {
+            if with_skip.contains(&candidates[i].0) && consume_skip(db, &candidates[i].0).await {
                 // 該通道本輪待跳過:已原子消耗一次,改看下一個
                 continue;
             }
@@ -2353,9 +2372,27 @@ fn is_noread(query_no: &str) -> bool {
 /// 存證 key 為 `NoRead_{YYYYMMDDHHMMSS}_{seq}.jpg`;`seq` 為進程內單調遞增序號,
 /// 避免「同一秒多筆讀碼失敗」用固定字首 + 秒級時間戳產生相同檔名互相覆蓋(存證是本功能核心,不可遺失)。
 /// 該檔名(去副檔名)即作為這筆的 pseudo 單號(tracking_no),對齊「沒有單號就用 NoRead_時間」。
+/// 釘住讀碼站相機當下那一幀。相機有開但畫面已過舊(鬆脫、驅動卡住)時照片留空,
+/// 並在事件紀錄記一筆(同一段過舊期間只記一次),讓現場知道存證照片斷了。
+fn pin_camera_snapshot(state: &ServerState) -> Option<crate::camera::Snapshot> {
+    let snapshot = state.camera.snapshot();
+    if snapshot.is_none() {
+        if let Some(age) = state.camera.take_stale_notice() {
+            crate::event_log::log_bg(
+                state.db.clone(),
+                "warn",
+                "camera",
+                "畫面過舊",
+                format!("讀碼站相機已 {} 秒沒有新畫面,存證照片暫時留空;請檢查相機連線", age.as_secs()),
+            );
+        }
+    }
+    snapshot
+}
+
 async fn handle_noread(
     state: &ServerState,
-    snapshot: Option<Vec<u8>>,
+    snapshot: Option<crate::camera::Snapshot>,
     t_start: std::time::Instant,
 ) -> Json<DataEnvelope<ParcelData>> {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -2396,7 +2433,7 @@ async fn handle_noread(
 
     // 2. 存證:背景寫檔 + 回填 photo_path(不阻塞回應)。無相機幀時略過,photo_path 保持 NULL。
     //    以唯一的 tracking_no(pseudo)定位回填,寫完再 emit 讓頁面顯示照片。
-    if let Some(jpeg) = snapshot {
+    if let Some(snap) = snapshot {
         let dir = state.captures_dir.clone();
         let db = state.db.clone();
         let app = state.app.clone();
@@ -2404,6 +2441,7 @@ async fn handle_noread(
         tokio::spawn(async move {
             let stem = pseudo_bg.clone();
             let key = tokio::task::spawn_blocking(move || {
+                let jpeg = snap.to_jpeg()?;
                 crate::camera::save_snapshot_named(&dir, &stem, &jpeg)
             })
             .await
@@ -2471,8 +2509,8 @@ async fn get_parcel(
         .to_string();
     let t_start = std::time::Instant::now();
     // 收到請求的「當下」就釘住讀碼站相機最新一幀(離工控機實際讀碼僅約 20ms),
-    // 不在這裡存檔(避免擋住回應),純記憶體複製;後續查得到訂單才丟背景寫檔 + 回寫 photo_path。
-    let snapshot = state.camera.latest_jpeg();
+    // 不在這裡轉檔存檔(避免擋住回應),只增加參照;後續查得到訂單才丟背景轉 JPEG、寫檔、回寫 photo_path。
+    let snapshot = pin_camera_snapshot(&state);
 
     // NoRead 短路:工控機相機讀不到單號(送 "NoRead")→ 不打雲端,只拍照存證 + 計數。
     // 沒有單號、無面單、無通道,故不進 print_event / bag_check(active_bag 不變 = 連續不中斷)。
@@ -2725,13 +2763,14 @@ async fn get_parcel(
                 // 讀碼站存證:把開頭釘住的那一幀丟背景寫檔 + 回寫 photo_path。
                 // 此時 parcel_query_log 該列已 INSERT 完成(上面已 await),UPDATE by response_id 不會 race。
                 // 抓不到幀(相機未啟用/未接)時 snapshot=None,整段略過,photo_path 保持 NULL。
-                if let Some(jpeg) = snapshot.clone() {
+                if let Some(snap) = snapshot.clone() {
                     let db = state.db.clone();
                     let captures_dir = state.captures_dir.clone();
                     let qn = query_no.clone();
                     let app = state.app.clone();
                     tokio::spawn(async move {
                         let key = tokio::task::spawn_blocking(move || {
+                            let jpeg = snap.to_jpeg()?;
                             crate::camera::save_snapshot(&captures_dir, &qn, &jpeg)
                         })
                         .await

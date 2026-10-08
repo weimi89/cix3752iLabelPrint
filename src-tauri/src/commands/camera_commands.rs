@@ -21,18 +21,18 @@ pub async fn camera_set_zoom(state: State<'_, SharedState>, zoom: f32) -> AppRes
 }
 
 /// 手動拍一張:抓相機當下最新一幀(含已套用 zoom)存進存證目錄,回傳相對 key(`MANUAL_時間.jpg`)。
-/// 相機未啟用 / 尚無幀時回 `None`。供對位時測試拍照、確認存檔管線通暢。存到的目錄與工控機查件存證同一處。
+/// 相機未啟用 / 尚無幀 / 畫面過舊時回 `None`。供對位時測試拍照、確認存檔管線通暢。存到的目錄與工控機查件存證同一處。
 #[tauri::command]
 pub async fn camera_capture_now(
     app: AppHandle,
     state: State<'_, SharedState>,
 ) -> AppResult<Option<String>> {
-    let jpeg = match state.camera.latest_jpeg() {
-        Some(j) => j,
-        None => return Ok(None), // 相機未啟用 / 尚未取到幀
+    let Some(snap) = state.camera.snapshot() else {
+        return Ok(None); // 相機未啟用 / 尚未取到幀 / 畫面過舊
     };
     let captures_dir = state.config.read().await.resolved_captures_dir(&app)?;
     let key = tauri::async_runtime::spawn_blocking(move || {
+        let jpeg = snap.to_jpeg()?;
         crate::camera::save_snapshot(&captures_dir, "MANUAL", &jpeg)
     })
     .await

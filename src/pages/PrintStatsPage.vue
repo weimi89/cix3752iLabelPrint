@@ -259,7 +259,23 @@ const dailyOption = computed(() => ({
   }],
 }))
 
-const reload = async () => {
+// 13 支查詢一輪可能要好幾秒:上一輪沒跑完就只記「要再跑」,跑完補一次,
+// 不讓多輪疊在一起佔住資料庫,也不會讓較早送出、較晚回來的那輪蓋掉新數字。
+// 使用者觸發的(手動重新整理、改日期、重置本場)跑完立刻補;自動更新的補跑照樣要等間隔(見 scheduleReload)。
+let _disposed = false
+let _reloading = false
+let _reloadAgain = false
+let _liveAgain = false
+let _lastReloadAt = 0
+
+const reload = async ({ live = false } = {}) => {
+  if (_reloading) {
+    if (live) _liveAgain = true
+    else _reloadAgain = true
+    return
+  }
+  _reloading = true
+  _lastReloadAt = Date.now()
   loading.value = true
   errorMsg.value = ''
   try {
@@ -296,6 +312,15 @@ const reload = async () => {
     errorMsg.value = errorMessageFromException(e)
   } finally {
     loading.value = false
+    _reloading = false
+    if (!_disposed && _reloadAgain) {
+      _reloadAgain = false
+      _liveAgain = false
+      reload()
+    } else if (!_disposed && _liveAgain) {
+      _liveAgain = false
+      scheduleReload()
+    }
   }
 }
 
@@ -346,13 +371,19 @@ watch([startDate, endDate], () => {
 })
 
 let _unlistenStats = null
-let _disposed = false
 let _reloadTimer = null
-// print-stats-updated 分揀忙碌時每秒數次,而 reload = 13 支 API + echarts 全量重建,逐次觸發會掉幀。
-// 事件路徑去抖合併 burst(500ms);手動「重新整理」按鈕仍直接呼叫 reload() 保持即時。
+// 分揀時每印一張就發一次「統計已更新」,而一輪 = 13 支查詢(含近 30 天),跟著每張重跑會拖慢分揀查格口。
+// 自動更新兩輪至少間隔 LIVE_REFRESH_MS;範圍超過一週或不含今天(區間數字不會再變,只有上方
+// 「本場累計／過去 24 小時」等卡片會變)再拉長到 LIVE_REFRESH_SLOW_MS。
+// 手動「重新整理」與改日期仍直接呼叫 reload(),不受此限。
+const LIVE_REFRESH_MS = 10_000
+const LIVE_REFRESH_SLOW_MS = 30_000
+const rangeDays = () => Math.round((new Date(endDate.value) - new Date(startDate.value)) / 86_400_000) + 1
 const scheduleReload = () => {
   if (_reloadTimer) return
-  _reloadTimer = setTimeout(() => { _reloadTimer = null; reload() }, 500)
+  const slow = rangeDays() > 7 || endDate.value < todayStr()
+  const wait = Math.max(0, _lastReloadAt + (slow ? LIVE_REFRESH_SLOW_MS : LIVE_REFRESH_MS) - Date.now())
+  _reloadTimer = setTimeout(() => { _reloadTimer = null; reload({ live: true }) }, wait)
 }
 onMounted(async () => {
   await reload()
@@ -392,7 +423,7 @@ onUnmounted(() => {
           >
             {{ $t('page.printStats.resetBtn') }}
           </VBtn>
-          <VBtn color="primary" :loading="loading" @click="reload">
+          <VBtn color="primary" :loading="loading" @click="reload()">
             <VIcon icon="tabler-refresh" size="16" class="me-1" />{{ $t('common.reload') }}
           </VBtn>
         </div>
@@ -404,7 +435,7 @@ onUnmounted(() => {
                 <template #prepend><VIcon icon="tabler-refresh-dot" size="20" color="warning" /></template>
                 <VListItemTitle>{{ $t('page.printStats.resetBtn') }}</VListItemTitle>
               </VListItem>
-              <VListItem @click="reload">
+              <VListItem @click="reload()">
                 <template #prepend><VIcon icon="tabler-refresh" size="20" /></template>
                 <VListItemTitle>{{ $t('common.reload') }}</VListItemTitle>
               </VListItem>

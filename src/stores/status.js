@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { cloudSession, serverStatus, queueStats, cacheStats, dailyStats, printStatsSummary } from '@/api/tauri'
+import { cloudSession, serverStatus, queueStats, cacheStats, dailyStats, printStatsHeader } from '@/api/tauri'
 
 export const useStatusStore = defineStore('status', {
   state: () => ({
@@ -30,7 +30,7 @@ export const useStatusStore = defineStore('status', {
   actions: {
     async refreshPrintStats() {
       try {
-        const s = await printStatsSummary()
+        const s = await printStatsHeader()
         if (s) this.printStats = {
           since_reset: s.since_reset || 0,
           past_24h: s.past_24h || 0,
@@ -47,7 +47,7 @@ export const useStatusStore = defineStore('status', {
         queueStats(),
         cacheStats(),
         dailyStats({ days: 1 }),
-        printStatsSummary(),
+        printStatsHeader(),
       ])
       if (c.status === 'fulfilled') this.cloud = c.value
       if (s.status === 'fulfilled') this.server = s.value

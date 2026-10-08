@@ -6,11 +6,14 @@
 //! 時間欄位 created_at 寫入時用 datetime('now','localtime'),
 //! 查詢過濾與分組直接用本機時區字串比較,避免 UTC 轉換誤差。
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
-use crate::{AppResult, SharedState};
+use crate::{db::DbPool, AppResult, SharedState};
 
 /// 印單事件寫入後 emit 給前端,讓統計即時刷新(取代輪詢)
 pub const PRINT_STATS_UPDATED_EVENT: &str = "print-stats-updated";
@@ -21,8 +24,12 @@ pub struct PrintStatsUpdated {
     pub shipping_no: String,
 }
 
-/// 發送統計更新事件(emit 失敗不影響業務,只記 warn)
+/// 發送統計更新事件(emit 失敗不影響業務,只記 warn)。
+/// 印單紀錄每次寫入、刪除都經過這裡,導覽列統計的快取也靠它得知「資料變了」。
 pub fn emit_print_stats_updated(app: &AppHandle, source: &'static str, shipping_no: &str) {
+    if let Some(state) = app.try_state::<SharedState>() {
+        state.print_header.mark_dirty();
+    }
     let payload = PrintStatsUpdated {
         source,
         shipping_no: shipping_no.to_string(),
@@ -30,6 +37,118 @@ pub fn emit_print_stats_updated(app: &AppHandle, source: &'static str, shipping_
     if let Err(e) = crate::event_bridge::emit(&app, PRINT_STATS_UPDATED_EVENT, payload) {
         tracing::warn!(?e, "emit print-stats-updated 失敗");
     }
+}
+
+/// 導覽列與儀表板常駐顯示的兩個數字(本場累計、過去 24 小時)。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HeaderStats {
+    pub since_reset_at: String,
+    pub since_reset: i64,
+    pub past_24h: i64,
+}
+
+/// 兩次重算的最短間隔:同一波連續印單(前端節流 0.4 秒)合併成一次,單張印單仍能馬上反映
+const HEADER_MIN_INTERVAL: Duration = Duration::from_millis(300);
+/// 沒有新印單也要定期重算:「過去 24 小時」會隨時間把舊的件滑出去,收工後整晚沒印單也得跟著變少
+const HEADER_MAX_AGE: Duration = Duration::from_secs(60);
+/// 重算間隔至少是上次重算耗時的幾倍:讓統計最多佔資料庫約 1/5 的時間,
+/// 機器慢或本場累積很久(查詢變重)時自動拉長間隔,不跟分揀搶資源
+const HEADER_COST_FACTOR: u32 = 4;
+
+/// 導覽列統計的共用快取。
+///
+/// 每個開著的畫面(桌面主視窗、網頁版)每 5 秒、以及每印一張面單都會來要這兩個數字;
+/// 各自去資料庫重算的話,畫面開越多、產線越忙,查格口就被拖得越慢。這裡改成全程式共用一份:
+/// - 印單紀錄沒變(世代號相同)且算好不到 [`HEADER_MAX_AGE`] 就直接回上次的結果
+/// - 變了也至少隔 [`HEADER_MIN_INTERVAL`] 與上次耗時的 [`HEADER_COST_FACTOR`] 倍才重算,期間回上次的結果
+///   (畫面在前端節流的最後一次呼叫或下一次 5 秒輪詢補上)
+/// - 同時有多個畫面來要時只算一次,其他人等結果
+pub struct HeaderStatsCache {
+    generation: AtomicU64,
+    cached: tokio::sync::Mutex<Option<CachedHeader>>,
+}
+
+struct CachedHeader {
+    generation: u64,
+    computed_at: Instant,
+    cost: Duration,
+    value: HeaderStats,
+}
+
+impl Default for HeaderStatsCache {
+    fn default() -> Self {
+        Self { generation: AtomicU64::new(0), cached: tokio::sync::Mutex::new(None) }
+    }
+}
+
+impl HeaderStatsCache {
+    /// 印單紀錄有變動:下次取用時(間隔到了)重算
+    pub fn mark_dirty(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// 丟掉快取,下次取用立刻重算(重置本場後畫面要馬上歸零,不能等間隔)
+    pub async fn invalidate(&self) {
+        self.mark_dirty();
+        *self.cached.lock().await = None;
+    }
+
+    pub async fn get(&self, db: &DbPool) -> AppResult<HeaderStats> {
+        let mut cached = self.cached.lock().await;
+        let generation = self.generation.load(Ordering::SeqCst);
+        if let Some(c) = cached.as_ref() {
+            let min_gap = HEADER_MIN_INTERVAL.max(c.cost * HEADER_COST_FACTOR);
+            let age = c.computed_at.elapsed();
+            let unchanged = c.generation == generation && age < HEADER_MAX_AGE;
+            if unchanged || age < min_gap {
+                return Ok(c.value.clone());
+            }
+        }
+        let started = Instant::now();
+        let value = compute_header_stats(db).await?;
+        *cached = Some(CachedHeader { generation, computed_at: Instant::now(), cost: started.elapsed(), value: value.clone() });
+        Ok(value)
+    }
+}
+
+/// `+shipping_no` 讓 SQLite 不拿單號索引來做去重:只有一個 `COUNT(DISTINCT shipping_no)`、時間又只有下限時,
+/// 它會改走單號索引把整張印單紀錄掃一遍,資料一多就要上百毫秒;加了 `+` 才會用時間索引只看範圍內的列。
+/// 不用 `INDEXED BY`:索引萬一不在,那種寫法會讓查詢直接失敗。
+const HEADER_STATS_SQL: &str = "SELECT
+   (SELECT COUNT(DISTINCT +shipping_no) FROM print_event
+     WHERE created_at >= ?) AS since_reset,
+   (SELECT COUNT(DISTINCT +shipping_no) FROM print_event
+     WHERE created_at >= datetime('now','localtime','-24 hours')) AS past_24h";
+
+async fn compute_header_stats(db: &DbPool) -> AppResult<HeaderStats> {
+    let since_reset_at = read_since_reset_at(db).await?;
+    let row = sqlx::query(HEADER_STATS_SQL)
+    .bind(&since_reset_at)
+    .fetch_one(db)
+    .await?;
+    Ok(HeaderStats {
+        since_reset_at,
+        since_reset: row.try_get("since_reset").unwrap_or(0),
+        past_24h: row.try_get("past_24h").unwrap_or(0),
+    })
+}
+
+/// 本場累計起算時間 — 從 KV 拿(由 migration 初始化、reset command 更新)。
+/// value 欄位 schema 為 TEXT(nullable),sqlx 必須先取 Option<String> 再 flatten,
+/// 否則 try_get::<String,_> 對 nullable column 一律拋 Err,被吞成空字串
+async fn read_since_reset_at(db: &DbPool) -> AppResult<String> {
+    Ok(sqlx::query("SELECT COALESCE(value, '') AS v FROM app_setting WHERE key = 'work_session_reset_at'")
+        .fetch_optional(db)
+        .await?
+        .and_then(|row| row.try_get::<String, _>("v").ok())
+        .unwrap_or_default())
+}
+
+/// 導覽列「本場累計／過去 24 小時」。常駐畫面一律用這支,不要用 [`print_stats_summary`]:
+/// 後者每次都重算近 30 天,常駐輪詢會拖慢分揀查格口。
+#[tauri::command]
+pub async fn print_stats_header(state: State<'_, SharedState>) -> AppResult<HeaderStats> {
+    state.print_header.get(&state.db).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,14 +221,7 @@ pub async fn print_stats_summary(
 ) -> AppResult<SummaryResp> {
     let (range_start, range_end) = req.resolve();
 
-    // 本場累計起算時間 — 從 KV 拿(由 migration 初始化、reset command 更新)
-    // value 欄位 schema 為 TEXT(nullable),sqlx 必須先取 Option<String> 再 flatten,
-    // 否則 try_get::<String,_> 對 nullable column 一律拋 Err,被吞成空字串
-    let since_reset_at: String = sqlx::query("SELECT COALESCE(value, '') AS v FROM app_setting WHERE key = 'work_session_reset_at'")
-        .fetch_optional(&state.db)
-        .await?
-        .and_then(|row| row.try_get::<String, _>("v").ok())
-        .unwrap_or_default();
+    let since_reset_at = read_since_reset_at(&state.db).await?;
 
     let since_reset_row = sqlx::query(
         "SELECT COUNT(DISTINCT shipping_no) AS n,
@@ -238,6 +350,7 @@ pub async fn work_session_reset(state: State<'_, SharedState>) -> AppResult<Stri
     .bind(&now)
     .execute(&state.db)
     .await?;
+    state.print_header.invalidate().await;
     Ok(now)
 }
 
@@ -871,4 +984,135 @@ pub async fn print_stats_compare(state: State<'_, SharedState>) -> AppResult<Vec
             delta_ratio: ratio(month_current, month_previous),
         },
     ])
+}
+
+#[cfg(test)]
+mod header_cache_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn db() -> DbPool {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        sqlx::query("UPDATE app_setting SET value = datetime('now','localtime','-1 hours') WHERE key = 'work_session_reset_at'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    async fn print(db: &DbPool, no: &str, hours_ago: i64) {
+        sqlx::query("INSERT INTO print_event (source, shipping_no, created_at) VALUES ('ipc', ?, datetime('now','localtime', ?))")
+            .bind(no)
+            .bind(format!("-{hours_ago} hours"))
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn counts_distinct_numbers_within_session_and_24h() {
+        let db = db().await;
+        print(&db, "A", 0).await;
+        print(&db, "A", 0).await; // 重印同一張只算一次
+        print(&db, "B", 0).await;
+        print(&db, "C", 5).await; // 本場開始(1 小時前)之前、24 小時內
+        print(&db, "D", 30).await; // 24 小時外
+        let s = HeaderStatsCache::default().get(&db).await.unwrap();
+        assert_eq!((s.since_reset, s.past_24h), (2, 3));
+        assert!(!s.since_reset_at.is_empty());
+    }
+
+    /// 讓上次重算看起來是 `age` 之前
+    async fn set_cache_age(cache: &HeaderStatsCache, age: Duration) {
+        if let Some(c) = cache.cached.lock().await.as_mut() {
+            c.computed_at = Instant::now() - age;
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_records_reuse_cached_numbers() {
+        let db = db().await;
+        let cache = HeaderStatsCache::default();
+        print(&db, "A", 0).await;
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 1);
+        // 沒有經過 mark_dirty 的寫入不會被看到:證明沒有重查資料庫
+        print(&db, "B", 0).await;
+        set_cache_age(&cache, HEADER_MAX_AGE - Duration::from_secs(5)).await;
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 1);
+    }
+
+    #[tokio::test]
+    async fn rolling_window_refreshes_even_without_new_prints() {
+        // 收工後沒有新印單,「過去 24 小時」也要隨時間把舊的件滑出去
+        let db = db().await;
+        let cache = HeaderStatsCache::default();
+        print(&db, "A", 0).await;
+        assert_eq!(cache.get(&db).await.unwrap().past_24h, 1);
+        sqlx::query("UPDATE print_event SET created_at = datetime('now','localtime','-25 hours')")
+            .execute(&db)
+            .await
+            .unwrap();
+        set_cache_age(&cache, HEADER_MAX_AGE + Duration::from_secs(1)).await;
+        assert_eq!(cache.get(&db).await.unwrap().past_24h, 0);
+    }
+
+    #[tokio::test]
+    async fn changed_records_wait_for_min_interval_then_recompute() {
+        let db = db().await;
+        let cache = HeaderStatsCache::default();
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 0);
+        print(&db, "A", 0).await;
+        cache.mark_dirty();
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 0, "剛算過,間隔內沿用上次結果");
+        set_cache_age(&cache, HEADER_MIN_INTERVAL + Duration::from_secs(1)).await;
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 1, "間隔過了就重算");
+    }
+
+    #[tokio::test]
+    async fn invalidate_recomputes_immediately() {
+        let db = db().await;
+        let cache = HeaderStatsCache::default();
+        print(&db, "A", 0).await;
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 1);
+        sqlx::query("UPDATE app_setting SET value = datetime('now','localtime','+1 minutes') WHERE key = 'work_session_reset_at'")
+            .execute(&db)
+            .await
+            .unwrap();
+        cache.invalidate().await;
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 0, "重置本場後立刻歸零,不等間隔");
+    }
+
+    #[tokio::test]
+    async fn header_query_searches_by_time_not_full_scan() {
+        let db = db().await;
+        let sql = format!("EXPLAIN QUERY PLAN {HEADER_STATS_SQL}");
+        let plan = sqlx::query(sqlx::AssertSqlSafe(&*sql))
+            .bind("2026-01-01 00:00:00")
+            .fetch_all(&db)
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get::<String, _>("detail"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert_eq!(plan.matches("SEARCH print_event USING INDEX idx_print_event_created").count(), 2, "{plan}");
+        assert!(!plan.contains("SCAN print_event"), "不可整表掃描: {plan}");
+    }
+
+    #[tokio::test]
+    async fn slow_recompute_stretches_the_interval() {
+        let db = db().await;
+        let cache = HeaderStatsCache::default();
+        cache.get(&db).await.unwrap();
+        {
+            let mut g = cache.cached.lock().await;
+            let c = g.as_mut().unwrap();
+            c.cost = Duration::from_secs(10);
+            c.computed_at = Instant::now() - Duration::from_secs(30);
+        }
+        print(&db, "A", 0).await;
+        cache.mark_dirty();
+        assert_eq!(cache.get(&db).await.unwrap().since_reset, 0, "上次算了 10 秒,40 秒內不再重算");
+    }
 }

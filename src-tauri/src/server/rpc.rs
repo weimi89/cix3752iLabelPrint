@@ -201,6 +201,7 @@ async fn dispatch(app: &tauri::AppHandle, cmd: &str, args: Value) -> Result<Valu
         "print_stats_hourly_range" => v(commands::print_stats_commands::print_stats_hourly_range(app.state(), arg(&args, "req")?).await?)?,
         "print_stats_provider_source" => v(commands::print_stats_commands::print_stats_provider_source(app.state(), arg(&args, "req")?).await?)?,
         "print_stats_reprint" => v(commands::print_stats_commands::print_stats_reprint(app.state(), arg(&args, "req")?).await?)?,
+        "print_stats_header" => v(commands::print_stats_commands::print_stats_header(app.state()).await?)?,
         "print_stats_summary" => v(commands::print_stats_commands::print_stats_summary(app.state(), arg(&args, "req")?).await?)?,
         "work_session_reset" => v(commands::print_stats_commands::work_session_reset(app.state()).await?)?,
         "list_printers" => v(commands::printer_commands::list_printers(app.state()).await?)?,

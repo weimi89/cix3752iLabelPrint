@@ -52,6 +52,8 @@ pub struct AppState {
     /// 桌面頁面的來源是 Tauri 自己的 `tauri.localhost`,瀏覽器把它打 `127.0.0.1:{port}` 的 `<img>` 標成跨站,
     /// 跨站防護會擋;帶這組權杖讓 server 認得「這是自己的桌面畫面」。只經 Tauri IPC 交給前端,不走 `/rpc`。
     pub desktop_token: String,
+    /// 導覽列「本場累計／過去 24 小時」的共用快取,所有畫面共用一份,不各自重算
+    pub print_header: commands::print_stats_commands::HeaderStatsCache,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -167,6 +169,7 @@ pub fn run() {
             commands::health_commands::network_health_check,
             commands::parcel_query_log_commands::parcel_query_log_list,
             commands::noread_review_commands::noread_review_list,
+            commands::print_stats_commands::print_stats_header,
             commands::print_stats_commands::print_stats_summary,
             commands::print_stats_commands::print_stats_daily,
             commands::print_stats_commands::print_stats_hourly,
@@ -262,6 +265,7 @@ async fn bootstrap(handle: tauri::AppHandle) -> AppResult<SharedState> {
         pregen_status: RwLock::new(pregen::PregenStatus::default()),
         pregen_done: pregen::PregenDoneStore::new(),
         desktop_token: uuid::Uuid::new_v4().simple().to_string(),
+        print_header: Default::default(),
     });
 
     // 面單預產自動排程 worker(需完整 AppState,故在此啟動)

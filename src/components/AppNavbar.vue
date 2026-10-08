@@ -100,9 +100,9 @@ const copyAddr = async addr => {
     >
       <VIcon icon="tabler-chart-bar" size="16" start />
       <span class="font-weight-medium">
-        <span class="d-none d-sm-inline">{{ $t('page.printStats.sinceReset') }} </span>{{ status.printStats.since_reset }}</span>
+        <span class="d-none d-sm-inline me-1">{{ $t('page.printStats.sinceReset') }}</span>{{ status.printStats.since_reset }}</span>
       <span class="text-medium-emphasis ms-2">
-        <span class="d-none d-sm-inline">{{ $t('page.printStats.past24h') }} </span>{{ status.printStats.past_24h }}</span>
+        <span class="d-none d-sm-inline me-1">{{ $t('page.printStats.past24h') }}</span>{{ status.printStats.past_24h }}</span>
       <VTooltip activator="parent" location="bottom">
         {{ $t('page.dashboard.printStatsTitle') }}
       </VTooltip>
