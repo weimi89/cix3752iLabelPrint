@@ -2099,33 +2099,56 @@ async fn handle_stuck_print(ctx: &DirectPrintCtx, t: &TrackedPrint, cancelled: b
     report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &t.job, "printer_stuck", &detail);
 }
 
-/// 查一台印表機:印完的面單移出追蹤並補回報;太久沒進展就取消它的面單、記成沒印出。
-/// 回傳這台現在能不能印:None = 可以;Some(原因) = 狀態顯示印不出來,或剛剛有面單卡住。
-/// 查詢本身失敗(列印服務暫時沒回應)不算印不出來 —— 照常送印,真的送不出去會在送印時失敗。
-/// `reuse_recent`:送印前的檢查若 [`PRINT_PRECHECK_REUSE`] 內做過就沿用上次結果。
-/// 這台印表機追蹤中的面單要等到什麼程度才當成卡住,並回傳「是不是因為電腦太忙才先不取消」。
-/// 印表機有回報異常時 15 秒就處理;沒回報時要 30 秒,而且這段時間若有別台也沒進展,就當成電腦太忙,
-/// 最多等到 90 秒。會更新 `last_suspect`(呼叫端每次查之前都要呼叫)。
-fn stall_staleness(tracker: &mut PrintTracker, printer: &str, now: std::time::Instant) -> (crate::printer::Staleness, bool) {
+/// 一台印表機這次查詢前的卡住判斷
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StallDecision {
+    staleness: crate::printer::Staleness,
+    /// 已超過 [`PRINT_STUCK_AFTER`] 沒進展(查完確認真的沒印完才記進 `last_suspect`)
+    suspect: bool,
+    /// 別台也沒進展、判斷是電腦太忙,所以先不取消
+    held_for_host: bool,
+    /// 電腦太忙也等到上限了,這次照卡住處理
+    gave_up_on_host: bool,
+}
+
+/// 這台印表機追蹤中的面單要等到什麼程度才當成卡住。
+/// 印表機有回報異常時 15 秒就處理;沒回報時要 30 秒,而且這段時間若有別台也確認沒進展,就當成電腦太忙,最多等到 90 秒。
+fn stall_decision(tracker: &PrintTracker, printer: &str, now: std::time::Instant) -> StallDecision {
     use crate::printer::Staleness;
+    let fresh = StallDecision { staleness: Staleness::Fresh, suspect: false, held_for_host: false, gave_up_on_host: false };
     let Some(stalled_for) = tracker.last_progress.get(printer).map(|t| now.duration_since(*t)) else {
-        return (Staleness::Fresh, false);
+        return fresh;
     };
     if stalled_for < PRINT_STUCK_AFTER {
-        return (Staleness::Fresh, false);
+        return fresh;
     }
-    tracker.last_suspect.insert(printer.to_string(), now);
     let host_slow = tracker
         .last_suspect
         .iter()
         .any(|(p, at)| p != printer && now.duration_since(*at) <= PRINT_HOST_SLOW_WINDOW);
-    if stalled_for >= PRINT_HOST_SLOW_GIVE_UP || (stalled_for >= PRINT_STUCK_SILENT_AFTER && !host_slow) {
-        (Staleness::Now, false)
+    let silent_overdue = stalled_for >= PRINT_STUCK_SILENT_AFTER;
+    if stalled_for >= PRINT_HOST_SLOW_GIVE_UP {
+        StallDecision { staleness: Staleness::Now, suspect: true, held_for_host: false, gave_up_on_host: host_slow }
+    } else if silent_overdue && !host_slow {
+        StallDecision { staleness: Staleness::Now, suspect: true, held_for_host: false, gave_up_on_host: false }
     } else {
-        (Staleness::IfProblem, host_slow && stalled_for >= PRINT_STUCK_SILENT_AFTER)
+        StallDecision { staleness: Staleness::IfProblem, suspect: true, held_for_host: host_slow && silent_overdue, gave_up_on_host: false }
     }
 }
 
+/// 查完之後更新「誰最近沒進展」:確認這次一張都沒印完才記;已經判定卡住、處理掉的不算電腦太忙的證據。
+fn note_suspect(tracker: &mut PrintTracker, printer: &str, now: std::time::Instant, decision: StallDecision, progressed: bool, had_stuck: bool) {
+    if had_stuck {
+        tracker.last_suspect.remove(printer);
+    } else if decision.suspect && !progressed {
+        tracker.last_suspect.insert(printer.to_string(), now);
+    }
+}
+
+/// 查一台印表機:印完的面單移出追蹤並補回報;太久沒進展就取消它的面單、記成沒印出。
+/// 回傳這台現在能不能印:None = 可以;Some(原因) = 狀態顯示印不出來,或剛剛有面單卡住。
+/// 查詢本身失敗(列印服務暫時沒回應)不算印不出來 —— 照常送印,真的送不出去會在送印時失敗。
+/// `reuse_recent`:送印前的檢查若 [`PRINT_PRECHECK_REUSE`] 內做過就沿用上次結果。
 async fn reconcile_printer(
     ctx: &DirectPrintCtx,
     tracker: &mut PrintTracker,
@@ -2140,24 +2163,12 @@ async fn reconcile_printer(
         }
     }
     let now = std::time::Instant::now();
-    let (staleness, held_for_host) = stall_staleness(tracker, printer, now);
-    if held_for_host && tracker.host_slow_logged.is_none_or(|t| now.duration_since(t) >= PRINT_HOST_SLOW_WINDOW) {
-        tracker.host_slow_logged = Some(now);
-        let slow: Vec<&str> = tracker
-            .last_suspect
-            .iter()
-            .filter(|(_, at)| now.duration_since(**at) <= PRINT_HOST_SLOW_WINDOW)
-            .map(|(p, _)| p.as_str())
-            .collect();
-        event_log::log_bg(ctx.db.clone(), "warn", "printer", "列印變慢",
-            format!("{} 同時超過 {} 秒沒印完,印表機沒有回報缺紙或卡紙,可能是這台電腦太忙;先不取消面單、不暫停格口,超過 {} 秒仍沒印完才當成卡住",
-                slow.join("、"), PRINT_STUCK_AFTER.as_secs(), PRINT_HOST_SLOW_GIVE_UP.as_secs()));
-    }
+    let decision = stall_decision(tracker, printer, now);
     let probe: Vec<(u32, crate::printer::Staleness)> = tracker
         .jobs
         .iter()
         .filter(|t| t.job.printer_name == printer)
-        .map(|t| (t.job_id, staleness))
+        .map(|t| (t.job_id, decision.staleness))
         .collect();
     let pname = printer.to_string();
     let inspected = match tokio::task::spawn_blocking(move || crate::printer::inspect(&pname, &probe)).await {
@@ -2196,15 +2207,36 @@ async fn reconcile_printer(
     give_up_unverified(ctx, tracker, printer, Some(&inspected.unknown)).await;
 
     // 卡住的:取消(或取消失敗)的都記成沒印出
+    // 卡住的:取消(或取消失敗)的都記成沒印出。印表機沒回報原因時,依判斷方式說明可能的原因
+    let give_up_why = format!("超過 {} 秒沒印出(可能缺紙,也可能是這台電腦太忙)", PRINT_HOST_SLOW_GIVE_UP.as_secs());
+    let why = inspected.problem.or(decision.gave_up_on_host.then_some(give_up_why.as_str()));
     let mut had_stuck = false;
     for (ids, cancelled) in [(&inspected.cancelled, true), (&inspected.stuck, false)] {
         for id in ids {
             if let Some(pos) = tracker.jobs.iter().position(|t| t.job.printer_name == printer && t.job_id == *id) {
                 let t = tracker.jobs.remove(pos);
-                handle_stuck_print(ctx, &t, cancelled, inspected.problem).await;
+                handle_stuck_print(ctx, &t, cancelled, why).await;
                 had_stuck = true;
             }
         }
+    }
+    let progressed = !inspected.gone.is_empty();
+    note_suspect(tracker, printer, now, decision, progressed, had_stuck);
+    // 確認是電腦太忙才沒取消(查完一張都沒印完、印表機也沒回報異常)時記一筆,同一段期間只記一次
+    if decision.held_for_host && !had_stuck && !progressed && inspected.problem.is_none()
+        && tracker.host_slow_logged.is_none_or(|t| now.duration_since(t) >= PRINT_HOST_SLOW_WINDOW)
+    {
+        tracker.host_slow_logged = Some(now);
+        let mut slow: Vec<&str> = tracker
+            .last_progress
+            .iter()
+            .filter(|(p, at)| now.duration_since(**at) >= PRINT_STUCK_AFTER && tracker.jobs.iter().any(|t| &t.job.printer_name == *p))
+            .map(|(p, _)| p.as_str())
+            .collect();
+        slow.sort_unstable();
+        event_log::log_bg(ctx.db.clone(), "warn", "printer", "列印變慢",
+            format!("{} 都超過 {} 秒沒印完,印表機沒有回報缺紙或卡紙,可能是這台電腦太忙;先不取消面單、不暫停格口,同一台超過 {} 秒仍沒印完才當成卡住",
+                slow.join("、"), PRINT_STUCK_AFTER.as_secs(), PRINT_HOST_SLOW_GIVE_UP.as_secs()));
     }
     if !tracker.jobs.iter().any(|t| t.job.printer_name == printer) {
         tracker.last_progress.remove(printer);
@@ -2212,7 +2244,7 @@ async fn reconcile_printer(
 
     let result = match (inspected.problem, had_stuck) {
         (Some(p), _) => Some(p.to_string()),
-        (None, true) => Some("卡住沒出紙".to_string()),
+        (None, true) => Some(why.unwrap_or("卡住沒出紙").to_string()),
         (None, false) => None,
     };
     tracker.last_check.insert(printer.to_string(), (now, result.clone()));
@@ -3983,60 +4015,77 @@ mod tests {
 
     // ── 印表機卡住的判斷:電腦太忙 vs 真的缺紙 ──────────────────────────
     mod stall {
-        use super::super::{stall_staleness, PrintTracker, PRINT_HOST_SLOW_GIVE_UP};
+        use super::super::{note_suspect, stall_decision, PrintTracker, StallDecision, PRINT_HOST_SLOW_GIVE_UP};
         use crate::printer::Staleness;
         use std::time::{Duration, Instant};
 
-        fn tracker(stalled: &[(&str, u64)], now: Instant) -> PrintTracker {
+        fn tracker(stalled: &[(&str, u64)], suspects: &[(&str, u64)], now: Instant) -> PrintTracker {
             let mut t = PrintTracker::default();
             for (p, secs) in stalled {
                 t.last_progress.insert(p.to_string(), now - Duration::from_secs(*secs));
             }
+            for (p, secs) in suspects {
+                t.last_suspect.insert(p.to_string(), now - Duration::from_secs(*secs));
+            }
             t
+        }
+
+        fn d(staleness: Staleness, suspect: bool, held_for_host: bool, gave_up_on_host: bool) -> StallDecision {
+            StallDecision { staleness, suspect, held_for_host, gave_up_on_host }
         }
 
         #[test]
         fn within_15_seconds_is_normal_waiting() {
             let now = Instant::now();
-            let mut t = tracker(&[("R3", 10)], now);
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Fresh, false));
-            assert_eq!(stall_staleness(&mut t, "L1", now), (Staleness::Fresh, false), "沒有追蹤中的面單");
+            let t = tracker(&[("R3", 10)], &[], now);
+            assert_eq!(stall_decision(&t, "R3", now), d(Staleness::Fresh, false, false, false));
+            assert_eq!(stall_decision(&t, "L1", now), d(Staleness::Fresh, false, false, false), "沒有追蹤中的面單");
         }
 
         #[test]
         fn one_printer_alone_waits_for_a_reported_problem_then_30_seconds() {
             let now = Instant::now();
-            let mut t = tracker(&[("R3", 20)], now);
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, false), "20 秒:印表機回報異常才處理");
-            let mut t = tracker(&[("R3", 35)], now);
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false), "只有這台超過 30 秒:當成卡住");
+            let t = tracker(&[("R3", 20)], &[], now);
+            assert_eq!(stall_decision(&t, "R3", now), d(Staleness::IfProblem, true, false, false), "20 秒:印表機回報異常才處理");
+            let t = tracker(&[("R3", 35)], &[], now);
+            assert_eq!(stall_decision(&t, "R3", now), d(Staleness::Now, true, false, false), "只有這台超過 30 秒:當成卡住");
         }
 
         #[test]
-        fn two_printers_stalling_together_means_the_computer_is_busy() {
-            // 10/8 23:12:R3 已 32 秒沒印完,R1 剛超過 15 秒 —— 兩台同時,不是缺紙
+        fn another_printer_confirmed_stalled_means_the_computer_is_busy() {
+            // 10/8 23:12:R3 已 32 秒沒印完,R1 剛被確認超過 15 秒沒進展 —— 兩台同時,不是缺紙
             let now = Instant::now();
-            let mut t = tracker(&[("R3", 32), ("R1", 16)], now);
-            assert_eq!(stall_staleness(&mut t, "R1", now), (Staleness::IfProblem, false));
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, true), "先不取消,只在印表機回報異常時處理");
+            let t = tracker(&[("R3", 32), ("R1", 16)], &[("R1", 1)], now);
+            assert_eq!(stall_decision(&t, "R3", now), d(Staleness::IfProblem, true, true, false), "先不取消,只在印表機回報異常時處理");
         }
 
         #[test]
-        fn a_suspect_that_has_already_recovered_still_counts_within_the_window() {
+        fn evidence_expires_after_the_window() {
             let now = Instant::now();
-            let mut t = tracker(&[("R3", 35)], now);
-            t.last_suspect.insert("L1".into(), now - Duration::from_secs(20)); // L1 20 秒前也沒進展,之後恢復
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::IfProblem, true));
-            t.last_suspect.insert("L1".into(), now - Duration::from_secs(45)); // 45 秒前的不算
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false));
+            let t = tracker(&[("R3", 35)], &[("L1", 20)], now);
+            assert!(stall_decision(&t, "R3", now).held_for_host, "L1 20 秒前也確認沒進展,之後恢復也算");
+            let t = tracker(&[("R3", 35)], &[("L1", 45)], now);
+            assert_eq!(stall_decision(&t, "R3", now).staleness, Staleness::Now, "45 秒前的不算");
         }
 
         #[test]
         fn even_a_busy_computer_gives_up_after_90_seconds() {
             let now = Instant::now();
-            let mut t = tracker(&[("R3", PRINT_HOST_SLOW_GIVE_UP.as_secs() + 1), ("R1", 20)], now);
-            stall_staleness(&mut t, "R1", now);
-            assert_eq!(stall_staleness(&mut t, "R3", now), (Staleness::Now, false), "兩台真的都缺紙也不能無限期堆面單");
+            let t = tracker(&[("R3", PRINT_HOST_SLOW_GIVE_UP.as_secs() + 1)], &[("R1", 1)], now);
+            assert_eq!(stall_decision(&t, "R3", now), d(Staleness::Now, true, false, true), "兩台真的都缺紙也不能無限期堆面單");
+        }
+
+        #[test]
+        fn suspect_is_recorded_only_when_the_inspection_finds_no_progress() {
+            let now = Instant::now();
+            let suspect = d(Staleness::IfProblem, true, false, false);
+            let mut t = PrintTracker::default();
+            note_suspect(&mut t, "R1", now, suspect, true, false);
+            assert!(t.last_suspect.is_empty(), "只是一陣子沒被查、這次查到有印完的,不算沒進展");
+            note_suspect(&mut t, "R1", now, suspect, false, false);
+            assert!(t.last_suspect.contains_key("R1"));
+            note_suspect(&mut t, "R1", now, d(Staleness::Now, true, false, false), false, true);
+            assert!(!t.last_suspect.contains_key("R1"), "已判定卡住、處理掉的不算電腦太忙的證據");
         }
     }
 }
