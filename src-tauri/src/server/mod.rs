@@ -40,6 +40,7 @@ use crate::models::{
 use crate::queue::{CancelOutcome, QueueManager};
 use crate::watermark::{derive_repeat_key, WatermarkRenderer};
 use crate::bag_check::BagCheckState;
+use crate::commands::sort_channel_commands::SpecialCase;
 use crate::{AppError, AppResult};
 
 /// 面單路徑解析器:依設定把本地絕對路徑轉成 local / share / http 三種形態
@@ -1426,19 +1427,19 @@ async fn consume_skip(db: &DbPool, position: &str) -> bool {
 enum Assignment {
     /// 該物流指派的格口
     Channel,
-    /// 物流沒有可用的指派格口,回「未指派通道代碼」
+    /// 物流沒有可用的指派格口,回特殊件分流裡「物流沒指派格口」指定的格口
     Unassigned,
-    /// 能去的格口上一件都跟這件撞號,回「異常通道代碼」:不印面單,撿出後重跑
-    Exception,
+    /// 能去的格口上一件都跟這件撞號,回特殊件分流指定的格口:不印面單,撿出後重跑
+    Special,
 }
 
 /// 依物流商代碼解析分揀通道:有指派通道時先避開撞尾碼的格口,再在收件次數相近的格口裡挑,
 /// 平手從上一件的下一格照 ring_order 的固定順序(左右交替、同側隔格,依目前格口配置長出)接著輪;
-/// 未指派任何通道時退回 fallback「未指派通道代碼」設定(settings.unassigned_channel_code)。
+/// 未指派任何通道時回特殊件分流裡「物流沒指派格口」指定的格口(沒指定回 None)。
 /// 回傳 `(channel_code, assignment)`。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
 ///
-/// `divert_collisions`:能去的格口上一件都撞號時,有設異常通道就改送異常通道、不硬塞。
+/// `divert_collisions`:能去的格口上一件都撞號時,特殊件分流有指定撞號的格口就改送那裡、不硬塞。
 /// 只有面單在格口印出時才有意義(純分揀不印單,撞號不會貼錯,傳 false 照舊分配)。
 ///
 /// `shipping_no` 是本件的配送單號,用來避開「同一格口連著兩張後兩碼有數字重疊的單」——
@@ -1481,7 +1482,7 @@ async fn resolve_channel_code(
 
     if candidates.is_empty() {
         // 未設定指派物流時，使用 fallback 通道代碼
-        return (fetch_unassigned_channel_code(db).await, Assignment::Unassigned);
+        return (fetch_special_route(db, SpecialCase::Unassigned).await, Assignment::Unassigned);
     }
 
     let n = candidates.len();
@@ -1608,11 +1609,11 @@ async fn resolve_channel_code(
             break;
         }
 
-        // 輪到的格口還是撞號(每格都撞,或不撞的格口都被跳過):有設異常通道就送那裡,
+        // 輪到的格口還是撞號(每格都撞,或不撞的格口都被跳過):特殊件分流有指定撞號的格口就送那裡,
         // 不更新任何格口的收件狀態 —— 這件沒進一般格口。
         if let Some(i) = picked.filter(|&i| divert_collisions && collides[i]) {
-            if let Some(code) = fetch_exception_channel_code(db).await {
-                tracing::info!(no = ?shipping_no, skipped_to = %candidates[i].1, "能去的格口都撞號,改送異常通道");
+            if let Some(code) = fetch_special_route(db, SpecialCase::Collision).await {
+                tracing::info!(no = ?shipping_no, skipped_to = %candidates[i].1, "能去的格口都撞號,改送特殊件分流指定的格口");
                 break 'pick Err(code);
             }
         }
@@ -1638,31 +1639,22 @@ async fn resolve_channel_code(
 
     match chosen {
         Ok(Some(c)) => (Some(c), Assignment::Channel),
-        Err(exception) => (Some(exception), Assignment::Exception),
+        Err(exception) => (Some(exception), Assignment::Special),
         // 全部待跳過 → 視為當下無可用通道,退回 fallback
-        Ok(None) => (fetch_unassigned_channel_code(db).await, Assignment::Unassigned),
+        Ok(None) => (fetch_special_route(db, SpecialCase::Unassigned).await, Assignment::Unassigned),
     }
 }
 
-/// 取設定頁的「未指派通道代碼」,未設定或留空回 None。
-/// 物流商無指派通道、或錯誤面單查不到物流商(NOT_FOUND / 雲端連線失敗)且沒設異常通道時的 fallback。
-async fn fetch_unassigned_channel_code(db: &DbPool) -> Option<String> {
-    fetch_channel_setting(db, crate::commands::sort_channel_commands::SETTING_UNASSIGNED_CHANNEL).await
-}
-
-/// 取設定頁的「異常通道代碼」,未設定或留空回 None(異常件照舊:不回格口,或錯誤面單跟物流走)。
-async fn fetch_exception_channel_code(db: &DbPool) -> Option<String> {
-    fetch_channel_setting(db, crate::commands::sort_channel_commands::SETTING_EXCEPTION_CHANNEL).await
-}
-
-/// 讀不到設定時當成沒設,但要留紀錄:查件不能因為讀設定失敗而卡住,也不能默默改變分揀行為。
-async fn fetch_channel_setting(db: &DbPool, key: &str) -> Option<String> {
-    crate::commands::sort_channel_commands::read_channel_setting(db, key)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(?e, key, "讀格口代碼設定失敗,本件當成未設定");
+/// 特殊件分流裡這種情況指定的格口代碼;沒指定回 None(照沒有設定時的方式:不回格口,或錯誤面單跟物流走)。
+/// 讀不到設定時同樣當成沒指定並留紀錄:查件不能因為讀設定失敗而卡住。
+async fn fetch_special_route(db: &DbPool, case: SpecialCase) -> Option<String> {
+    match crate::commands::sort_channel_commands::read_special_routes(db).await {
+        Ok(routes) => routes.route(case).map(str::to_string),
+        Err(e) => {
+            tracing::warn!(?e, ?case, "讀特殊件分流設定失敗,本件當成沒指定");
             None
-        })
+        }
+    }
 }
 
 /// 取物流商在「指派物流」頁設定的 print_profile
@@ -1694,7 +1686,7 @@ async fn fetch_channel_printer(db: &DbPool, channel_code: &str) -> Option<String
     .and_then(|r| r.try_get::<Option<String>, _>("printer_name").ok().flatten())
 }
 
-/// 取某分揀通道在「分揀通道」頁設定的貼標人員(未指派通道 / 未填時為 None)。
+/// 取某分揀通道在「分揀通道」頁設定的貼標人員(沒有格口 / 未填時為 None)。
 /// **印單統計、DirectPrint 自補回報、工控機回報三處共用此單一查詢來源**,
 /// 避免各自寫一份 SQL 而在欄位或空值規則上長歪。
 async fn fetch_channel_sticker(db: &DbPool, channel_code: Option<&str>) -> Option<String> {
@@ -1730,7 +1722,7 @@ async fn find_any_printer(db: &DbPool, channel_code: Option<&str>) -> Option<Str
             return Some(name);
         }
         tracing::warn!(channel_code = %code,
-            "錯誤面單:該通道未設印表機(或代碼為未指派／異常通道),退回系統預設印表機");
+            "錯誤面單:該通道未設印表機(或代碼是特殊件分流的格口),退回系統預設印表機");
     }
 
     // fallback：系統預設印表機
@@ -1819,7 +1811,7 @@ static BOARD_SEQ: AtomicU64 = AtomicU64::new(0);
 /// 分揀看板的一則即時狀態 —— 一件包裹剛分完格口,看板該亮哪盞燈、中央顯示什麼。
 #[derive(Clone, Serialize)]
 struct BoardEvent {
-    /// 亮燈的格口位置(L1..R5)。未指派通道或查無物流時為 None,看板只出字不亮燈。
+    /// 亮燈的格口位置(L1..R5)。物流沒指派格口或查無物流時為 None,看板只出字不亮燈。
     position: Option<String>,
     /// 中央特大字的單號。查得到訂單用配送單號,查不到則退回工控機掃到的條碼。
     no: String,
@@ -2408,8 +2400,6 @@ async fn handle_noread(
     );
 
     let total_ms = t_start.elapsed().as_millis() as i64;
-    // 有設異常通道就把讀碼失敗的件送過去;沒設照舊不回格口,由工控機自己處理
-    let channel_code = fetch_exception_channel_code(&state.db).await;
 
     // 1. 查詢紀錄先同步寫入(photo_path 先留 NULL):讓「請求記錄」頁立即看得到這筆;存證照片改由背景
     //    寫檔完成後再 UPDATE 回填,**不讓工控機等磁碟 I/O**(對齊成功路徑「先記錄、背景寫照片」作法)。
@@ -2420,10 +2410,9 @@ async fn handle_noread(
            (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, photo_path, created_at, cloud_ms, label_ms, total_ms)
          VALUES (
            (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
-           'NoRead', ?, NULL, ?, NULL, 0, NULL, NULL, datetime('now','localtime'), 0, 0, ?)",
+           'NoRead', ?, NULL, NULL, NULL, 0, NULL, NULL, datetime('now','localtime'), 0, 0, ?)",
     )
     .bind(&pseudo)
-    .bind(&channel_code)
     .bind(total_ms)
     .execute(&state.db)
     .await
@@ -2482,9 +2471,10 @@ async fn handle_noread(
         format!("工控機讀碼失敗 NoRead,已存證 {pseudo}(未提交雲端)"),
     );
 
-    // 立即回 200:無面單;error_code=NOREAD 讓工控機辨識此為讀碼失敗(不需 POST /api/report)。
+    // 立即回 200:無面單、不回格口(分揀機一律送它自己的預設格口);
+    // error_code=NOREAD 讓工控機辨識此為讀碼失敗(不需 POST /api/report)。
     Json(DataEnvelope::new(ParcelData {
-        channel_code,
+        channel_code: None,
         print_profile: None,
         label_path: None,
         response_id: None,
@@ -2558,7 +2548,7 @@ async fn get_parcel(
             let has_image = !info.shipping_image.trim().is_empty();
 
             // 先解析分揀通道(便宜的本地 DB 查詢,**必須在面單處理之前**):
-            // 沒分到一般格口(未指派、或撞號送異常通道)時這件不印面單 ——
+            // 沒分到一般格口(物流沒指派格口、或撞號改送其他格口)時這件不印面單 ——
             // DirectPrint 不可入列送印(否則印出一疊沒有包裹可貼的面單),
             // 其他模式也不必同步下載(白等雲端一趟、結果直接被丟棄)。四種模式行為一致。
             let (channel_code, assignment) = resolve_channel_code(
@@ -2589,7 +2579,7 @@ async fn get_parcel(
                     tracing::warn!(query_no = %query_no, "雲端回空 shipping_image,視為無面單");
                     (None, 0i64)
                 } else if !has_assigned {
-                    // 未指派通道或送異常通道:不印、不下載(label_path 一律 None)
+                    // 物流沒指派格口或撞號改送:不印、不下載(label_path 一律 None)
                     tracing::info!(query_no = %query_no, provider = %info.shipping_provider, ?assignment,
                         "沒有分到一般格口,略過面單處理");
                     (None, 0i64)
@@ -2796,7 +2786,7 @@ async fn get_parcel(
             if has_assigned {
               // 印單事件:source='ipc'(工控機 GET /api/parcel),sticker 由 channel_code 反查 sort_channels.job_sticker
               // 失敗不影響 API 回應(統計次要,不能干擾正常出單)。
-              // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,不可記 print_event(同「未指派通道」原則)。
+              // 條件含 has_image:雲端回空 shipping_image 時實體無任何面單印出,不可記 print_event(同「物流沒指派格口」原則)。
               // 純分揀模式(is_sort_only):完全不出面單 → 一律不記印單統計,但下方件核對仍照常(包裹實體仍過機分揀)。
               if !is_sort_only && has_image && !print_recorded_by_worker {
                 // package_sn(袋號)由雲端 v2 回應帶出:記入 print_event 讓印單統計的「袋數」
@@ -2835,21 +2825,21 @@ async fn get_parcel(
                 // 雲端沒給面單:實體沒印出,擋下雲端查件當下的已印廣播
                 state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
               }
-            } else if assignment == Assignment::Exception {
-                // 撞號送異常通道:沒印面單,撿出重跑時再分格口、再印。件數核對先顯示缺件
+            } else if assignment == Assignment::Special {
+                // 撞號改送特殊件分流指定的格口:沒印面單,撿出重跑時再分格口、再印。件數核對先顯示缺件
                 state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
-                event_log::log_bg(state.db.clone(), "warn", "server", "撞號送異常通道",
-                    format!("配送單號 {} 能去的格口上一件後兩碼都撞號,改送異常通道 {}(未印面單)",
+                event_log::log_bg(state.db.clone(), "warn", "server", "撞號改送其他格口",
+                    format!("配送單號 {} 能去的格口上一件後兩碼都撞號,改送 {}(未印面單)",
                         info.shipping_no, channel_code.as_deref().unwrap_or("")));
             } else {
                 // 雲端查件當下已把這件記成已印並廣播;實際沒有格口、沒有印出,件數核對要顯示成缺件
                 state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
-                // 未指派通道(!has_assigned):此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None;
+                // 物流沒指派格口(!has_assigned):此件**沒有面單被印出**(DirectPrint 未入列、其他模式 label_path=None;
                 // 純分揀模式本就不出面單),且無格口可分揀 → 不記 print_event、不做件核對,統計必須與實物一致
                 // (否則儀表板全綠、現場卻累積一批無面單包裹)。event_log 節流告警(同 provider 20s 一次,防洪),
                 // 提醒到「指派物流」頁補設定;工控機端仍收 200 + fallback 通道碼可分揀。
                 if should_log_throttled(&format!("unassigned|{}", info.shipping_provider)) {
-                    event_log::log_bg(state.db.clone(), "warn", "server", "未指派通道",
+                    event_log::log_bg(state.db.clone(), "warn", "server", "物流沒指派格口",
                         format!("物流商 {} 未指派分揀通道,面單未產出(shipping_no={};請至「指派物流」頁設定)",
                             info.shipping_provider, info.shipping_no));
                 }
@@ -2858,8 +2848,8 @@ async fn get_parcel(
             // 純分揀:一律回 response_id=null,工控機因而不會 POST /api/report。
             // 防呆:雲端已升級時本就回 None;若雲端未同步 / 回滾仍回正數 id(代表雲端已記了一筆印單),
             // 這裡主動吞掉不轉給工控機,避免工控機再回報觸發雲端二次記印單,並節流告警提醒兩端同步部署。
-            let response_id = if assignment == Assignment::Exception {
-                // 送異常通道的件沒有面單、不算出貨,工控機不必回報;撿出重跑時會拿到新的回報編號
+            let response_id = if assignment == Assignment::Special {
+                // 撞號改送的件沒有面單、不算出貨,工控機不必回報;撿出重跑時會拿到新的回報編號
                 None
             } else if is_sort_only {
                 if info.response_id.is_some()
@@ -2875,8 +2865,8 @@ async fn get_parcel(
             };
 
             // 推一則給分揀看板:亮該格口的燈、中央顯示單號與物流名。
-            // 未指派通道時不亮燈、單號轉黃字,提醒現場這件沒有格口可去;
-            // 撞號送異常通道時紅字說明原因,現場才知道這件為什麼沒有面單。
+            // 物流沒指派格口時不亮燈、單號轉黃字,提醒現場這件沒有格口可去;
+            // 撞號改送其他格口時紅字說明原因,現場才知道這件為什麼沒有面單。
             publish_board(
                 &state,
                 BoardEvent {
@@ -2889,10 +2879,10 @@ async fn get_parcel(
                     status: match assignment {
                         Assignment::Channel => "ok",
                         Assignment::Unassigned => "unassigned",
-                        Assignment::Exception => "error",
+                        Assignment::Special => "error",
                     },
-                    message: (assignment == Assignment::Exception)
-                        .then(|| "每一格都撞號,送異常通道(未印面單)".to_string()),
+                    message: (assignment == Assignment::Special)
+                        .then(|| format!("每一格都撞號,改送 {}(未印面單)", channel_code.as_deref().unwrap_or(""))),
                     at: board_now(),
                     seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
                 },
@@ -2957,17 +2947,17 @@ async fn get_parcel(
             // 錯誤面單總開關(設定頁熱切換,預設關)。關閉時工控機拿不到面單,只拿得到 error_code。
             let error_label_on = state.label_resolver.is_error_label_enabled();
 
-            // 有設異常通道:不論開關,異常件一律回異常通道,不進一般格口。
-            // 沒設異常通道時照舊 ——
+            // 特殊件分流有指定這種錯誤的格口:不論開關,一律回那個格口,不進一般格口。
+            // 沒指定時照舊 ——
             //   開啟:雲端帶出物流商代碼(查得到訂單的業務錯誤,如 STORE_CLOSED / UNCONFIRMED)
-            //   就照正常面單流程解析分揀通道;查不到物流商(NOT_FOUND / 雲端連線失敗)退回「未指派通道代碼」。
+            //   就照正常面單流程解析分揀通道;查不到物流商(NOT_FOUND / 雲端連線失敗)退回「物流沒指派格口」指定的格口。
             //   關閉:不回通道,異常包裹由工控機自行走預設落格。
             // print_profile 只在開關開啟、查得到物流商時才有(沒有面單就沒有列印參數)。
             let print_profile = match (error_label_on, err_provider.as_deref()) {
                 (true, Some(p)) => fetch_print_profile(&state.db, p).await,
                 _ => None,
             };
-            let channel_code = match fetch_exception_channel_code(&state.db).await {
+            let channel_code = match fetch_special_route(&state.db, SpecialCase::for_cloud_code(&err_code)).await {
                 Some(exception) => Some(exception),
                 None if !error_label_on => None,
                 None => match err_provider.as_deref() {
@@ -2976,7 +2966,7 @@ async fn get_parcel(
                             .await
                             .0
                     }
-                    None => fetch_unassigned_channel_code(&state.db).await,
+                    None => fetch_special_route(&state.db, SpecialCase::Unassigned).await,
                 },
             };
 
@@ -3105,7 +3095,7 @@ async fn get_parcel(
             // 開關關閉時不回 response_id:沒有面單可印,工控機不必也不該 POST /api/report
             //(對齊 NoRead 的回應形態);查詢記錄仍留在本機供回看。
             // 查件異常也要上看板(紅字):現場才知道這件為什麼沒面單、要不要撿出來處理。
-            // 沒回通道、或回的是異常通道時,燈自然不亮。
+            // 沒回通道、或回的是特殊件分流的格口時,燈自然不亮。
             publish_board(
                 &state,
                 BoardEvent {
@@ -3246,7 +3236,7 @@ const DEVICE_ALERT_LOG_THROTTLE: std::time::Duration = std::time::Duration::from
 
 /// 通用 event_log 去洪:回傳此 key 現在是否該寫 log(距上次 >= [`DEVICE_ALERT_LOG_THROTTLE`] 窗、
 /// 或首次),並更新時間戳。共用一張 static 表,呼叫端以 key 前綴區分用途
-///(`{type}|{message}` 設備異常、`unassigned|{provider}` 未指派通道)。
+///(`{type}|{message}` 設備異常、`unassigned|{provider}` 物流沒指派格口)。
 fn should_log_throttled(key: &str) -> bool {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -3471,7 +3461,7 @@ mod tests {
 
         let (third, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
         assert_eq!(third.as_deref(), Some("A01"), "全部撞尾碼時應照輪替順序分配");
-        assert_eq!(assignment, Assignment::Channel, "沒設異常通道時照舊硬塞,不能沒格口");
+        assert_eq!(assignment, Assignment::Channel, "撞號沒指定格口時照舊硬塞,不能沒格口");
     }
 
     async fn set_exception(db: &DbPool, code: &str) {
@@ -3480,6 +3470,47 @@ mod tests {
             .execute(db)
             .await
             .unwrap();
+    }
+
+    async fn set_routes(db: &DbPool, json: &str) {
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('special_routes', ?)")
+            .bind(json)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn collision_goes_to_the_exception_chute_chosen_for_it() {
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        set_routes(&db, r#"{"collision":"LS","store_closed":"RS"}"#).await;
+        let routing = routing_state();
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        assert_eq!((code.as_deref(), assignment), (Some("LS"), Assignment::Special));
+    }
+
+    #[tokio::test]
+    async fn provider_without_channels_goes_to_the_chute_chosen_for_unassigned() {
+        let db = routing_db(&[("L1", "A01")], "C").await;
+        let routing = routing_state();
+        assert_eq!(resolve_channel_code(&db, &routing, "F", Some("SF00000000001"), true).await, (None, Assignment::Unassigned));
+        set_routes(&db, r#"{"unassigned":"LS"}"#).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "F", Some("SF00000000002"), true).await;
+        assert_eq!((code.as_deref(), assignment), (Some("LS"), Assignment::Unassigned));
+    }
+
+    #[tokio::test]
+    async fn collision_not_sent_to_exception_chute_falls_back_to_rotation() {
+        // 撞號沒指定格口:照沒有設定時的做法,給輪替順序上的格口並照印面單
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        set_routes(&db, r#"{"store_closed":"RS"}"#).await;
+        let routing = routing_state();
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        assert_eq!((code.as_deref(), assignment), (Some("A01"), Assignment::Channel));
     }
 
     #[tokio::test]
@@ -3491,9 +3522,9 @@ mod tests {
         resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
 
         let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
-        assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Exception));
+        assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Special));
 
-        // 送去異常通道的件沒進一般格口:兩格的上一件仍是 47、74,輪替也照舊從 A01 接著走
+        // 撞號改送的件沒進一般格口:兩格的上一件仍是 47、74,輪替也照舊從 A01 接著走
         let rt = routing.lock().await;
         assert_eq!(rt.last.get("A01").and_then(|l| l.no.as_deref()), Some("SF00000000047"));
         assert_eq!(rt.last.get("A02").and_then(|l| l.no.as_deref()), Some("SF11111111174"));
@@ -3510,11 +3541,11 @@ mod tests {
         let routing = routing_state();
         resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
         resolve_channel_code(&db, &routing, "C", Some("SF11111111112"), true).await;
-        // A02 上一件 12 不撞 47 → 照常分格口,不送異常通道
+        // A02 上一件 12 不撞 47 → 照常分格口,不改送
         let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
         assert_eq!((code.as_deref(), assignment), (Some("A02"), Assignment::Channel));
 
-        // 純分揀(不印單)不送異常通道:撞號不會貼錯,照舊硬塞最久沒收件的格口
+        // 純分揀(不印單)不改送:撞號不會貼錯,照舊硬塞最久沒收件的格口
         let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF33333333347"), false).await;
         assert_eq!(assignment, Assignment::Channel);
         assert_eq!(code.as_deref(), Some("A01"));
@@ -3522,7 +3553,7 @@ mod tests {
 
     #[tokio::test]
     async fn skipped_free_channel_leaves_only_colliding_ones_for_exception() {
-        // A01 不撞號但被按了「跳過本輪」、A02 撞號:輪得到的只剩撞號的格口 → 送異常通道
+        // A01 不撞號但被按了「跳過本輪」、A02 撞號:輪得到的只剩撞號的格口 → 改送指定的格口
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_exception(&db, "RS").await;
         let routing = routing_state();
@@ -3534,7 +3565,7 @@ mod tests {
             .unwrap();
 
         let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
-        assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Exception));
+        assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Special));
         let left: i64 = sqlx::query_scalar("SELECT skip_count FROM sort_channels WHERE position = 'L1'")
             .fetch_one(&db)
             .await

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
@@ -278,16 +280,16 @@ pub async fn sort_channel_save(
         }
     }
 
-    // channel_code 若有值，檢查是否被其他 position 或異常通道佔用
+    // channel_code 若有值，檢查是否被其他 position 或特殊件分流佔用
     if let Some(code) = channel_code.as_deref() {
         if let Some(conflict) = position_using_code(&state.db, code, Some(&req.position)).await? {
             return Err(AppError::Other(format!(
                 "通道代碼 \"{code}\" 已被 {conflict} 使用"
             )));
         }
-        if read_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL).await?.as_deref() == Some(code) {
+        if read_special_routes(&state.db).await?.reserves(code) {
             return Err(AppError::Other(format!(
-                "通道代碼 \"{code}\" 已設為異常通道,請改用其他代碼"
+                "通道代碼 \"{code}\" 已用在特殊件分流,請改用其他代碼"
             )));
         }
     }
@@ -370,13 +372,175 @@ pub async fn sort_channel_set_enabled(
     Ok(())
 }
 
-/// 物流商沒有指派任何格口時回給工控機的代碼。
-pub const SETTING_UNASSIGNED_CHANNEL: &str = "unassigned_channel_code";
-/// 異常件(讀碼失敗、查件異常、每一格都撞號)回給工控機的代碼。
-pub const SETTING_EXCEPTION_CHANNEL: &str = "exception_channel_code";
+/// 舊版的「未指派通道」與「異常通道」單一代碼。只在還沒存過 [`SETTING_SPECIAL_ROUTES`] 時讀來帶入;
+/// 存新設定時不刪也不改 —— 退回舊版時舊版還讀得到原本的值,不會整組分流無聲消失。
+const SETTING_UNASSIGNED_CHANNEL: &str = "unassigned_channel_code";
+const SETTING_EXCEPTION_CHANNEL: &str = "exception_channel_code";
+/// 特殊件分流(JSON 物件:情況 → 格口代碼,見 [`SpecialRoutes`])
+const SETTING_SPECIAL_ROUTES: &str = "special_routes";
 
-/// 讀設定頁的格口代碼(未指派 / 異常),未設定或留空回 None。
-pub async fn read_channel_setting(db: &DbPool, key: &str) -> AppResult<Option<String>> {
+/// 不進一般格口、可以另外指定送哪個格口的特殊件:物流沒指派格口、各種查件異常、每一格都撞號。
+/// 讀碼失敗不在其中:那種件由分揀機自己送它的預設格口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpecialCase {
+    /// 這家物流沒指派任何格口(或指派的格口全部被跳過)
+    Unassigned,
+    StoreClosed,
+    Unconfirmed,
+    StatusAbnormal,
+    NotFound,
+    NotProxyForward,
+    LabelFailed,
+    CloudError,
+    /// 能去的格口上一件後兩碼都跟它撞號
+    Collision,
+}
+
+impl SpecialCase {
+    /// 設定畫面的列表順序
+    pub const ALL: [SpecialCase; 9] = [
+        Self::Unassigned,
+        Self::StoreClosed,
+        Self::Unconfirmed,
+        Self::StatusAbnormal,
+        Self::NotFound,
+        Self::NotProxyForward,
+        Self::LabelFailed,
+        Self::CloudError,
+        Self::Collision,
+    ];
+
+    /// 雲端查件錯誤碼屬於哪一種情況;不認得的錯誤碼與連不上雲端都歸「雲端連不上或其他錯誤」
+    pub fn for_cloud_code(code: &str) -> Self {
+        match code {
+            "STORE_CLOSED" => Self::StoreClosed,
+            "UNCONFIRMED" => Self::Unconfirmed,
+            "STATUS_ABNORMAL" | "ABNORMAL" => Self::StatusAbnormal,
+            "NOT_FOUND" => Self::NotFound,
+            "NOT_PROXY" | "NOT_FORWARD" => Self::NotProxyForward,
+            "LABEL_FAILED" => Self::LabelFailed,
+            _ => Self::CloudError,
+        }
+    }
+
+    /// 代碼不可與一般格口相同:查件異常與撞號的件不印面單,送進一般格口會變成那格多一件沒單的包裹。
+    /// 物流沒指派格口沿用一直以來的規則,可以指定一般格口(現場可能本來就把它分進某一格)。
+    fn must_differ_from_channels(self) -> bool {
+        self != Self::Unassigned
+    }
+
+    /// 存檔檢查的錯誤訊息用
+    fn label(self) -> &'static str {
+        match self {
+            Self::Unassigned => "物流沒指派格口",
+            Self::StoreClosed => "門市關轉",
+            Self::Unconfirmed => "訂單未確認",
+            Self::StatusAbnormal => "訂單狀態異常",
+            Self::NotFound => "查無訂單",
+            Self::NotProxyForward => "非代寄／非轉寄包裹",
+            Self::LabelFailed => "面單產生失敗",
+            Self::CloudError => "雲端連不上或其他錯誤",
+            Self::Collision => "每一格都撞號",
+        }
+    }
+}
+
+/// 特殊件分流:每種情況送哪個格口代碼。沒列出的情況不指定
+/// (照沒有設定時的方式處理:不回格口由分揀機送它的預設格口,或錯誤面單跟著物流走)。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SpecialRoutes(BTreeMap<SpecialCase, String>);
+
+impl SpecialRoutes {
+    /// 這種情況要送的格口代碼;沒指定回 None
+    pub fn route(&self, case: SpecialCase) -> Option<&str> {
+        self.0.get(&case).map(String::as_str).filter(|c| !c.is_empty())
+    }
+
+    /// 這個代碼有沒有用在「不可與一般格口同代碼」的情況上
+    fn reserves(&self, code: &str) -> bool {
+        self.0.iter().any(|(case, c)| case.must_differ_from_channels() && c == code)
+    }
+
+    /// 去空白、拿掉沒填的情況,並檢查代碼格式與「不可與一般格口同代碼」。`used_by_channel` 回傳用了某代碼的格口位置。
+    fn validated(self, used_by_channel: impl Fn(&str) -> Option<String>) -> AppResult<Self> {
+        let mut routes = BTreeMap::new();
+        for (case, code) in self.0 {
+            let code = code.trim();
+            if code.is_empty() {
+                continue;
+            }
+            check_channel_code_format(code)
+                .map_err(|e| AppError::Other(format!("「{}」{e}", case.label())))?;
+            if let Some(pos) = used_by_channel(code).filter(|_| case.must_differ_from_channels()) {
+                return Err(AppError::Other(format!(
+                    "「{}」填的 \"{code}\" 是格口 {pos} 的代碼,特殊件請填不屬於一般格口的代碼",
+                    case.label()
+                )));
+            }
+            routes.insert(case, code.to_string());
+        }
+        Ok(Self(routes))
+    }
+}
+
+/// 讀特殊件分流。還沒存過新設定時,沿用舊版的兩個單一代碼(與舊版行為相同):
+/// 物流沒指派格口送「未指派通道」代碼,其他情況都送「異常通道」代碼。
+pub async fn read_special_routes(db: &DbPool) -> AppResult<SpecialRoutes> {
+    let saved: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(SETTING_SPECIAL_ROUTES)
+        .fetch_optional(db)
+        .await?;
+    if let Some(json) = saved {
+        return parse_special_routes(&json);
+    }
+    let unassigned = read_channel_setting(db, SETTING_UNASSIGNED_CHANNEL).await?;
+    let exception = read_channel_setting(db, SETTING_EXCEPTION_CHANNEL).await?;
+    let routes = SpecialCase::ALL
+        .into_iter()
+        .filter_map(|case| {
+            let code = if case == SpecialCase::Unassigned { &unassigned } else { &exception };
+            code.clone().map(|c| (case, c))
+        })
+        .collect();
+    Ok(SpecialRoutes(routes))
+}
+
+/// 解析存下來的特殊件分流。不認得的情況(較新版本存的)略過並記錄,其他照常讀 ——
+/// 退回舊版時不會因為多一項就整份讀不了。
+fn parse_special_routes(json: &str) -> AppResult<SpecialRoutes> {
+    let raw: BTreeMap<String, String> =
+        serde_json::from_str(json).map_err(|e| AppError::Other(format!("特殊件分流設定內容無法讀取: {e}")))?;
+    let mut routes = BTreeMap::new();
+    for (key, code) in raw {
+        match serde_json::from_value::<SpecialCase>(serde_json::Value::String(key.clone())) {
+            Ok(case) => {
+                routes.insert(case, code);
+            }
+            Err(_) => tracing::warn!(%key, "特殊件分流有這一版不認得的情況,略過"),
+        }
+    }
+    Ok(SpecialRoutes(routes))
+}
+
+/// 存特殊件分流。舊版的兩個單一代碼保留不動(見 [`SETTING_UNASSIGNED_CHANNEL`])。
+async fn write_special_routes(db: &DbPool, routes: &SpecialRoutes) -> AppResult<()> {
+    let json = serde_json::to_string(routes).map_err(|e| AppError::Other(e.to_string()))?;
+    sqlx::query(
+        "INSERT INTO settings (key, value, updated_at)
+         VALUES (?, ?, datetime('now','localtime'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(SETTING_SPECIAL_ROUTES)
+    .bind(json)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// 讀舊版的單一格口代碼設定(未指派 / 異常),未設定或留空回 None。
+async fn read_channel_setting(db: &DbPool, key: &str) -> AppResult<Option<String>> {
     let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
         .bind(key)
         .fetch_optional(db)
@@ -400,73 +564,31 @@ fn check_channel_code_format(code: &str) -> AppResult<()> {
     }
 }
 
-/// 存設定頁的格口代碼(傳 None / 空字串表示清除)。
-async fn write_channel_setting(db: &DbPool, key: &str, code: Option<String>) -> AppResult<()> {
-    let code = code.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    match code {
-        Some(c) => {
-            check_channel_code_format(&c)?;
-            sqlx::query(
-                "INSERT INTO settings (key, value, updated_at)
-                 VALUES (?, ?, datetime('now','localtime'))
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            )
-            .bind(key)
-            .bind(c)
-            .execute(db)
-            .await?;
-        }
-        None => {
-            sqlx::query("DELETE FROM settings WHERE key = ?")
-                .bind(key)
-                .execute(db)
-                .await?;
-        }
-    }
-    Ok(())
+/// 讀取特殊件分流
+#[tauri::command]
+pub async fn sort_channel_special_routes_get(state: State<'_, SharedState>) -> AppResult<SpecialRoutes> {
+    read_special_routes(&state.db).await
 }
 
-/// 讀取「未設定指派物流」的 fallback 通道代碼
+/// 儲存特殊件分流
 #[tauri::command]
-pub async fn sort_channel_unassigned_get(
+pub async fn sort_channel_special_routes_save(
     state: State<'_, SharedState>,
-) -> AppResult<Option<String>> {
-    read_channel_setting(&state.db, SETTING_UNASSIGNED_CHANNEL).await
-}
-
-/// 儲存「未設定指派物流」的 fallback 通道代碼（傳 None / 空字串表示清除）
-#[tauri::command]
-pub async fn sort_channel_unassigned_save(
-    state: State<'_, SharedState>,
-    code: Option<String>,
+    routes: SpecialRoutes,
 ) -> AppResult<()> {
-    write_channel_setting(&state.db, SETTING_UNASSIGNED_CHANNEL, code).await
+    let channel_codes = channel_code_positions(&state.db).await?;
+    let routes = routes.validated(|code| channel_codes.get(code).cloned())?;
+    write_special_routes(&state.db, &routes).await
 }
 
-/// 讀取異常通道代碼
-#[tauri::command]
-pub async fn sort_channel_exception_get(
-    state: State<'_, SharedState>,
-) -> AppResult<Option<String>> {
-    read_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL).await
-}
-
-/// 儲存異常通道代碼（傳 None / 空字串表示清除）。
-/// 不可與任一格口的通道代碼相同:異常件不印面單,送進一般格口會變成那格多一件沒單的包裹。
-#[tauri::command]
-pub async fn sort_channel_exception_save(
-    state: State<'_, SharedState>,
-    code: Option<String>,
-) -> AppResult<()> {
-    let trimmed = code.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if let Some(c) = trimmed {
-        if let Some(pos) = position_using_code(&state.db, c, None).await? {
-            return Err(AppError::Other(format!(
-                "異常通道代碼 \"{c}\" 已被格口 {pos} 使用,請改用分揀機上專收異常件的格口代碼"
-            )));
-        }
-    }
-    write_channel_setting(&state.db, SETTING_EXCEPTION_CHANNEL, code).await
+/// 一般格口的「通道代碼 → 位置」
+async fn channel_code_positions(db: &DbPool) -> AppResult<BTreeMap<String, String>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT channel_code, position FROM sort_channels WHERE channel_code IS NOT NULL AND channel_code <> ''",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
 }
 
 /// 哪個格口(位置)用了這個通道代碼;`except` 指定要略過的位置(存檔自己那一列時用)。
@@ -508,4 +630,122 @@ pub async fn sticker_history_delete(
         .execute(&state.db)
         .await?;
     Ok(result.rows_affected())
+}
+
+#[cfg(test)]
+mod special_routes_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    fn routes(pairs: &[(SpecialCase, &str)]) -> SpecialRoutes {
+        SpecialRoutes(pairs.iter().map(|(c, v)| (*c, v.to_string())).collect())
+    }
+
+    fn no_channel(_: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn cloud_error_codes_map_to_cases() {
+        use SpecialCase::*;
+        for (code, case) in [
+            ("STORE_CLOSED", StoreClosed),
+            ("UNCONFIRMED", Unconfirmed),
+            ("STATUS_ABNORMAL", StatusAbnormal),
+            ("ABNORMAL", StatusAbnormal),
+            ("NOT_FOUND", NotFound),
+            ("NOT_PROXY", NotProxyForward),
+            ("NOT_FORWARD", NotProxyForward),
+            ("LABEL_FAILED", LabelFailed),
+            ("ERROR", CloudError),
+            ("SOMETHING_NEW", CloudError),
+        ] {
+            assert_eq!(SpecialCase::for_cloud_code(code), case, "{code}");
+        }
+    }
+
+    #[test]
+    fn validation_trims_and_drops_blank_cases() {
+        let got = routes(&[(SpecialCase::StoreClosed, " LS "), (SpecialCase::Collision, "  ")])
+            .validated(no_channel)
+            .unwrap();
+        assert_eq!(got, routes(&[(SpecialCase::StoreClosed, "LS")]));
+        assert_eq!(got.route(SpecialCase::Collision), None, "沒填就是不指定");
+    }
+
+    #[test]
+    fn validation_rejects_bad_codes() {
+        let err = |r: SpecialRoutes, used: fn(&str) -> Option<String>| r.validated(used).unwrap_err().to_string();
+        let msg = err(routes(&[(SpecialCase::NotFound, "左邊")]), no_channel);
+        assert!(msg.contains("查無訂單") && msg.contains("格式不符"), "{msg}");
+        let used_by_l1 = |c: &str| (c == "L1").then(|| "L1".to_string());
+        let msg = err(routes(&[(SpecialCase::Collision, "L1")]), used_by_l1);
+        assert!(msg.contains("每一格都撞號") && msg.contains("格口 L1"), "{msg}");
+    }
+
+    #[test]
+    fn unassigned_may_point_at_a_regular_chute() {
+        let used_by_l1 = |c: &str| (c == "L1").then(|| "L1".to_string());
+        let got = routes(&[(SpecialCase::Unassigned, "L1")]).validated(used_by_l1).unwrap();
+        assert_eq!(got.route(SpecialCase::Unassigned), Some("L1"), "物流沒指派格口照舊可以指定一般格口");
+        assert!(!got.reserves("L1"), "一般格口仍可使用這個代碼");
+        assert!(routes(&[(SpecialCase::NotFound, "RS")]).reserves("RS"));
+    }
+
+    #[test]
+    fn unknown_cases_from_a_newer_version_are_skipped() {
+        let got = parse_special_routes(r#"{"store_closed":"LS","no_read":"RS"}"#).unwrap();
+        assert_eq!(got, routes(&[(SpecialCase::StoreClosed, "LS")]));
+        assert!(parse_special_routes("not json").is_err());
+    }
+
+    #[test]
+    fn stored_as_a_plain_case_to_code_object() {
+        let json = serde_json::to_string(&routes(&[(SpecialCase::Unassigned, "LS"), (SpecialCase::StoreClosed, "RS")])).unwrap();
+        assert_eq!(json, r#"{"unassigned":"LS","store_closed":"RS"}"#);
+    }
+
+    async fn db() -> DbPool {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn set_old(db: &DbPool, key: &str, code: &str) {
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)").bind(key).bind(code).execute(db).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn old_codes_are_carried_over() {
+        let db = db().await;
+        assert_eq!(read_special_routes(&db).await.unwrap(), SpecialRoutes::default());
+        set_old(&db, SETTING_UNASSIGNED_CHANNEL, "LS").await;
+        set_old(&db, SETTING_EXCEPTION_CHANNEL, "RS").await;
+        let got = read_special_routes(&db).await.unwrap();
+        assert_eq!(got.route(SpecialCase::Unassigned), Some("LS"), "物流沒指派格口照舊送未指派通道");
+        assert!(
+            SpecialCase::ALL.iter().filter(|c| **c != SpecialCase::Unassigned).all(|c| got.route(*c) == Some("RS")),
+            "其他情況照舊送原本的異常通道代碼"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_unassigned_code_set_leaves_other_cases_unassigned() {
+        let db = db().await;
+        set_old(&db, SETTING_UNASSIGNED_CHANNEL, "X00").await;
+        let got = read_special_routes(&db).await.unwrap();
+        assert_eq!(got, routes(&[(SpecialCase::Unassigned, "X00")]));
+    }
+
+    #[tokio::test]
+    async fn saved_routes_take_over_but_old_codes_stay_for_rollback() {
+        let db = db().await;
+        set_old(&db, SETTING_UNASSIGNED_CHANNEL, "LS").await;
+        set_old(&db, SETTING_EXCEPTION_CHANNEL, "RS").await;
+        let saved = routes(&[(SpecialCase::StoreClosed, "LS"), (SpecialCase::NotFound, "RS")]);
+        write_special_routes(&db, &saved).await.unwrap();
+        assert_eq!(read_special_routes(&db).await.unwrap(), saved, "存過新設定後就以新設定為準");
+        assert_eq!(read_channel_setting(&db, SETTING_EXCEPTION_CHANNEL).await.unwrap().as_deref(), Some("RS"), "舊代碼保留,退回舊版仍讀得到");
+        assert_eq!(read_channel_setting(&db, SETTING_UNASSIGNED_CHANNEL).await.unwrap().as_deref(), Some("LS"));
+    }
 }

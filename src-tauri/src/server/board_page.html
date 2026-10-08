@@ -133,9 +133,9 @@ const CHANNEL_POLL_MS = 10000;
 
 const I18N = {
   zh: { title: '分揀看板', offline: '連線中斷', fullscreen: '全螢幕',
-        waiting: '等待包裹', unassigned: '未指派通道' },
+        waiting: '等待包裹', unassigned: '物流沒指派格口' },
   vi: { title: 'Bảng phân loại', offline: 'Mất kết nối', fullscreen: 'Toàn màn hình',
-        waiting: 'Đang chờ kiện hàng', unassigned: 'Chưa gán kênh' },
+        waiting: 'Đang chờ kiện hàng', unassigned: 'Hãng chưa được gán ô' },
 };
 let lang = localStorage.getItem('board_lang') || 'zh';
 const tr = k => (I18N[lang] || I18N.zh)[k];

@@ -924,7 +924,7 @@
       "title": "Bảng phân loại",
       "subtitle": "Hiển thị tức thời kiện hàng vào kênh nào",
       "waiting": "Đang chờ kiện hàng",
-      "unassigned": "Chưa gán kênh"
+      "unassigned": "Hãng chưa được gán ô"
     },
     "sort": {
       "posLeft": "Trái {n}",
@@ -989,22 +989,25 @@
         "hint": "Điện thoại kết nối cùng mạng LAN, quét mã QR bên dưới hoặc nhập địa chỉ để tạm dừng / khôi phục bất kỳ kênh nào (rất tiện khi thay giấy).",
         "noIp": "Không tìm thấy IP mạng LAN, vui lòng kiểm tra máy đã kết nối mạng LAN"
       },
-      "unassigned": {
-        "title": "Kênh chưa gán",
-        "brief": "Mã trả về khi hãng vận chuyển chưa gán kênh",
-        "label": "Chưa chỉ định vận chuyển — Mã kênh mặc định",
-        "hint": "Khi vận chuyển của kiện hàng chưa được gán vào kênh nào, trả về mã này",
-        "placeholder": "VD: X00 (để trống = không trả mã)",
-        "current": "Kênh mặc định: {code}",
-        "save": "Lưu",
-        "saved": "Đã lưu"
-      },
-      "exception": {
-        "title": "Kênh bất thường",
-        "brief": "Mã trả về cho kiện bất thường",
-        "label": "Kiện bất thường — Mã kênh",
-        "hint": "Kiện đọc mã thất bại, tra cứu bất thường (cửa hàng đóng/chuyển, không tìm thấy đơn, không kết nối được đám mây…) và kiện có hai số cuối trùng với kiện trước ở mọi ô có thể nhận, đều trả về mã này. Kiện trùng số không in phiếu, hãy nhặt ra và cho chạy lại qua máy. Không được trùng với mã của ô thường.",
-        "placeholder": "VD: RS (để trống = không trả mã)",
+      "special": {
+        "title": "Phân luồng kiện đặc biệt",
+        "assigned": "Đã chỉ định {n}/{total} mục",
+        "edit": "Thiết lập",
+        "hint": "Mỗi mục nhập mã ô cần đưa đến (VD: LS, RS); để trống là không chỉ định: kiện chưa gán hãng và kiện tra cứu bất thường do máy phân loại đưa vào ô mặc định của nó; nếu bật « Nhãn cảnh báo kiện bất thường », kiện tra cứu bất thường sẽ vào ô của hãng đó và in nhãn cảnh báo, kiện không tra được hãng sẽ vào ô đã nhập ở « Hãng chưa được gán ô »; kiện trùng số vào ô đến lượt và vẫn in phiếu. Kiện đọc mã thất bại luôn do máy phân loại đưa vào ô mặc định, không thiết lập ở đây. Trừ « Hãng chưa được gán ô », mã ở đây không được trùng với mã của ô thường; kiện trùng số được chuyển đi sẽ không in phiếu, hãy nhặt ra và cho chạy lại qua máy.",
+        "caseHeader": "Tình huống",
+        "codeHeader": "Đưa đến (mã ô)",
+        "placeholder": "Không chỉ định",
+        "cases": {
+          "unassigned": "Hãng chưa được gán ô",
+          "store_closed": "Cửa hàng đóng/chuyển",
+          "unconfirmed": "Đơn chưa xác nhận",
+          "status_abnormal": "Trạng thái đơn bất thường",
+          "not_found": "Không tìm thấy đơn",
+          "not_proxy_forward": "Không phải kiện gửi hộ/chuyển tiếp",
+          "label_failed": "Tạo phiếu thất bại",
+          "cloud_error": "Không kết nối được đám mây hoặc lỗi khác",
+          "collision": "Mọi ô đều trùng số"
+        },
         "save": "Lưu"
       }
     },

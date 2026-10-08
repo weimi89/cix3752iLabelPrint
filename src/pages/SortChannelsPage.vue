@@ -3,10 +3,8 @@ import {
   sortChannelList,
   sortChannelSave,
   sortChannelSetEnabled,
-  sortChannelUnassignedGet,
-  sortChannelUnassignedSave,
-  sortChannelExceptionGet,
-  sortChannelExceptionSave,
+  sortChannelSpecialRoutesGet,
+  sortChannelSpecialRoutesSave,
   sortLayoutGet,
   sortLayoutSave,
   dispatchProviderList,
@@ -40,17 +38,6 @@ const savingAll = ref(false)
 const errorMsg = ref('')
 const flashMsg = ref('')
 
-// 回給工控機的兩個特殊格口代碼:物流沒指派格口的件(未指派)、異常件(異常)。
-// 設定完幾乎不會再動,共用同一個編輯對話框
-const CODE_KINDS = ['unassigned', 'exception']
-const CODE_SAVERS = { unassigned: sortChannelUnassignedSave, exception: sortChannelExceptionSave }
-const codes = ref({ unassigned: '', exception: '' })
-const codeDialog = ref(false)
-const codeKind = ref('unassigned')
-const codeDraft = ref('')
-const codeError = ref('')
-const savingCode = ref(false)
-
 // 純分揀模式總開關(存於 AppConfig.sort_only.enabled;獨立於面單路徑模式)。
 // 放這頁而非「面單路徑」卡片,因純分揀是分揀行為而非面單呈現拓撲。
 const sortOnly = ref(false)
@@ -61,11 +48,40 @@ const savingSortOnly = ref(false)
 const errorLabelOn = ref(false)
 const savingErrorLabel = ref(false)
 
-const openCodeDialog = kind => {
-  codeKind.value = kind
-  codeDraft.value = codes.value[kind]
-  codeError.value = ''
-  codeDialog.value = true
+// 特殊件分流:不進一般格口的件(物流沒指派格口、查件異常、撞號)各自送哪個格口代碼,沒填就是不指定。
+// 順序與後端 SpecialCase::ALL 相同;值是後端存的情況代碼
+const SPECIAL_CASES = ['unassigned', 'store_closed', 'unconfirmed', 'status_abnormal', 'not_found', 'not_proxy_forward', 'label_failed', 'cloud_error', 'collision']
+const specialRoutes = ref({})
+const specialDialog = ref(false)
+const specialDraft = ref({})
+const specialError = ref('')
+const savingSpecial = ref(false)
+
+// 卡片上顯示「已指定幾項」
+const specialAssigned = computed(() => SPECIAL_CASES.filter(c => specialRoutes.value[c]).length)
+
+const openSpecialDialog = () => {
+  specialDraft.value = Object.fromEntries(SPECIAL_CASES.map(c => [c, specialRoutes.value[c] || '']))
+  specialError.value = ''
+  specialDialog.value = true
+}
+
+// 存檔失敗(格式不對、跟一般格口代碼重複)時錯誤留在對話框裡,畫面後方的提示會被對話框擋住
+const saveSpecialRoutes = async () => {
+  if (savingSpecial.value) return
+  savingSpecial.value = true
+  specialError.value = ''
+  try {
+    const routes = Object.fromEntries(
+      Object.entries(specialDraft.value).map(([c, v]) => [c, (v || '').trim()]).filter(([, v]) => v))
+    await sortChannelSpecialRoutesSave(routes)
+    specialRoutes.value = routes
+    specialDialog.value = false
+  } catch (e) {
+    specialError.value = errorMessageFromException(e)
+  } finally {
+    savingSpecial.value = false
+  }
 }
 
 // 位置代碼 L3 → 「左 3」;格數不固定,標籤由代碼算,不寫死一張表
@@ -127,11 +143,10 @@ const load = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    const [list, dispatch, uCode, eCode, , cfg, lay] = await Promise.all([
+    const [list, dispatch, routes, , cfg, lay] = await Promise.all([
       sortChannelList(),
       dispatchProviderList(),
-      sortChannelUnassignedGet(),
-      sortChannelExceptionGet(),
+      sortChannelSpecialRoutesGet(),
       reloadStickerHistory(),
       getConfig(),
       sortLayoutGet(),
@@ -140,7 +155,7 @@ const load = async () => {
     layout.value = { left: Number(lay?.left) || 0, right: Number(lay?.right) || 0 }
     originalCodes.value = new Map(list.map(c => [c.position, (c.channel_code || '').trim()]))
     dispatchOptions.value = dispatch
-    codes.value = { unassigned: uCode ?? '', exception: eCode ?? '' }
+    specialRoutes.value = routes ?? {}
     sortOnly.value = !!cfg?.sort_only?.enabled
     errorLabelOn.value = !!cfg?.error_label?.enabled
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
@@ -163,22 +178,6 @@ const loadPrinters = async () => {
     printerList.value = (ps || []).map(p => ({ title: p.name, value: p.name }))
   } catch (e) {
     console.warn('載入印表機清單失敗', e)
-  }
-}
-
-// 存檔失敗(格式不對、跟格口代碼重複)時錯誤留在對話框裡,畫面後方的提示會被對話框擋住
-const saveCode = async () => {
-  savingCode.value = true
-  codeError.value = ''
-  try {
-    const draft = (codeDraft.value || '').trim()
-    await CODE_SAVERS[codeKind.value](draft || null)
-    codes.value = { ...codes.value, [codeKind.value]: draft }
-    codeDialog.value = false
-  } catch (e) {
-    codeError.value = errorMessageFromException(e)
-  } finally {
-    savingCode.value = false
   }
 }
 
@@ -350,6 +349,26 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 </script>
 
 <style scoped lang="scss">
+.special-routes {
+  display: grid;
+  gap: 8px;
+}
+
+.special-routes__head,
+.special-routes__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 639.98px) {
+  .special-routes__head,
+  .special-routes__row {
+    grid-template-columns: minmax(0, 1fr) 150px;
+  }
+}
+
 /* 兩個開關並排;畫面窄時改成上下堆疊,避免文字擠成兩行 */
 .switch-row {
   display: flex;
@@ -592,34 +611,33 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 
         <VDivider vertical class="switch-divider" />
 
-        <!-- 未指派、異常兩個特殊格口代碼:設定完幾乎不會再動,跟兩個開關併成同一列 -->
-        <template v-for="kind in CODE_KINDS" :key="kind">
-          <div class="switch-item">
-            <VIcon
-              :icon="codes[kind] ? 'tabler-check' : 'tabler-alert-triangle'"
-              size="20"
-              :color="codes[kind] ? 'primary' : 'warning'"
-              class="flex-shrink-0"
-            />
-            <div class="flex-grow-1">
-              <div class="text-body-medium font-weight-medium">{{ $t(`page.sort.${kind}.title`) }}</div>
-              <div class="text-body-small text-medium-emphasis">{{ $t(`page.sort.${kind}.brief`) }}</div>
+        <!-- 特殊件分流:設定完幾乎不會再動,跟兩個開關併成同一列 -->
+        <div class="switch-item">
+          <VIcon
+            :icon="specialAssigned ? 'tabler-check' : 'tabler-arrows-split'"
+            size="20"
+            :color="specialAssigned ? 'primary' : 'secondary'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('page.sort.special.title') }}</div>
+            <div class="text-body-small text-medium-emphasis">
+              {{ $t('page.sort.special.assigned', { n: specialAssigned, total: SPECIAL_CASES.length }) }}
             </div>
-            <VBtn
-              :color="codes[kind] ? 'primary' : 'warning'"
-              variant="tonal"
-              size="small"
-              class="flex-shrink-0 font-weight-bold"
-              @click="openCodeDialog(kind)"
-            >
-              <VIcon :icon="codes[kind] ? 'tabler-pencil' : 'tabler-settings'" size="15" class="me-1" />
-              <template v-if="codes[kind]">{{ codes[kind] }}</template>
-              <template v-else>{{ $t('page.sort.status.unset') }}</template>
-            </VBtn>
           </div>
+          <VBtn
+            color="primary"
+            variant="tonal"
+            size="small"
+            class="flex-shrink-0 font-weight-bold"
+            @click="openSpecialDialog"
+          >
+            <VIcon icon="tabler-settings" size="15" class="me-1" />
+            {{ $t('page.sort.special.edit') }}
+          </VBtn>
+        </div>
 
-          <VDivider vertical class="switch-divider" />
-        </template>
+        <VDivider vertical class="switch-divider" />
 
         <!-- 格口配置:桃園左右各 5 格、台中各 3 格,同一支程式依現場設定長出格口卡片 -->
         <div class="switch-item">
@@ -719,44 +737,52 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
       </div>
     </VDialog>
 
-    <!-- 未指派／異常通道代碼設定 Dialog -->
-    <VDialog v-model="codeDialog" max-width="420" persistent>
+    <!-- 特殊件分流:不進一般格口的件各自送哪個格口代碼 -->
+    <VDialog v-model="specialDialog" max-width="520" persistent scrollable>
       <div style="position: relative;">
         <VBtn
           icon
           variant="elevated"
           size="x-small"
           style="position: absolute; top: -12px; right: -12px; z-index: 10;"
-          @click="codeDialog = false"
+          @click="specialDialog = false"
         >
           <VIcon icon="tabler-x" size="14" />
         </VBtn>
       <VCard>
         <VCardItem class="px-5 py-3">
-          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
-            <VIcon :icon="'tabler-question-mark'" size="18" color="secondary" />
-            {{ $t(`page.sort.${codeKind}.label`) }}
+          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium text-wrap">
+            <VIcon icon="tabler-arrows-split" size="18" color="secondary" />
+            {{ $t('page.sort.special.title') }}
           </VCardTitle>
         </VCardItem>
         <VDivider />
         <VCardText class="px-5 pt-4 pb-2">
-          <div class="text-body-small text-medium-emphasis mb-4">{{ $t(`page.sort.${codeKind}.hint`) }}</div>
-          <VTextField
-            v-model="codeDraft"
-            :label="$t(`page.sort.${codeKind}.placeholder`)"
-            density="compact"
-            variant="outlined"
-            autofocus
-            clearable
-            @keyup.enter="saveCode"
-          />
-          <VAlert v-if="codeError" type="error" variant="tonal" density="compact" class="mt-1 mb-2">{{ codeError }}</VAlert>
+          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.special.hint') }}</div>
+          <div class="special-routes">
+            <div class="special-routes__head text-body-small text-medium-emphasis">
+              <span>{{ $t('page.sort.special.caseHeader') }}</span>
+              <span>{{ $t('page.sort.special.codeHeader') }}</span>
+            </div>
+            <div v-for="c in SPECIAL_CASES" :key="c" class="special-routes__row">
+              <span class="text-body-medium">{{ $t(`page.sort.special.cases.${c}`) }}</span>
+              <VTextField
+                v-model="specialDraft[c]"
+                :placeholder="$t('page.sort.special.placeholder')"
+                density="compact"
+                variant="outlined"
+                hide-details
+                @keyup.enter="saveSpecialRoutes"
+              />
+            </div>
+          </div>
+          <VAlert v-if="specialError" type="error" variant="tonal" density="compact" class="mt-3">{{ specialError }}</VAlert>
         </VCardText>
         <VCardActions class="px-5 pb-4">
           <VSpacer />
-          <VBtn variant="text" @click="codeDialog = false">{{ $t('common.cancel') }}</VBtn>
-          <VBtn color="secondary" variant="elevated" :loading="savingCode" @click="saveCode">
-            {{ $t(`page.sort.${codeKind}.save`) }}
+          <VBtn variant="text" @click="specialDialog = false">{{ $t('common.cancel') }}</VBtn>
+          <VBtn color="secondary" variant="elevated" :loading="savingSpecial" @click="saveSpecialRoutes">
+            {{ $t('page.sort.special.save') }}
           </VBtn>
         </VCardActions>
       </VCard>

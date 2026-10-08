@@ -548,22 +548,14 @@ export const sortChannelSetEnabled = (position, enabled) => {
   if (!hasBackend) return Promise.resolve()
   return invoke('sort_channel_set_enabled', { position, enabled })
 }
-export const sortChannelUnassignedGet = async () => {
-  if (!hasBackend) return null
-  return await invoke('sort_channel_unassigned_get')
+// 特殊件分流:物流沒指派格口、查件異常、撞號的件各自送哪個格口代碼({ 情況: 代碼 },沒列出=不指定)
+export const sortChannelSpecialRoutesGet = async () => {
+  if (!hasBackend) return { unassigned: 'LS', store_closed: 'LS', not_found: 'RS', cloud_error: 'RS' }
+  return await invoke('sort_channel_special_routes_get')
 }
-export const sortChannelUnassignedSave = (code) => {
+export const sortChannelSpecialRoutesSave = (routes) => {
   if (!hasBackend) return Promise.resolve()
-  return invoke('sort_channel_unassigned_save', { code: code || null })
-}
-// 異常通道:讀碼失敗、查件異常、每一格都撞號的包裹回給工控機的格口代碼
-export const sortChannelExceptionGet = async () => {
-  if (!hasBackend) return null
-  return await invoke('sort_channel_exception_get')
-}
-export const sortChannelExceptionSave = (code) => {
-  if (!hasBackend) return Promise.resolve()
-  return invoke('sort_channel_exception_save', { code: code || null })
+  return invoke('sort_channel_special_routes_save', { routes })
 }
 // 格口配置(左右各幾格):後端以 sort_channels 現有的列為準,改配置會補建／移除位置列
 export const sortLayoutGet = async () => {
