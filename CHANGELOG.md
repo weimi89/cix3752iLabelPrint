@@ -3,7 +3,7 @@
 本檔記錄各版本的修改與調整內容,標題版本號對應 GitHub Release tag。
 `release.yml` 會依 tag 自動抽取對應段落,寫進 Release 說明與 `latest.json`(in-app 更新提示)。
 
-## 未發版
+## v1.2.7
 
 ### 分揀格口一輪一件：開幾格，每格各收一件才輪下一輪
 
