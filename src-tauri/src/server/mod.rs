@@ -1398,9 +1398,9 @@ async fn load_channel_states(db: &DbPool) -> (i64, Vec<String>) {
 }
 
 /// 每一格的上一件尾碼都已知時,00～99 裡有幾組尾碼會跟所有格口都撞號(下一件若是這些尾碼就無處可避)。
-/// 有任一格沒有上一件就回 0:那一格什麼尾碼都能收。數字越小,下一件越容易找到不撞號的格口。
+/// 有任一格沒有上一件、或一格都沒有時回 0。數字越小,下一件越容易找到不撞號的格口。
 fn forced_tail_count(tails: &[Option<String>]) -> usize {
-    if tails.iter().any(Option::is_none) {
+    if tails.is_empty() || tails.iter().any(Option::is_none) {
         return 0;
     }
     (0..100)
@@ -1563,10 +1563,11 @@ async fn resolve_channel_code(
             }
         }
 
-        // 排序分三組,「跳過本輪」照這個順序往下找:
-        // 1. 不撞尾碼、且收件次數不超過「不撞號格口裡最少的 + 1」:剛收過件的排最後 →
-        //    給了之後各格上一件尾碼最分散(下一件最不容易無處可避)→ 次數少 → 從上一件的下一格接著輪。
-        // 2. 不撞尾碼但次數已多出 2 件以上:只在第 1 組都被跳過時才輪到,量不會被避號拖垮。
+        // 「這一輪還沒輪到」= 收件次數等於全部候選格口裡最少的。排序分三組,「跳過本輪」照這個順序往下找:
+        // 1. 這一輪還沒輪到、且不撞尾碼:剛收過件的排最後 → 給了之後,這一輪剩下的格口最不容易全部撞號
+        //    → 全場各格上一件尾碼最分散 → 從上一件的下一格接著輪。開幾格就每格各收一件,才輪下一輪。
+        // 2. 這一輪已經收過、不撞尾碼:只有這一輪剩下的格口全都撞號(或被跳過)時才輪到,次數少的先。
+        //    不可放寬成「次數不超過最少的 + 1 都算同一組」—— 那樣沒撞號的格口還在等,別格就先收第二件(業主 10-12)。
         // 3. 撞尾碼(後兩碼有任一數字與該格上一件重疊):排最後而不是排除 —— 每格都撞時這件仍要有格口去,
         //    挑最久沒收件的那格,作業員最可能已經貼完上一張。
         // 撞尾碼的格口沒被輪到就不會扣「跳過本輪」的額度。
@@ -1578,7 +1579,8 @@ async fn resolve_channel_code(
                 _ => false,
             })
             .collect();
-        let least_free = (0..n).filter(|&i| !collides[i]).map(|i| states[i].count).min().unwrap_or(0);
+        let least = states.iter().map(|s| s.count).min().unwrap_or(0);
+        let round_left: Vec<usize> = (0..n).filter(|&i| states[i].count == least).collect();
         let ring_len = ring.len();
         let after_last = rt.last_position.as_deref().map(|p| ring_index(&ring, p)).filter(|&i| i < ring_len);
         let ring_distance = |pos: &str| {
@@ -1593,14 +1595,16 @@ async fn resolve_channel_code(
             let dist = ring_distance(&candidates[i].0);
             if collides[i] {
                 (2, false, states[i].seq, 0_i64, 0_usize)
-            } else if states[i].count > least_free + 1 {
+            } else if states[i].count > least {
                 (1, is_last, states[i].count, dist as i64, 0_usize)
             } else {
+                let rest: Vec<Option<String>> =
+                    round_left.iter().filter(|&&j| j != i).map(|&j| prev_tails[j].clone()).collect();
                 let mut after: Vec<Option<String>> = prev_tails.clone();
                 if tail.is_some() {
                     after[i] = tail.clone();
                 }
-                (0, is_last, forced_tail_count(&after) as i64, states[i].count, dist)
+                (0, is_last, forced_tail_count(&rest) as i64, forced_tail_count(&after) as i64, dist)
             }
         };
         let mut order: Vec<usize> = (0..n).collect();
@@ -3969,12 +3973,12 @@ mod tests {
     #[tokio::test]
     async fn few_channels_do_not_drop_twice_in_a_row() {
         // 10/3 現場只開四格的單號順序:舊規則最後兩件(24、03)都給左5。
-        // 第 8 件 03 撞左4(01)與左1(53),剩左5 與左2 不撞:左5 剛收過 → 給左2
+        // 第 8 件 03:第二輪只剩左5 還沒收(上一件 98,不撞)→ 給左5,四格各兩件
         let db = full_ring_db("C").await;
         open_only(&db, &["L1", "L2", "L4", "L5"]).await;
         let routing = routing_state();
         let got = assign_tails(&db, &routing, &["99", "98", "01", "53", "01", "49", "24", "03"]).await;
-        assert_eq!(got, ["L1", "L5", "L2", "L4", "L1", "L2", "L4", "L2"]);
+        assert_eq!(got, ["L1", "L5", "L2", "L4", "L1", "L2", "L4", "L5"]);
         assert!(got.windows(2).all(|w| w[0] != w[1]), "同一格不該連收兩件:{got:?}");
     }
 
@@ -3992,13 +3996,61 @@ mod tests {
 
     #[tokio::test]
     async fn all_colliding_goes_to_the_longest_idle_channel() {
-        // 開左1、左3、左5。最後一件 41 跟三格的上一件(46、42、19)都撞:
-        // 給最久沒收件的左1(作業員最可能已經貼完),不是次數最少的左5
+        // 開左1、左3、左5。最後一件 41 跟三格的上一件(42、19、46)都撞:
+        // 給最久沒收件的左5(作業員最可能已經貼完)
         let db = full_ring_db("C").await;
         open_only(&db, &["L1", "L3", "L5"]).await;
         let routing = routing_state();
         let got = assign_tails(&db, &routing, &["78", "47", "46", "42", "19", "41"]).await;
-        assert_eq!(got, ["L1", "L3", "L1", "L5", "L3", "L1"]);
+        assert_eq!(got, ["L1", "L3", "L5", "L1", "L3", "L5"]);
+    }
+
+    #[tokio::test]
+    async fn all_colliding_prefers_longest_idle_over_fewest_count() {
+        // 全家先灌左2 三件(最後尾碼 30),7-11 再給左1(12)、左3(23)。
+        // 32 跟三格都撞:給最久沒收件的左2,不是次數最少的左1
+        let db = shared_channel_db().await;
+        let routing = routing_state();
+        for t in ["10", "20", "30"] {
+            resolve_channel_code(&db, &routing, "F", Some(&format!("SF000000000{t}")), true).await;
+        }
+        let mut got = Vec::new();
+        for t in ["12", "23", "32"] {
+            got.push(resolve_channel_code(&db, &routing, "7", Some(&format!("SF000000000{t}")), true).await.0.unwrap());
+        }
+        assert_eq!(got, ["L1", "L3", "L2"]);
+    }
+
+    #[tokio::test]
+    async fn every_channel_gets_one_before_any_gets_a_second() {
+        // 業主 10-12:開十格丟十件,十格都要分到;還有沒輪到又不撞號的格口時,不可先給別格第二件。
+        // 尾碼取自 10-12 現場 16:12～16:20 的單號(舊規則在這段讓左2、右5、右2 提早收第二件)
+        let db = full_ring_db("C").await;
+        let routing = routing_state();
+        let tails = [
+            "36", "28", "19", "47", "31", "35", "45", "18", "42", "88", "86", "71", "13", "25", "87", "85", "96",
+            "44", "09", "77", "62", "00", "77", "49", "47", "67", "29", "40", "54", "54", "55", "98",
+        ];
+        let got = assign_tails(&db, &routing, &tails).await;
+        let positions = ring_sequence(10);
+        let mut used = std::collections::HashSet::new();
+        let mut last_tail: std::collections::HashMap<String, &str> = Default::default();
+        for (t, pos) in tails.iter().zip(&got) {
+            if used.len() == positions.len() {
+                used.clear();
+            }
+            if used.contains(pos) {
+                // 只有這一輪剩下的格口全都撞號時才允許提早收第二件
+                let left: Vec<&String> = positions.iter().filter(|p| !used.contains(*p)).collect();
+                assert!(
+                    left.iter().all(|p| last_tail.get(*p).is_some_and(|prev| tails_overlap(t, prev))),
+                    "{pos} 提早收第二件,但這一輪還有不撞號的格口 {left:?}:{got:?}"
+                );
+                used.clear();
+            }
+            used.insert(pos.clone());
+            last_tail.insert(pos.clone(), t);
+        }
     }
 
     #[test]
