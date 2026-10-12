@@ -50,7 +50,7 @@ const savingErrorLabel = ref(false)
 
 // 特殊件分流:不進一般格口的件(物流沒指派格口、查件異常、撞號)各自送哪個格口代碼,沒填就是不指定。
 // 順序與後端 SpecialCase::ALL 相同;值是後端存的情況代碼
-const SPECIAL_CASES = ['unassigned', 'store_closed', 'unconfirmed', 'status_abnormal', 'not_found', 'not_proxy_forward', 'label_failed', 'cloud_error', 'collision']
+const SPECIAL_CASES = ['no_read', 'unassigned', 'store_closed', 'unconfirmed', 'status_abnormal', 'not_found', 'not_proxy_forward', 'label_failed', 'cloud_error', 'collision']
 const specialRoutes = ref({})
 const specialDialog = ref(false)
 const specialDraft = ref({})

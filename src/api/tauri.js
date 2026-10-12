@@ -550,7 +550,7 @@ export const sortChannelSetEnabled = (position, enabled) => {
 }
 // 特殊件分流:物流沒指派格口、查件異常、撞號的件各自送哪個格口代碼({ 情況: 代碼 },沒列出=不指定)
 export const sortChannelSpecialRoutesGet = async () => {
-  if (!hasBackend) return { unassigned: 'LS', store_closed: 'LS', not_found: 'RS', cloud_error: 'RS' }
+  if (!hasBackend) return { no_read: 'NG', unassigned: 'LS', store_closed: 'LS', not_found: 'RS', cloud_error: 'RS' }
   return await invoke('sort_channel_special_routes_get')
 }
 export const sortChannelSpecialRoutesSave = (routes) => {

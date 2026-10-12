@@ -993,11 +993,12 @@
         "title": "Phân luồng kiện đặc biệt",
         "assigned": "Đã chỉ định {n}/{total} mục",
         "edit": "Thiết lập",
-        "hint": "Mỗi mục nhập mã ô cần đưa đến (VD: LS, RS); để trống là không chỉ định: kiện chưa gán hãng và kiện tra cứu bất thường do máy phân loại đưa vào ô mặc định của nó; nếu bật « Nhãn cảnh báo kiện bất thường », kiện tra cứu bất thường sẽ vào ô của hãng đó và in nhãn cảnh báo, kiện không tra được hãng sẽ vào ô đã nhập ở « Hãng chưa được gán ô »; kiện trùng số vào ô đến lượt và vẫn in phiếu. Kiện đọc mã thất bại luôn do máy phân loại đưa vào ô mặc định, không thiết lập ở đây. Trừ « Hãng chưa được gán ô », mã ở đây không được trùng với mã của ô thường; kiện trùng số được chuyển đi sẽ không in phiếu, hãy nhặt ra và cho chạy lại qua máy.",
+        "hint": "Mỗi mục nhập mã ô cần đưa đến (VD: LS, RS); để trống là không chỉ định: kiện chưa gán hãng và kiện tra cứu bất thường do máy phân loại đưa vào ô mặc định của nó; nếu bật « Nhãn cảnh báo kiện bất thường », kiện tra cứu bất thường sẽ vào ô của hãng đó và in nhãn cảnh báo, kiện không tra được hãng sẽ vào ô đã nhập ở « Hãng chưa được gán ô »; kiện trùng số vào ô đến lượt và vẫn in phiếu. Kiện đọc mã thất bại được máy phân loại đưa ngay vào ô mặc định của nó; mã nhập ở đây phải giống ô mặc định của máy phân loại (VD: NG), nếu khác máy phân loại sẽ cảnh báo. Trừ « Hãng chưa được gán ô », mã ở đây không được trùng với mã của ô thường; kiện trùng số được chuyển đi sẽ không in phiếu, hãy nhặt ra và cho chạy lại qua máy.",
         "caseHeader": "Tình huống",
         "codeHeader": "Đưa đến (mã ô)",
         "placeholder": "Không chỉ định",
         "cases": {
+          "no_read": "Đọc mã thất bại",
           "unassigned": "Hãng chưa được gán ô",
           "store_closed": "Cửa hàng đóng/chuyển",
           "unconfirmed": "Đơn chưa xác nhận",

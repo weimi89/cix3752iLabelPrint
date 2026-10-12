@@ -2478,6 +2478,9 @@ async fn handle_noread(
         seq
     );
 
+    // 特殊件分流裡「讀碼失敗」指定的格口;沒指定回 null。分揀控制不等這個回覆、當下就送它自己的預設格口,
+    // 這裡回的代碼是給它對帳用的,兩邊設成一樣才不會被記警示。
+    let channel_code = fetch_special_route(&state.db, SpecialCase::NoRead).await;
     let total_ms = t_start.elapsed().as_millis() as i64;
 
     // 1. 查詢紀錄先同步寫入(photo_path 先留 NULL):讓「請求記錄」頁立即看得到這筆;存證照片改由背景
@@ -2489,9 +2492,10 @@ async fn handle_noread(
            (response_id, query_no, tracking_no, shipping_provider, sort_channel, print_profile, should_print, label_key, photo_path, created_at, cloud_ms, label_ms, total_ms)
          VALUES (
            (SELECT COALESCE(MIN(response_id), 0) - 1 FROM parcel_query_log WHERE response_id < 0),
-           'NoRead', ?, NULL, NULL, NULL, 0, NULL, NULL, datetime('now','localtime'), 0, 0, ?)",
+           'NoRead', ?, NULL, ?, NULL, 0, NULL, NULL, datetime('now','localtime'), 0, 0, ?)",
     )
     .bind(&pseudo)
+    .bind(&channel_code)
     .bind(total_ms)
     .execute(&state.db)
     .await
@@ -2550,10 +2554,10 @@ async fn handle_noread(
         format!("工控機讀碼失敗 NoRead,已存證 {pseudo}(未提交雲端)"),
     );
 
-    // 立即回 200:無面單、不回格口(分揀機一律送它自己的預設格口);
+    // 立即回 200:無面單、channel_code 為「讀碼失敗」指定的格口;
     // error_code=NOREAD 讓工控機辨識此為讀碼失敗(不需 POST /api/report)。
     Json(DataEnvelope::new(ParcelData {
-        channel_code: None,
+        channel_code,
         print_profile: None,
         label_path: None,
         response_id: None,

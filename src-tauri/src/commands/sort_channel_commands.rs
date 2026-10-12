@@ -379,11 +379,13 @@ const SETTING_EXCEPTION_CHANNEL: &str = "exception_channel_code";
 /// 特殊件分流(JSON 物件:情況 → 格口代碼,見 [`SpecialRoutes`])
 const SETTING_SPECIAL_ROUTES: &str = "special_routes";
 
-/// 不進一般格口、可以另外指定送哪個格口的特殊件:物流沒指派格口、各種查件異常、每一格都撞號。
-/// 讀碼失敗不在其中:那種件由分揀機自己送它的預設格口。
+/// 不進一般格口、可以另外指定送哪個格口的特殊件:讀碼失敗、物流沒指派格口、各種查件異常、每一格都撞號。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpecialCase {
+    /// 相機讀不到單號(工控機送 NoRead)。分揀控制當下就送它自己的預設格口,不等這裡的回覆;
+    /// 這裡填的代碼回給它對帳,兩邊不一樣時分揀控制會記警示
+    NoRead,
     /// 這家物流沒指派任何格口(或指派的格口全部被跳過)
     Unassigned,
     StoreClosed,
@@ -399,7 +401,8 @@ pub enum SpecialCase {
 
 impl SpecialCase {
     /// 設定畫面的列表順序
-    pub const ALL: [SpecialCase; 9] = [
+    pub const ALL: [SpecialCase; 10] = [
+        Self::NoRead,
         Self::Unassigned,
         Self::StoreClosed,
         Self::Unconfirmed,
@@ -433,6 +436,7 @@ impl SpecialCase {
     /// 存檔檢查的錯誤訊息用
     fn label(self) -> &'static str {
         match self {
+            Self::NoRead => "讀碼失敗",
             Self::Unassigned => "物流沒指派格口",
             Self::StoreClosed => "門市關轉",
             Self::Unconfirmed => "訂單未確認",
@@ -486,7 +490,7 @@ impl SpecialRoutes {
 }
 
 /// 讀特殊件分流。還沒存過新設定時,沿用舊版的兩個單一代碼(與舊版行為相同):
-/// 物流沒指派格口送「未指派通道」代碼,其他情況都送「異常通道」代碼。
+/// 物流沒指派格口送「未指派通道」代碼,讀碼失敗不指定(舊版一律不回格口),其他情況都送「異常通道」代碼。
 pub async fn read_special_routes(db: &DbPool) -> AppResult<SpecialRoutes> {
     let saved: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
         .bind(SETTING_SPECIAL_ROUTES)
@@ -499,6 +503,7 @@ pub async fn read_special_routes(db: &DbPool) -> AppResult<SpecialRoutes> {
     let exception = read_channel_setting(db, SETTING_EXCEPTION_CHANNEL).await?;
     let routes = SpecialCase::ALL
         .into_iter()
+        .filter(|case| *case != SpecialCase::NoRead)
         .filter_map(|case| {
             let code = if case == SpecialCase::Unassigned { &unassigned } else { &exception };
             code.clone().map(|c| (case, c))
@@ -694,7 +699,7 @@ mod special_routes_tests {
 
     #[test]
     fn unknown_cases_from_a_newer_version_are_skipped() {
-        let got = parse_special_routes(r#"{"store_closed":"LS","no_read":"RS"}"#).unwrap();
+        let got = parse_special_routes(r#"{"store_closed":"LS","future_case":"RS"}"#).unwrap();
         assert_eq!(got, routes(&[(SpecialCase::StoreClosed, "LS")]));
         assert!(parse_special_routes("not json").is_err());
     }
@@ -703,6 +708,9 @@ mod special_routes_tests {
     fn stored_as_a_plain_case_to_code_object() {
         let json = serde_json::to_string(&routes(&[(SpecialCase::Unassigned, "LS"), (SpecialCase::StoreClosed, "RS")])).unwrap();
         assert_eq!(json, r#"{"unassigned":"LS","store_closed":"RS"}"#);
+        // 讀碼失敗存成 no_read,前端與工控機文件都用這個名稱
+        let got = parse_special_routes(r#"{"no_read":"NG"}"#).unwrap();
+        assert_eq!(got.route(SpecialCase::NoRead), Some("NG"));
     }
 
     async fn db() -> DbPool {
@@ -723,8 +731,12 @@ mod special_routes_tests {
         set_old(&db, SETTING_EXCEPTION_CHANNEL, "RS").await;
         let got = read_special_routes(&db).await.unwrap();
         assert_eq!(got.route(SpecialCase::Unassigned), Some("LS"), "物流沒指派格口照舊送未指派通道");
+        assert_eq!(got.route(SpecialCase::NoRead), None, "舊版讀碼失敗一律不回格口,不帶入異常通道代碼");
         assert!(
-            SpecialCase::ALL.iter().filter(|c| **c != SpecialCase::Unassigned).all(|c| got.route(*c) == Some("RS")),
+            SpecialCase::ALL
+                .iter()
+                .filter(|c| !matches!(c, SpecialCase::Unassigned | SpecialCase::NoRead))
+                .all(|c| got.route(*c) == Some("RS")),
             "其他情況照舊送原本的異常通道代碼"
         );
     }
