@@ -394,7 +394,11 @@
       "sortOnlyBrief": "Chỉ trả kênh, không in nhãn",
       "sortOnlyActiveHint": "Đã bật chế độ chỉ phân loại (chuyển tại trang \"Kênh phân loại\"), chế độ đường dẫn nhãn tạm thời không có hiệu lực",
       "errorLabel": "Nhãn cảnh báo kiện bất thường",
-      "errorLabelBrief": "Kiện lỗi in nhãn cảnh báo và trả kênh"
+      "errorLabelBrief": "Kiện lỗi in nhãn cảnh báo và trả kênh",
+      "collisionAvoid": "Tránh trùng số",
+      "collisionAvoidBrief": "Tránh 2 số cuối trùng",
+      "reprint": "Chặn đơn in trùng",
+      "reprintBrief": "Kiện đã in chuyển sang ô chỉ định"
     }
   },
   "page": {
@@ -934,17 +938,14 @@
       "subtitle": "{l} kênh trái / {r} kênh phải, đặt mã, hãng vận chuyển và nhân viên dán nhãn",
       "layout": {
         "title": "Bố trí cửa phân loại",
-        "brief": "Trái {l} cửa / Phải {r} cửa",
-        "edit": "Điều chỉnh",
-        "dialogTitle": "Điều chỉnh bố trí cửa phân loại",
         "hint": "Đặt theo số cửa thực tế của máy phân loại tại hiện trường, trái phải có thể khác nhau. Cửa thêm mới sẽ hiện thành thẻ trống; cửa bị giảm sẽ bị xóa cùng mã kênh, hãng vận chuyển, nhân viên dán nhãn và máy in của nó.",
         "left": "Số cửa bên trái",
         "right": "Số cửa bên phải",
         "removeWarn": "Sau khi áp dụng sẽ xóa: {list}",
         "removeWarnCode": "Trong đó {list} đã đặt mã kênh, cũng cần điều chỉnh cửa tương ứng trên máy phân loại",
-        "dirtyWarn": "Có thay đổi kênh chưa lưu, hãy lưu hoặc tải lại trước khi điều chỉnh bố trí",
         "save": "Áp dụng bố trí",
-        "saved": "Đã đổi bố trí thành trái {l} cửa / phải {r} cửa"
+        "saved": "Đã đổi bố trí thành trái {l} cửa / phải {r} cửa",
+        "changedElsewhere": "Bố trí cửa phân loại đã được thay đổi ở trang Cài đặt dịch vụ, vui lòng lưu thay đổi hiện tại rồi tải lại trang này"
       },
       "browserAlert": "Chế độ xem trước trình duyệt — Hiển thị là dữ liệu mẫu, trên thiết bị thật vui lòng mở trong ứng dụng desktop.",
       "saveAll": "Lưu tất cả thay đổi ({n})",
@@ -956,6 +957,16 @@
       "errorLabel": {
         "enabled": "Đã bật nhãn cảnh báo kiện bất thường",
         "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
+      },
+      "collisionAvoid": {
+        "enabled": "Đã bật tránh trùng số",
+        "disabled": "Đã tắt tránh trùng số"
+      },
+      "reprint": {
+        "enabled": "Đã bật chặn đơn in trùng",
+        "disabled": "Đã tắt chặn đơn in trùng",
+        "needsCode": "Hãy nhập mã ô trước",
+        "codeRequired": "Đang bật chặn đơn in trùng nên mã ô của mục \"In trùng\" không được để trống; muốn xóa hãy tắt chặn trước"
       },
       "leftColumn": "Bên trái (L)",
       "rightColumn": "Bên phải (R)",
@@ -1007,7 +1018,8 @@
           "not_proxy_forward": "Không phải kiện gửi hộ/chuyển tiếp",
           "label_failed": "Tạo phiếu thất bại",
           "cloud_error": "Không kết nối được đám mây hoặc lỗi khác",
-          "collision": "Mọi ô đều trùng số"
+          "collision": "Mọi ô đều trùng số",
+          "reprint": "In trùng"
         },
         "save": "Lưu"
       }
@@ -1061,7 +1073,8 @@
       "source": {
         "ipcReported": "Máy công nghiệp đã báo",
         "ipcReportedLate": "Máy công nghiệp báo trễ",
-        "selfPrintOnly": "Chỉ máy trung gian tự in"
+        "selfPrintOnly": "Chỉ máy trung gian tự in",
+        "notPrinted": "Qua máy không in, đã báo đám mây hủy"
       },
       "filter": {
         "unreportedOnly": "Chỉ xem chưa có báo cáo"

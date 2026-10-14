@@ -123,6 +123,28 @@ pub const SQL_ENQUEUE_IPC_REPORT: &str = "INSERT INTO report_queue
       job_sticker  = COALESCE(report_queue.job_sticker,  excluded.job_sticker),
       updated_at = excluded.updated_at";
 
+/// 分揀機過機沒印出面單時入列的 SQL(見 [`QueueManager::enqueue_not_printed`])。
+///
+/// 查件時入列發生在回應工控機之前,不會撞上既有列。直印確定沒送印時(見 `server::PrintAttempt::NotSent`)
+/// 會先立「已攔下」墓碑(見 [`SQL_CANCEL_REPORT_ON_PRINT_FAILURE`]),或工控機搶先回報、回報已經送出 ——
+/// 這兩種改由撤回接手同一列:墓碑擋回報的作用不變(回報併入時 kind 仍是撤回,不會推貼標人員);
+/// 已送出的回報收不回來,但那次確實沒印出,雲端照樣要撤回。待送／送出中的回報保留不動。
+/// 之後工控機若仍回報(物流沒指派格口、雲端沒給面單時工控機拿得到回報編號),併入這列只記回報時間,
+/// 送出去的仍是撤回:那次沒印出面單,貼標人員無從記起。
+/// bind 順序:tracking_no / payload_json / response_id
+pub const SQL_ENQUEUE_NOT_PRINTED: &str = "INSERT INTO report_queue
+     (tracking_no, payload_json, response_id, status, source, kind, created_at, updated_at)
+ VALUES (?, ?, ?, 'pending', 'server', 'not_printed', datetime('now','localtime'), datetime('now','localtime'))
+ ON CONFLICT(response_id) DO UPDATE SET
+      kind = 'not_printed',
+      status = 'pending',
+      cancel_requested = 0,
+      retry_count = 0,
+      last_error = NULL,
+      next_attempt_at = NULL,
+      updated_at = excluded.updated_at
+ WHERE report_queue.status IN ('cancelled', 'success') AND report_queue.kind = 'report'";
+
 /// 工控機回報佇列管理 — 寫入即回 200 給工控機,背景 worker 嘗試推送雲端
 #[derive(Clone)]
 pub struct QueueManager {
@@ -220,6 +242,21 @@ impl QueueManager {
         .execute(&self.inner.db)
         .await?;
         let _ = res;
+        Ok(())
+    }
+
+    /// 分揀機過機沒印出面單:排一筆通知,請雲端撤回查件當下記的那次列印。
+    ///
+    /// 不撤回的話,這次過機在雲端算成「已印過」—— 撿出重跑時會被重複印單攔截誤送,
+    /// 面單浮水印次數與印單統計也多算一次。走同一個佇列,沿用重試、退避與佇列頁的檢視。
+    pub async fn enqueue_not_printed(&self, response_id: i64, tracking_no: &str) -> AppResult<()> {
+        let json = serde_json::to_string(&ReportPayload { response_id })?;
+        sqlx::query(SQL_ENQUEUE_NOT_PRINTED)
+            .bind(tracking_no)
+            .bind(&json)
+            .bind(response_id)
+            .execute(&self.inner.db)
+            .await?;
         Ok(())
     }
 
@@ -329,7 +366,7 @@ async fn recover_stale_sending(db: &DbPool) -> AppResult<()> {
 
 async fn process_once(inner: &Inner) -> AppResult<()> {
     let rows = sqlx::query(
-        "SELECT id, response_id, job_sticker, retry_count
+        "SELECT id, response_id, job_sticker, retry_count, kind
          FROM report_queue
          WHERE retry_count < ?
            -- 被攔截的一律不撿(直印失敗 = 面單沒印出來,雲端不該收到完成)
@@ -366,6 +403,7 @@ async fn process_row(inner: &Inner, row: SqliteRow) -> AppResult<()> {
     let response_id: Option<i64> = row.try_get("response_id").ok().flatten();
     let job_sticker: Option<String> = row.try_get("job_sticker").ok().flatten();
     let retry_count: i64 = row.try_get("retry_count")?;
+    let kind: String = row.try_get("kind").unwrap_or_else(|_| "report".to_string());
 
     // claim:搶不到就代表這筆在選出後已被攔截(或被別的路徑處理掉),直接跳過不推送
     let claimed = sqlx::query(SQL_CLAIM_FOR_SENDING)
@@ -377,13 +415,26 @@ async fn process_row(inner: &Inner, row: SqliteRow) -> AppResult<()> {
         return Ok(());
     }
 
-    // 構造 logistic-cat webhook payload (job_user 由 cloud client 內部從設定注入)
-    let mut payload = serde_json::json!({
-        "job_id": response_id,
-        "job_sticker": job_sticker,
-    });
+    let sent = if kind == "not_printed" {
+        match response_id {
+            Some(rid) => inner.cloud.notify_not_printed(rid).await.map(|result| {
+                if result == "not_found" {
+                    event_log::log_bg(inner.db.clone(), "warn", "queue", "撤回列印查無紀錄",
+                        format!("雲端查無這筆分揀機印單紀錄,無從撤回 response_id={rid}"));
+                }
+            }),
+            None => Err(AppError::Server("未印出通知缺 response_id".to_string())),
+        }
+    } else {
+        // 構造 logistic-cat webhook payload (job_user 由 cloud client 內部從設定注入)
+        let mut payload = serde_json::json!({
+            "job_id": response_id,
+            "job_sticker": job_sticker,
+        });
+        inner.cloud.notify_logistic_cat(&mut payload).await
+    };
 
-    match inner.cloud.notify_logistic_cat(&mut payload).await {
+    match sent {
         Ok(()) => {
             sqlx::query(
                 "UPDATE report_queue
@@ -394,7 +445,7 @@ async fn process_row(inner: &Inner, row: SqliteRow) -> AppResult<()> {
             .execute(&inner.db)
             .await?;
             event_log::log_bg(inner.db.clone(), "info", "queue", "推送成功",
-                format!("回報推送成功 queue_id={id}"));
+                format!("{}推送成功 queue_id={id}", if kind == "not_printed" { "未印出通知" } else { "回報" }));
 
             // 推送途中才被要求攔截:雲端已經收下了,收不回來 —— 狀態誠實維持 success,
             // 但必須讓現場知道「這件雲端記成完成、實體卻沒印出」,需人工補印或更正。
@@ -518,7 +569,98 @@ async fn settle_cancelled(db: &DbPool, id: i64) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{backoff_seconds, MAX_RETRY};
+    use super::{backoff_seconds, MAX_RETRY, SQL_CANCEL_REPORT_ON_PRINT_FAILURE, SQL_ENQUEUE_IPC_REPORT, SQL_ENQUEUE_NOT_PRINTED};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::Row;
+
+    async fn db() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
+
+    async fn enqueue_not_printed(db: &sqlx::SqlitePool, rid: i64) {
+        sqlx::query(SQL_ENQUEUE_NOT_PRINTED)
+            .bind("SF001").bind(format!("{{\"response_id\":{rid}}}")).bind(rid)
+            .execute(db).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn not_printed_is_queued_once_as_its_own_kind() {
+        let db = db().await;
+        enqueue_not_printed(&db, 42).await;
+        enqueue_not_printed(&db, 42).await;
+        let rows = sqlx::query("SELECT kind, status, source FROM report_queue WHERE response_id = 42")
+            .fetch_all(&db).await.unwrap();
+        assert_eq!(rows.len(), 1, "同一筆列印記錄只排一次");
+        assert_eq!(rows[0].get::<String, _>("kind"), "not_printed");
+        assert_eq!(rows[0].get::<String, _>("status"), "pending");
+        assert_eq!(rows[0].get::<String, _>("source"), "server");
+    }
+
+    #[tokio::test]
+    async fn not_printed_never_overwrites_a_real_report() {
+        let db = db().await;
+        sqlx::query(SQL_ENQUEUE_IPC_REPORT)
+            .bind("SF001").bind("{\"response_id\":7}").bind(7_i64).bind("L1").bind("阿明")
+            .execute(&db).await.unwrap();
+        enqueue_not_printed(&db, 7).await;
+        let kind: String = sqlx::query_scalar("SELECT kind FROM report_queue WHERE response_id = 7")
+            .fetch_one(&db).await.unwrap();
+        assert_eq!(kind, "report", "有走印單流程的件不可被改成撤回列印");
+    }
+
+    #[tokio::test]
+    async fn not_printed_takes_over_the_no_printer_tombstone() {
+        let db = db().await;
+        let status: String = sqlx::query_scalar(SQL_CANCEL_REPORT_ON_PRINT_FAILURE)
+            .bind("SF003").bind("{\"response_id\":9}").bind(9_i64).bind("直印失敗(no_printer)")
+            .fetch_one(&db).await.unwrap();
+        assert_eq!(status, "cancelled");
+        enqueue_not_printed(&db, 9).await;
+        let row = sqlx::query("SELECT kind, status, cancel_requested FROM report_queue WHERE response_id = 9")
+            .fetch_one(&db).await.unwrap();
+        assert_eq!(row.get::<String, _>("kind"), "not_printed", "沒設印表機也是確定沒印出,要撤回");
+        assert_eq!(row.get::<String, _>("status"), "pending");
+        assert_eq!(row.get::<i64, _>("cancel_requested"), 0);
+    }
+
+    #[tokio::test]
+    async fn not_printed_takes_over_an_already_sent_report() {
+        let db = db().await;
+        sqlx::query(SQL_ENQUEUE_IPC_REPORT)
+            .bind("SF004").bind("{\"response_id\":12}").bind(12_i64).bind("L1").bind("阿明")
+            .execute(&db).await.unwrap();
+        sqlx::query("UPDATE report_queue SET status='success' WHERE response_id=12").execute(&db).await.unwrap();
+        enqueue_not_printed(&db, 12).await;
+        let row = sqlx::query("SELECT kind, status FROM report_queue WHERE response_id = 12").fetch_one(&db).await.unwrap();
+        assert_eq!((row.get::<String, _>("kind"), row.get::<String, _>("status")), ("not_printed".into(), "pending".into()),
+            "工控機先回報、回報已送出,但直印確定沒送印:雲端仍要撤回");
+    }
+
+    #[tokio::test]
+    async fn ipc_report_merging_into_not_printed_still_sends_withdrawal() {
+        let db = db().await;
+        enqueue_not_printed(&db, 11).await;
+        sqlx::query(SQL_ENQUEUE_IPC_REPORT)
+            .bind("SF001").bind("{\"response_id\":11}").bind(11_i64).bind("LS").bind("阿明")
+            .execute(&db).await.unwrap();
+        let row = sqlx::query("SELECT kind, ipc_reported_at FROM report_queue WHERE response_id = 11")
+            .fetch_one(&db).await.unwrap();
+        assert_eq!(row.get::<String, _>("kind"), "not_printed", "沒印出的那次不推貼標人員");
+        assert!(row.get::<Option<String>, _>("ipc_reported_at").is_some(), "回報時間照記");
+    }
+
+    #[tokio::test]
+    async fn existing_rows_default_to_report() {
+        let db = db().await;
+        sqlx::query(SQL_ENQUEUE_IPC_REPORT)
+            .bind("SF002").bind("{\"response_id\":8}").bind(8_i64).bind::<Option<&str>>(None).bind::<Option<&str>>(None)
+            .execute(&db).await.unwrap();
+        let kind: String = sqlx::query_scalar("SELECT kind FROM report_queue WHERE response_id = 8")
+            .fetch_one(&db).await.unwrap();
+        assert_eq!(kind, "report");
+    }
 
     #[test]
     fn backoff_is_capped_exponential() {

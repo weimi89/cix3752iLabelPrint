@@ -1,6 +1,7 @@
 <script setup>
 import { getConfig, updateConfig, serverRestart, serverStatus, setAutoStart, getAutoStart, webAuthStatus, webAuthSetPassword } from '@/api/tauri'
 import AppHeader from '@/components/AppHeader.vue'
+import SortLayoutCard from '@/components/SortLayoutCard.vue'
 import { useLocale } from '@/composables/useLocale'
 import { useI18n } from 'vue-i18n'
 import { errorMessageFromException } from '@/composables/useLabelStatus'
@@ -422,6 +423,9 @@ const restart = async () => {
         </VAlert>
       </VCardText>
     </VCard>
+
+    <!-- 格口配置有自己的「套用配置」按鈕,當下生效,不跟頁尾的儲存設定一起存 -->
+    <SortLayoutCard />
 
     <VCard class="mb-4">
       <VCardItem>

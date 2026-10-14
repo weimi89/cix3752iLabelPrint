@@ -50,6 +50,7 @@ struct CloudState {
     cloud_print_path: String,
     examine_package_path: String,
     package_orders_path: String,
+    not_printed_path: String,
     orders_by_date_path: String,
     clearance_options_path: String,
     clearance_progress_path: String,
@@ -86,6 +87,7 @@ impl CloudClient {
             cloud_print_path: config.cloud.cloud_print_path.clone(),
             examine_package_path: config.cloud.examine_package_path.clone(),
             package_orders_path: config.cloud.package_orders_path.clone(),
+            not_printed_path: config.cloud.not_printed_path.clone(),
             orders_by_date_path: config.cloud.orders_by_date_path.clone(),
             clearance_options_path: config.cloud.clearance_options_path.clone(),
             clearance_progress_path: config.cloud.clearance_progress_path.clone(),
@@ -126,6 +128,7 @@ impl CloudClient {
         s.cloud_print_path = config.cloud.cloud_print_path.clone();
         s.examine_package_path = config.cloud.examine_package_path.clone();
         s.package_orders_path = config.cloud.package_orders_path.clone();
+        s.not_printed_path = config.cloud.not_printed_path.clone();
         s.orders_by_date_path = config.cloud.orders_by_date_path.clone();
         s.clearance_options_path = config.cloud.clearance_options_path.clone();
         s.clearance_progress_path = config.cloud.clearance_progress_path.clone();
@@ -417,6 +420,29 @@ impl CloudClient {
             .await?
             .error_for_status()?;
         Ok(resp.text().await?)
+    }
+
+    /// 分揀機過機沒印出面單:請雲端撤回查件當下記的那次列印(對齊雲端 label/not-printed)。
+    /// 雲端重複呼叫、查無此筆都回成功,回傳的 result 只供記錄(marked / already / not_found)
+    ///
+    /// 401 轉成 [`AppError::Unauthorized`]:佇列遇到它不累加重試、等登入後再送 ——
+    /// 當一般失敗處理的話,權杖過期半小時內就把重試用光,撤回從此丟失,這些件之後都會被誤判成重複印單。
+    pub async fn notify_not_printed(&self, response_id: i64) -> AppResult<String> {
+        let path = self.inner.state.read().not_printed_path.clone();
+        let (base, token) = self.snapshot()?;
+        let http = self.inner.http.read().clone();
+        let resp = http
+            .post(join_url(&base, &path))
+            .bearer_auth(&token)
+            .json(&json!({ "response_id": response_id }))
+            .send()
+            .await?;
+        if resp.status().as_u16() == 401 {
+            return Err(AppError::Unauthorized);
+        }
+        let text = resp.error_for_status()?.text().await?;
+        let v: serde_json::Value = parse_cloud_json(&text, "not-printed")?;
+        Ok(v.get("result").and_then(|r| r.as_str()).unwrap_or_default().to_string())
     }
 
     /// 面單預產用:袋號反查整袋訂單編號(對齊雲端 label/package-orders)

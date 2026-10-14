@@ -45,6 +45,7 @@ const MOCK_CONFIG = {
     scan_print_path: '/api/v1/local-middleware/label/scan-print',
     pre_generate_path: '/api/v1/local-middleware/label/pre-generate',
     package_orders_path: '/api/v1/local-middleware/label/package-orders',
+    not_printed_path: '/api/v1/local-middleware/label/not-printed',
     orders_by_date_path: '/api/v1/local-middleware/label/orders-by-date',
     cloud_print_path: '/api/v1/local-middleware/label/cloud-print',
     examine_package_path: '/api/v1/local-middleware/label/examine-package',
@@ -58,6 +59,8 @@ const MOCK_CONFIG = {
   sync: { enabled: false, reverb_host: '', reverb_port: 443, reverb_scheme: 'wss', reverb_app_key: '' },
   sort_only: { enabled: false },
   error_label: { enabled: false },
+  reprint_route: { enabled: false },
+  collision_avoid: { enabled: true },
   network: {
     interval_secs: 15,
     degrade_interval_secs: 60,

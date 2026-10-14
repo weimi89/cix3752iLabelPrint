@@ -48,8 +48,10 @@ pub struct QueueItem {
     pub payload_json: String,
     pub sort_channel: Option<String>,
     pub job_sticker: Option<String>,
-    /// 這筆佇列是誰建立的:`ipc`(工控機回報)/ `direct_print`(中介機直印後自補)
+    /// 這筆佇列是誰建立的:`ipc`(工控機回報)/ `direct_print`(中介機直印後自補)/ `server`(查件時中介機自己判定)
     pub source: String,
+    /// 這筆要送什麼:`report`(貼標人員回報)/ `not_printed`(過機沒印出,請雲端撤回那次列印)
+    pub kind: String,
     /// 推送失敗原因、或被攔截時的原因(直印失敗時寫入),供佇列歷史頁直接顯示
     pub last_error: Option<String>,
     /// 工控機實際回報的時間;None = 從未回報(直印模式下代表只有面單印出、沒有工控機確認)
@@ -83,7 +85,8 @@ pub async fn queue_list(
         where_clauses.push(in_clause("tracking_no", tracking_nos.len()));
     }
     if req.unreported_only {
-        where_clauses.push("ipc_reported_at IS NULL".into());
+        // 未印出通知本來就不會有工控機回報,不算「工控機沒回報」
+        where_clauses.push("ipc_reported_at IS NULL AND kind = 'report'".into());
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -95,7 +98,7 @@ pub async fn queue_list(
     let sql = format!(
         "SELECT id, tracking_no, response_id, status, retry_count,
                 created_at, updated_at, sent_at, payload_json,
-                sort_channel, job_sticker, source, ipc_reported_at, last_error
+                sort_channel, job_sticker, source, kind, ipc_reported_at, last_error
          FROM report_queue
          {where_sql}
          ORDER BY id DESC
@@ -131,6 +134,7 @@ pub async fn queue_list(
             sort_channel: row.try_get("sort_channel").ok(),
             job_sticker: row.try_get("job_sticker").ok(),
             source: row.try_get("source").unwrap_or_else(|_| "ipc".to_string()),
+            kind: row.try_get("kind").unwrap_or_else(|_| "report".to_string()),
             ipc_reported_at: row.try_get("ipc_reported_at").ok(),
             last_error: row.try_get("last_error").ok(),
         })

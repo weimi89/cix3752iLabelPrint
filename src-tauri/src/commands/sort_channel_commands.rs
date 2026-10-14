@@ -397,11 +397,13 @@ pub enum SpecialCase {
     CloudError,
     /// 能去的格口上一件後兩碼都跟它撞號
     Collision,
+    /// 雲端說這張單之前已經真的印出過面單(重複印單);要另外打開「重複印單攔截」開關才會改送
+    Reprint,
 }
 
 impl SpecialCase {
     /// 設定畫面的列表順序
-    pub const ALL: [SpecialCase; 10] = [
+    pub const ALL: [SpecialCase; 11] = [
         Self::NoRead,
         Self::Unassigned,
         Self::StoreClosed,
@@ -412,6 +414,7 @@ impl SpecialCase {
         Self::LabelFailed,
         Self::CloudError,
         Self::Collision,
+        Self::Reprint,
     ];
 
     /// 雲端查件錯誤碼屬於哪一種情況;不認得的錯誤碼與連不上雲端都歸「雲端連不上或其他錯誤」
@@ -446,6 +449,7 @@ impl SpecialCase {
             Self::LabelFailed => "面單產生失敗",
             Self::CloudError => "雲端連不上或其他錯誤",
             Self::Collision => "每一格都撞號",
+            Self::Reprint => "重複印單",
         }
     }
 }
@@ -490,7 +494,8 @@ impl SpecialRoutes {
 }
 
 /// 讀特殊件分流。還沒存過新設定時,沿用舊版的兩個單一代碼(與舊版行為相同):
-/// 物流沒指派格口送「未指派通道」代碼,讀碼失敗不指定(舊版一律不回格口),其他情況都送「異常通道」代碼。
+/// 物流沒指派格口送「未指派通道」代碼,讀碼失敗不指定(舊版一律不回格口),
+/// 重複印單不指定(舊版沒有這項,不能因為升級就開始把件攔走),其他情況都送「異常通道」代碼。
 pub async fn read_special_routes(db: &DbPool) -> AppResult<SpecialRoutes> {
     let saved: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
         .bind(SETTING_SPECIAL_ROUTES)
@@ -503,7 +508,7 @@ pub async fn read_special_routes(db: &DbPool) -> AppResult<SpecialRoutes> {
     let exception = read_channel_setting(db, SETTING_EXCEPTION_CHANNEL).await?;
     let routes = SpecialCase::ALL
         .into_iter()
-        .filter(|case| *case != SpecialCase::NoRead)
+        .filter(|case| !matches!(case, SpecialCase::NoRead | SpecialCase::Reprint))
         .filter_map(|case| {
             let code = if case == SpecialCase::Unassigned { &unassigned } else { &exception };
             code.clone().map(|c| (case, c))
@@ -719,6 +724,15 @@ mod special_routes_tests {
         pool
     }
 
+    #[test]
+    fn reprint_code_must_not_be_a_normal_channel() {
+        let used_by_l1 = |code: &str| (code == "L1").then(|| "L1".to_string());
+        let err = routes(&[(SpecialCase::Reprint, "L1")]).validated(used_by_l1).unwrap_err();
+        assert!(err.to_string().contains("重複印單"), "重複印單的件不印面單,不可送進一般格口:{err}");
+        let ok = routes(&[(SpecialCase::Reprint, "RS")]).validated(no_channel).unwrap();
+        assert_eq!(ok.route(SpecialCase::Reprint), Some("RS"));
+    }
+
     async fn set_old(db: &DbPool, key: &str, code: &str) {
         sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)").bind(key).bind(code).execute(db).await.unwrap();
     }
@@ -732,10 +746,11 @@ mod special_routes_tests {
         let got = read_special_routes(&db).await.unwrap();
         assert_eq!(got.route(SpecialCase::Unassigned), Some("LS"), "物流沒指派格口照舊送未指派通道");
         assert_eq!(got.route(SpecialCase::NoRead), None, "舊版讀碼失敗一律不回格口,不帶入異常通道代碼");
+        assert_eq!(got.route(SpecialCase::Reprint), None, "舊版沒有重複印單攔截,不帶入異常通道代碼");
         assert!(
             SpecialCase::ALL
                 .iter()
-                .filter(|c| !matches!(c, SpecialCase::Unassigned | SpecialCase::NoRead))
+                .filter(|c| !matches!(c, SpecialCase::Unassigned | SpecialCase::NoRead | SpecialCase::Reprint))
                 .all(|c| got.route(*c) == Some("RS")),
             "其他情況照舊送原本的異常通道代碼"
         );

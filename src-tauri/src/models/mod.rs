@@ -18,6 +18,10 @@ pub struct ParcelInfo {
     /// 累計列印次數(雲端維護,本次列印應顯示在面單上)
     #[serde(default)]
     pub print_num: Option<u32>,
+    /// 本次之前真的印出過幾次面單(人工站、桌面、分揀機實際印出都算;分揀機過機沒印出、
+    /// 訂單未確認時掃過的不算)。重複印單攔截據此判斷;舊版雲端不回時為 None,攔截不生效
+    #[serde(default)]
+    pub printed_before: Option<u32>,
     /// 列印記錄 ID(debug 模式不回,所以是 Option)
     #[serde(default)]
     pub response_id: Option<i64>,

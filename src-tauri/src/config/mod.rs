@@ -30,6 +30,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub error_label: ErrorLabelConfig,
     #[serde(default)]
+    pub reprint_route: ReprintRouteConfig,
+    #[serde(default)]
+    pub collision_avoid: CollisionAvoidConfig,
+    #[serde(default)]
     pub web_access: WebAccessConfig,
 }
 
@@ -114,6 +118,34 @@ impl Default for ErrorLabelConfig {
     fn default() -> Self {
         Self { enabled: false }
     }
+}
+
+/// 撞單迴避(後兩碼避號)—— 分格口時避開「上一件配送單號後兩碼與本件有相同數字」的格口,
+/// 每一格都撞號時再改送特殊件分流「每一格都撞號」填的格口。
+///
+/// 關閉時只照固定輪流順序與量平均分配,不看後兩碼,也不會有撞號改送。**預設開啟**:
+/// 舊設定檔沒有這一段時也是開啟,升級不能讓現場突然不避號。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollisionAvoidConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for CollisionAvoidConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// 重複印單攔截 —— 工控機查件時,雲端說這張單**之前已經真的印出過面單**,就不再印,
+/// 改送特殊件分流「重複印單」填的格口,由現場人工處理。
+///
+/// 開啟但沒填格口代碼時不攔截(照常分格口出單),並在事件紀錄留警示。
+/// 純分揀模式不套用:那時面單本來就在別處印好,每件都會被當成重複。預設關閉。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReprintRouteConfig {
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 /// 純分揀模式 —— 中介機只做「工控機刷碼 → 查雲端取物流商 → 回分揀通道代碼」,
@@ -308,6 +340,9 @@ pub struct CloudConfig {
     /// 袋號反查整袋訂單編號 (面單預產用) path
     #[serde(default = "default_package_orders_path")]
     pub package_orders_path: String,
+    /// 分揀機過機沒印出面單:通知雲端撤回查件當下記的那次列印 path
+    #[serde(default = "default_not_printed_path")]
+    pub not_printed_path: String,
     /// 依日期反查整批訂單編號 (面單預產用;清關/轉寄) path
     #[serde(default = "default_orders_by_date_path")]
     pub orders_by_date_path: String,
@@ -358,6 +393,7 @@ impl Default for CloudConfig {
             scan_print_path: default_scan_print_path(),
             pre_generate_path: default_pre_generate_path(),
             package_orders_path: default_package_orders_path(),
+            not_printed_path: default_not_printed_path(),
             orders_by_date_path: default_orders_by_date_path(),
             cloud_print_path: default_cloud_print_path(),
             examine_package_path: default_examine_package_path(),
@@ -494,6 +530,8 @@ impl Default for AppConfig {
             sync: SyncConfig::default(),
             sort_only: SortOnlyConfig::default(),
             error_label: ErrorLabelConfig::default(),
+            reprint_route: ReprintRouteConfig::default(),
+            collision_avoid: CollisionAvoidConfig::default(),
             web_access: WebAccessConfig::default(),
         }
     }
@@ -535,6 +573,7 @@ fn default_pre_generate_path() -> String { "/api/v1/local-middleware/label/pre-g
 fn default_cloud_print_path() -> String { "/api/v1/local-middleware/label/cloud-print".to_string() }
 fn default_examine_package_path() -> String { "/api/v1/local-middleware/label/examine-package".to_string() }
 fn default_package_orders_path() -> String { "/api/v1/local-middleware/label/package-orders".to_string() }
+fn default_not_printed_path() -> String { "/api/v1/local-middleware/label/not-printed".to_string() }
 fn default_orders_by_date_path() -> String { "/api/v1/local-middleware/label/orders-by-date".to_string() }
 fn default_clearance_options_path() -> String { "/api/v1/local-middleware/clearance/options".to_string() }
 fn default_clearance_progress_path() -> String { "/api/v1/local-middleware/clearance/progress".to_string() }

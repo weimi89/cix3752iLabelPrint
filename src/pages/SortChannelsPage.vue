@@ -6,7 +6,6 @@ import {
   sortChannelSpecialRoutesGet,
   sortChannelSpecialRoutesSave,
   sortLayoutGet,
-  sortLayoutSave,
   dispatchProviderList,
   listPrinters,
   getConfig,
@@ -48,14 +47,22 @@ const savingSortOnly = ref(false)
 const errorLabelOn = ref(false)
 const savingErrorLabel = ref(false)
 
+// 撞單迴避總開關(存於 AppConfig.collision_avoid.enabled,預設開)。關閉時分格口不看後兩碼、也不會撞號改送
+const collisionAvoidOn = ref(true)
+const savingCollisionAvoid = ref(false)
+
 // 特殊件分流:不進一般格口的件(物流沒指派格口、查件異常、撞號)各自送哪個格口代碼,沒填就是不指定。
 // 順序與後端 SpecialCase::ALL 相同;值是後端存的情況代碼
-const SPECIAL_CASES = ['no_read', 'unassigned', 'store_closed', 'unconfirmed', 'status_abnormal', 'not_found', 'not_proxy_forward', 'label_failed', 'cloud_error', 'collision']
+const SPECIAL_CASES = ['no_read', 'unassigned', 'store_closed', 'unconfirmed', 'status_abnormal', 'not_found', 'not_proxy_forward', 'label_failed', 'cloud_error', 'collision', 'reprint']
 const specialRoutes = ref({})
 const specialDialog = ref(false)
 const specialDraft = ref({})
 const specialError = ref('')
 const savingSpecial = ref(false)
+// 重複印單攔截開關(存於 AppConfig.reprint_route.enabled),在開關列直接切換;格口代碼在特殊件分流裡填。
+// 開著卻沒填代碼等於沒攔:沒代碼時不給打開,開著時也不給把代碼清空
+const reprintOn = ref(false)
+const savingReprint = ref(false)
 
 // 卡片上顯示「已指定幾項」
 const specialAssigned = computed(() => SPECIAL_CASES.filter(c => specialRoutes.value[c]).length)
@@ -66,6 +73,32 @@ const openSpecialDialog = () => {
   specialDialog.value = true
 }
 
+// 開關存檔失敗時還原畫面。開關是受控元件,但點下去時原生勾選框已經自己切換了;
+// 值本來就沒變,直接設回原值不會觸發重新渲染,畫面會停在「開」。先設成點下去的值再設回來,畫面才會跟著還原
+const revertSwitch = async (target, attempted) => {
+  target.value = attempted
+  await nextTick()
+  target.value = !attempted
+}
+
+// 重複印單攔截切換:同樣重抓 config 再寫回,避免蓋掉其他頁的併發變更;熱套用即時生效
+const toggleReprint = async val => {
+  errorMsg.value = ''
+  savingReprint.value = true
+  try {
+    const cfg = await getConfig()
+    cfg.reprint_route = { ...(cfg.reprint_route || {}), enabled: val }
+    await updateConfig(cfg)
+    reprintOn.value = val
+    toast.success(t(val ? 'page.sort.reprint.enabled' : 'page.sort.reprint.disabled'))
+  } catch (e) {
+    await revertSwitch(reprintOn, val)
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingReprint.value = false
+  }
+}
+
 // 存檔失敗(格式不對、跟一般格口代碼重複)時錯誤留在對話框裡,畫面後方的提示會被對話框擋住
 const saveSpecialRoutes = async () => {
   if (savingSpecial.value) return
@@ -74,6 +107,10 @@ const saveSpecialRoutes = async () => {
   try {
     const routes = Object.fromEntries(
       Object.entries(specialDraft.value).map(([c, v]) => [c, (v || '').trim()]).filter(([, v]) => v))
+    if (reprintOn.value && !routes.reprint) {
+      specialError.value = t('page.sort.reprint.codeRequired')
+      return
+    }
     await sortChannelSpecialRoutesSave(routes)
     specialRoutes.value = routes
     specialDialog.value = false
@@ -95,43 +132,7 @@ const LEFT_POSITIONS = computed(() => sideOf('L'))
 const RIGHT_POSITIONS = computed(() => sideOf('R'))
 
 // 格口配置(左右各幾格)。以後端現有的格口列為準;對話框裡改的是草稿,套用後重拉清單
-const LAYOUT_MAX = 10
 const layout = ref({ left: 0, right: 0 })
-const layoutDraft = ref({ left: 5, right: 5 })
-const layoutDialog = ref(false)
-const savingLayout = ref(false)
-const openLayoutDialog = () => {
-  layoutDraft.value = { ...layout.value }
-  layoutDialog.value = true
-}
-const draftNum = k => Number(layoutDraft.value[k])
-const layoutValid = computed(() => ['left', 'right'].every(k => Number.isInteger(draftNum(k)) && draftNum(k) >= 1 && draftNum(k) <= LAYOUT_MAX))
-const layoutChanged = computed(() => draftNum('left') !== layout.value.left || draftNum('right') !== layout.value.right)
-// 縮減會移除的位置;其中已設通道代碼的要特別點名,分揀機那邊也得跟著調
-const layoutRemovals = computed(() => {
-  const gone = []
-  for (const side of ['L', 'R']) {
-    const keep = draftNum(side === 'L' ? 'left' : 'right') || 0
-    for (const pos of sideOf(side)) if (posNumber(pos) > keep) gone.push(pos)
-  }
-  return gone
-})
-const layoutRemovalsWithCode = computed(() => layoutRemovals.value.filter(p => (findChannel(p)?.channel_code || '').trim()))
-const saveLayout = async () => {
-  if (!layoutValid.value || !layoutChanged.value || dirty.value.size) return
-  savingLayout.value = true
-  errorMsg.value = ''
-  try {
-    const saved = await sortLayoutSave({ left: draftNum('left'), right: draftNum('right') })
-    layoutDialog.value = false
-    flash(t('page.sort.layout.saved', { l: saved.left, r: saved.right }))
-    await load()
-  } catch (e) {
-    errorMsg.value = errorMessageFromException(e)
-  } finally {
-    savingLayout.value = false
-  }
-}
 
 const findChannel = pos => channels.value.find(c => c.position === pos)
 
@@ -158,6 +159,8 @@ const load = async () => {
     specialRoutes.value = routes ?? {}
     sortOnly.value = !!cfg?.sort_only?.enabled
     errorLabelOn.value = !!cfg?.error_label?.enabled
+    collisionAvoidOn.value = cfg?.collision_avoid?.enabled !== false
+    reprintOn.value = !!cfg?.reprint_route?.enabled
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
     dirty.value = new Set()
   } catch (e) {
@@ -192,7 +195,7 @@ const toggleSortOnly = async val => {
     sortOnly.value = val
     toast.success(t(val ? 'page.sort.sortOnly.enabled' : 'page.sort.sortOnly.disabled'))
   } catch (e) {
-    sortOnly.value = !val // 失敗回復開關狀態
+    await revertSwitch(sortOnly, val)
     errorMsg.value = errorMessageFromException(e)
   } finally {
     savingSortOnly.value = false
@@ -210,14 +213,33 @@ const toggleErrorLabel = async val => {
     errorLabelOn.value = val
     toast.success(t(val ? 'page.sort.errorLabel.enabled' : 'page.sort.errorLabel.disabled'))
   } catch (e) {
-    errorLabelOn.value = !val // 失敗回復開關狀態
+    await revertSwitch(errorLabelOn, val)
     errorMsg.value = errorMessageFromException(e)
   } finally {
     savingErrorLabel.value = false
   }
 }
+// 撞單迴避切換:同樣重抓 config 再寫回,避免蓋掉其他頁的併發變更;熱套用即時生效。
+const toggleCollisionAvoid = async val => {
+  savingCollisionAvoid.value = true
+  errorMsg.value = ''
+  try {
+    const cfg = await getConfig()
+    cfg.collision_avoid = { ...(cfg.collision_avoid || {}), enabled: val }
+    await updateConfig(cfg)
+    collisionAvoidOn.value = val
+    toast.success(t(val ? 'page.sort.collisionAvoid.enabled' : 'page.sort.collisionAvoid.disabled'))
+  } catch (e) {
+    await revertSwitch(collisionAvoidOn, val)
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingCollisionAvoid.value = false
+  }
+}
+
 // 手機遙控(同區網手機開 /control 暫停通道)→ 後端廣播 sort-channel-updated,桌面即時同步開關
 let unlistenChannel = null
+let unlistenLayout = null
 let _disposed = false
 onMounted(async () => {
   loadPrinters() // 刻意不 await:背景載入,不延後下方的事件監聽註冊
@@ -240,10 +262,21 @@ onMounted(async () => {
   } catch (e) {
     console.warn('listen sort-channel-updated 失敗', e)
   }
+  try {
+    // 格口配置在服務設定頁改:格口卡片要跟著增減。這台有未存的修改時不重載(會蓋掉打好的內容),提示操作員
+    const un = await listen('sort-layout-updated', () => {
+      if (dirty.value.size) errorMsg.value = t('page.sort.layout.changedElsewhere')
+      else load()
+    })
+    if (_disposed) un(); else unlistenLayout = un
+  } catch (e) {
+    console.warn('listen sort-layout-updated 失敗', e)
+  }
 })
 onUnmounted(() => {
   _disposed = true
   if (unlistenChannel) { unlistenChannel(); unlistenChannel = null }
+  if (unlistenLayout) { unlistenLayout(); unlistenLayout = null }
 })
 
 const markDirty = pos => dirty.value.add(pos)
@@ -354,6 +387,27 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
   gap: 8px;
 }
 
+/* 對話框外包一層放右上角關閉鈕:Vuetify 的 scrollable 只認對話框底下直接一層的卡片,
+   包了這層就不會捲動,矮螢幕(手機、現場 1024x700 視窗)會看不到儲存鈕。在這裡把同樣的捲動規則接回去 */
+.scrollable-dialog-shell {
+  position: relative;
+  display: flex;
+  max-height: 100%;
+  min-height: 0;
+  flex-direction: column;
+
+  > :deep(.v-card) {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  > :deep(.v-card) > .v-card-text {
+    overflow-y: auto;
+  }
+}
+
 .special-routes__head,
 .special-routes__row {
   display: grid;
@@ -369,24 +423,27 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
   }
 }
 
-/* 兩個開關並排;畫面窄時改成上下堆疊,避免文字擠成兩行 */
+/* 開關與設定入口排成格狀:每格至少 260px,放不下就換行,標題不會被擠成兩行。
+   格線用陰影畫在每一格的右邊與下邊,最後一列沒排滿時空位不會變成灰塊;多出的外框線由卡片的 overflow 裁掉 */
 .switch-row {
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  overflow: hidden;
+}
+
+.switch-divider {
+  display: none;
 }
 
 .switch-item {
   display: flex;
-  flex: 1;
   gap: 12px;
   align-items: center;
   min-inline-size: 0;
   padding: 10px 16px;
-}
-
-@media (max-width: 1023.98px) {
-  .switch-row { flex-direction: column; }
-  .switch-divider { display: none; }
+  box-shadow:
+    1px 0 0 rgb(var(--v-theme-on-surface) / 0.12),
+    0 1px 0 rgb(var(--v-theme-on-surface) / 0.12);
 }
 
 .channel-card {
@@ -450,6 +507,18 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
   &__chip {
     margin-left: auto;
     font-size: 0.7rem;
+  }
+
+  // 兩個欄位並排的一列(通道代碼＋貼標人員)
+  :deep(.field-pair) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    margin-bottom: 8px;
+
+    .search-field {
+      margin-bottom: 0;
+    }
   }
 
   // 縮小欄位間距（每個欄位現在外包 .search-field）
@@ -557,8 +626,8 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
     <VAlert v-if="errorMsg" type="error" variant="tonal" class="mb-3">{{ errorMsg }}</VAlert>
     <VAlert v-if="flashMsg" type="success" variant="tonal" class="mb-3">{{ flashMsg }}</VAlert>
 
-    <!-- 兩個分揀行為開關(純分揀 / 異常件提示面單)並排一列:
-         這頁主體是十個通道卡片,開關只是切換,不該把說明鋪滿整個畫面 -->
+    <!-- 分揀行為開關(純分揀 / 異常件提示面單 / 撞單迴避)與設定入口排成格狀:
+         這頁主體是通道卡片,開關只是切換,不該把說明鋪滿整個畫面 -->
     <VCard variant="outlined" class="mb-4">
       <div class="switch-row">
         <div class="switch-item">
@@ -611,6 +680,59 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
 
         <VDivider vertical class="switch-divider" />
 
+        <div class="switch-item">
+          <VIcon
+            :icon="collisionAvoidOn ? 'tabler-check' : 'tabler-arrows-split'"
+            size="20"
+            :color="collisionAvoidOn ? 'primary' : 'medium-emphasis'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('label.settings.collisionAvoid') }}</div>
+            <div class="text-body-small text-medium-emphasis">{{ $t('label.settings.collisionAvoidBrief') }}</div>
+          </div>
+          <VSwitch
+            :model-value="collisionAvoidOn"
+            :loading="savingCollisionAvoid"
+            color="primary"
+            inset
+            hide-details
+            density="compact"
+            class="flex-shrink-0"
+            @update:model-value="toggleCollisionAvoid"
+          />
+        </div>
+
+        <VDivider vertical class="switch-divider" />
+
+        <div class="switch-item">
+          <VIcon
+            :icon="reprintOn ? 'tabler-file-alert' : 'tabler-file-off'"
+            size="20"
+            :color="reprintOn ? 'warning' : 'medium-emphasis'"
+            class="flex-shrink-0"
+          />
+          <div class="flex-grow-1">
+            <div class="text-body-medium font-weight-medium">{{ $t('label.settings.reprint') }}</div>
+            <div v-if="!reprintOn && !specialRoutes.reprint" class="text-body-small text-warning">{{ $t('page.sort.reprint.needsCode') }}</div>
+            <div v-else class="text-body-small text-medium-emphasis">{{ $t('label.settings.reprintBrief') }}</div>
+          </div>
+          <!-- 沒填「重複印單」格口代碼時不給打開:開了也攔不了 -->
+          <VSwitch
+            :model-value="reprintOn"
+            :loading="savingReprint"
+            :disabled="!reprintOn && !specialRoutes.reprint"
+            color="warning"
+            inset
+            hide-details
+            density="compact"
+            class="flex-shrink-0"
+            @update:model-value="toggleReprint"
+          />
+        </div>
+
+        <VDivider vertical class="switch-divider" />
+
         <!-- 特殊件分流:設定完幾乎不會再動,跟兩個開關併成同一列 -->
         <div class="switch-item">
           <VIcon
@@ -637,109 +759,13 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
           </VBtn>
         </div>
 
-        <VDivider vertical class="switch-divider" />
-
-        <!-- 格口配置:桃園左右各 5 格、台中各 3 格,同一支程式依現場設定長出格口卡片 -->
-        <div class="switch-item">
-          <VIcon icon="tabler-layout-columns" size="20" color="primary" class="flex-shrink-0" />
-          <div class="flex-grow-1">
-            <div class="text-body-medium font-weight-medium">{{ $t('page.sort.layout.title') }}</div>
-            <div class="text-body-small text-medium-emphasis">{{ $t('page.sort.layout.brief', { l: layout.left, r: layout.right }) }}</div>
-          </div>
-          <VBtn
-            color="primary"
-            variant="tonal"
-            size="small"
-            class="flex-shrink-0 font-weight-bold"
-            :disabled="loading"
-            @click="openLayoutDialog"
-          >
-            <VIcon icon="tabler-adjustments" size="15" class="me-1" />
-            {{ $t('page.sort.layout.edit') }}
-          </VBtn>
-        </div>
       </div>
     </VCard>
 
-    <!-- 格口配置 Dialog -->
-    <VDialog v-model="layoutDialog" max-width="460" persistent>
-      <div style="position: relative;">
-        <VBtn
-          icon
-          variant="elevated"
-          size="x-small"
-          style="position: absolute; top: -12px; right: -12px; z-index: 10;"
-          @click="layoutDialog = false"
-        >
-          <VIcon icon="tabler-x" size="14" />
-        </VBtn>
-      <VCard>
-        <VCardItem class="px-5 py-3">
-          <VCardTitle class="d-flex align-center ga-2 text-body-large font-weight-medium">
-            <VIcon :icon="'tabler-layout-columns'" size="18" color="primary" />
-            {{ $t('page.sort.layout.dialogTitle') }}
-          </VCardTitle>
-        </VCardItem>
-        <VDivider />
-        <VCardText class="px-5 pt-4 pb-2">
-          <div class="text-body-small text-medium-emphasis mb-4">{{ $t('page.sort.layout.hint') }}</div>
-          <VRow dense>
-            <VCol cols="6">
-              <VNumberInput
-                v-model="layoutDraft.left"
-                :min="1"
-                :max="LAYOUT_MAX"
-                :step="1"
-                :label="$t('page.sort.layout.left')"
-                control-variant="stacked"
-                density="compact"
-                hide-details
-                autofocus
-              />
-            </VCol>
-            <VCol cols="6">
-              <VNumberInput
-                v-model="layoutDraft.right"
-                :min="1"
-                :max="LAYOUT_MAX"
-                :step="1"
-                :label="$t('page.sort.layout.right')"
-                control-variant="stacked"
-                density="compact"
-                hide-details
-              />
-            </VCol>
-          </VRow>
-          <VAlert v-if="dirty.size" type="warning" variant="tonal" density="compact" class="mt-3">
-            {{ $t('page.sort.layout.dirtyWarn') }}
-          </VAlert>
-          <VAlert v-else-if="layoutRemovals.length" type="warning" variant="tonal" density="compact" class="mt-3">
-            <div>{{ $t('page.sort.layout.removeWarn', { list: layoutRemovals.map(posLabel).join('、') }) }}</div>
-            <div v-if="layoutRemovalsWithCode.length" class="mt-1 font-weight-medium">
-              {{ $t('page.sort.layout.removeWarnCode', { list: layoutRemovalsWithCode.map(p => `${posLabel(p)} (${findChannel(p).channel_code})`).join('、') }) }}
-            </div>
-          </VAlert>
-        </VCardText>
-        <VCardActions class="px-5 pb-4">
-          <VSpacer />
-          <VBtn variant="text" @click="layoutDialog = false">{{ $t('common.cancel') }}</VBtn>
-          <VBtn
-            :color="layoutRemovals.length ? 'warning' : 'primary'"
-            variant="elevated"
-            :loading="savingLayout"
-            :disabled="!layoutValid || !layoutChanged || dirty.size > 0"
-            @click="saveLayout"
-          >
-            {{ $t('page.sort.layout.save') }}
-          </VBtn>
-        </VCardActions>
-      </VCard>
-      </div>
-    </VDialog>
 
     <!-- 特殊件分流:不進一般格口的件各自送哪個格口代碼 -->
     <VDialog v-model="specialDialog" max-width="520" persistent scrollable>
-      <div style="position: relative;">
+      <div class="scrollable-dialog-shell">
         <VBtn
           icon
           variant="elevated"
@@ -816,16 +842,34 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                 <VChip v-else size="x-small" color="default" variant="tonal" class="channel-card__chip">{{ $t('page.sort.status.unset') }}</VChip>
               </div>
 
-              <div class="search-field">
-                <label>{{ $t('page.sort.channelCode') }}</label>
-                <VTextField
-                  v-model="findChannel(pos).channel_code"
-                  :placeholder="$t('page.sort.channelCodeExampleL')"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  @update:model-value="markDirty(pos)"
-                />
+              <!-- 通道代碼與貼標人員都短,併成一列;指派物流可能有好幾個標籤,自己佔一列 -->
+              <div class="field-pair">
+                <div class="search-field">
+                  <label>{{ $t('page.sort.channelCode') }}</label>
+                  <VTextField
+                    v-model="findChannel(pos).channel_code"
+                    :placeholder="$t('page.sort.channelCodeExampleL')"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    @update:model-value="markDirty(pos)"
+                  />
+                </div>
+                <div class="search-field">
+                  <label>{{ $t('page.sort.sticker') }}</label>
+                  <PersonnelCombobox
+                    v-model="findChannel(pos).job_sticker"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    density="compact"
+                    variant="outlined"
+                    clearable
+                    hide-details
+                    @update:model-value="markDirty(pos)"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
               </div>
               <div class="search-field">
                 <label>{{ $t('page.sort.dispatch') }}</label>
@@ -841,21 +885,6 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
-                />
-              </div>
-              <div class="search-field">
-                <label>{{ $t('page.sort.sticker') }}</label>
-                <PersonnelCombobox
-                  v-model="findChannel(pos).job_sticker"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  density="compact"
-                  variant="outlined"
-                  clearable
-                  hide-details
-                  @update:model-value="markDirty(pos)"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
                 />
               </div>
               <!-- direct_print 模式:此通道面單送印的本機印表機(其他模式不顯示,不佔版面) -->
@@ -933,16 +962,34 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                 <VIcon class="channel-card__icon" icon="tabler-arrow-narrow-right" size="18" color="warning" />
               </div>
 
-              <div class="search-field">
-                <label>{{ $t('page.sort.channelCode') }}</label>
-                <VTextField
-                  v-model="findChannel(pos).channel_code"
-                  :placeholder="$t('page.sort.channelCodeExampleR')"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  @update:model-value="markDirty(pos)"
-                />
+              <!-- 通道代碼與貼標人員都短,併成一列;指派物流可能有好幾個標籤,自己佔一列 -->
+              <div class="field-pair">
+                <div class="search-field">
+                  <label>{{ $t('page.sort.channelCode') }}</label>
+                  <VTextField
+                    v-model="findChannel(pos).channel_code"
+                    :placeholder="$t('page.sort.channelCodeExampleR')"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    @update:model-value="markDirty(pos)"
+                  />
+                </div>
+                <div class="search-field">
+                  <label>{{ $t('page.sort.sticker') }}</label>
+                  <PersonnelCombobox
+                    v-model="findChannel(pos).job_sticker"
+                    :items="stickerHistory"
+                    :placeholder="$t('page.sort.stickerPlaceholder')"
+                    density="compact"
+                    variant="outlined"
+                    clearable
+                    hide-details
+                    @update:model-value="markDirty(pos)"
+                    @remember="rememberUser"
+                    @remove="removeStickerFromHistory"
+                  />
+                </div>
               </div>
               <div class="search-field">
                 <label>{{ $t('page.sort.dispatch') }}</label>
@@ -958,21 +1005,6 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
                   clearable
                   hide-details
                   @update:model-value="markDirty(pos)"
-                />
-              </div>
-              <div class="search-field">
-                <label>{{ $t('page.sort.sticker') }}</label>
-                <PersonnelCombobox
-                  v-model="findChannel(pos).job_sticker"
-                  :items="stickerHistory"
-                  :placeholder="$t('page.sort.stickerPlaceholder')"
-                  density="compact"
-                  variant="outlined"
-                  clearable
-                  hide-details
-                  @update:model-value="markDirty(pos)"
-                  @remember="rememberUser"
-                  @remove="removeStickerFromHistory"
                 />
               </div>
               <!-- direct_print 模式:此通道面單送印的本機印表機(其他模式不顯示,不佔版面) -->

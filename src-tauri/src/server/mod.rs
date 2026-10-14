@@ -54,6 +54,10 @@ pub struct LabelPathResolver {
     /// 錯誤面單開關。關閉(預設)時 `get_parcel` 遇雲端業務錯誤只回 `error_code`,
     /// 不產出提示面單、也不回分揀通道。同放此解析器的理由同 `sort_only`。
     error_label: Arc<AtomicBool>,
+    /// 重複印單攔截開關(見 [`crate::config::ReprintRouteConfig`])。同放此解析器的理由同 `sort_only`。
+    reprint_route: Arc<AtomicBool>,
+    /// 撞單迴避開關(見 [`crate::config::CollisionAvoidConfig`])。同放此解析器的理由同 `sort_only`。
+    collision_avoid: Arc<AtomicBool>,
 }
 
 impl LabelPathResolver {
@@ -62,6 +66,8 @@ impl LabelPathResolver {
             inner: Arc::new(RwLock::new(config.label_path.clone())),
             sort_only: Arc::new(AtomicBool::new(config.sort_only.enabled)),
             error_label: Arc::new(AtomicBool::new(config.error_label.enabled)),
+            reprint_route: Arc::new(AtomicBool::new(config.reprint_route.enabled)),
+            collision_avoid: Arc::new(AtomicBool::new(config.collision_avoid.enabled)),
         }
     }
 
@@ -69,6 +75,8 @@ impl LabelPathResolver {
         *self.inner.write() = config.label_path.clone();
         self.sort_only.store(config.sort_only.enabled, Ordering::Relaxed);
         self.error_label.store(config.error_label.enabled, Ordering::Relaxed);
+        self.reprint_route.store(config.reprint_route.enabled, Ordering::Relaxed);
+        self.collision_avoid.store(config.collision_avoid.enabled, Ordering::Relaxed);
     }
 
     pub fn current_mode(&self) -> LabelPathMode {
@@ -83,6 +91,28 @@ impl LabelPathResolver {
     /// 錯誤面單是否開啟(熱套用,即時反映設定變更)
     pub fn is_error_label_enabled(&self) -> bool {
         self.error_label.load(Ordering::Relaxed)
+    }
+
+    /// 重複印單攔截是否開啟(熱套用,即時反映設定變更)
+    pub fn is_reprint_route_enabled(&self) -> bool {
+        self.reprint_route.load(Ordering::Relaxed)
+    }
+
+    /// 撞單迴避是否開啟(熱套用,即時反映設定變更)
+    pub fn is_collision_avoid_enabled(&self) -> bool {
+        self.collision_avoid.load(Ordering::Relaxed)
+    }
+
+    /// 這一件分格口時套用哪種後兩碼規則。撞號改送只在面單於格口印出時才有意義
+    /// (純分揀不印單,撞號不會貼錯,只避號不改送)
+    fn tail_rule(&self, sort_only: bool) -> TailRule {
+        if !self.is_collision_avoid_enabled() {
+            TailRule::Off
+        } else if sort_only {
+            TailRule::Avoid
+        } else {
+            TailRule::AvoidAndDivert
+        }
     }
 
     /// DirectPrint 自補回報前,等工控機回報的寬限秒數(熱套用,改設定不需重啟 server)。
@@ -279,6 +309,17 @@ struct DirectPrintJob {
     /// 雲端回的袋號與訂單號:**真的送印成功後**才記印單統計、標件數核對已印要用
     package_sn: Option<String>,
     order_sn: String,
+    /// 雲端有回 printed_before(已更新、有撤回列印的端點):確定沒送印時才能請雲端撤回那次列印
+    cloud_withdraw: bool,
+}
+
+/// 直印失敗時面單有沒有送進印表機
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrintAttempt {
+    /// 確定沒送出(沒設印表機、圖檔下載或讀取失敗、印表機未就緒、列印佇列已關):請雲端撤回那次列印
+    NotSent,
+    /// 已送出但結果不確定(送印報錯、卡住):面單可能已經出紙,不撤回,留給現場判斷
+    Uncertain,
 }
 
 /// 直印背景工作需要的共用資源
@@ -1433,6 +1474,17 @@ async fn consume_skip(db: &DbPool, position: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// 分格口時怎麼看後兩碼(撞單迴避)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TailRule {
+    /// 撞單迴避關閉:不看後兩碼,只照固定輪流順序與量平均
+    Off,
+    /// 避開撞號的格口;每格都撞時仍硬塞給最久沒收件的格口
+    Avoid,
+    /// 避開撞號的格口;每格都撞時改送特殊件分流「每一格都撞號」填的格口(沒填才硬塞)
+    AvoidAndDivert,
+}
+
 /// 這件包裹被分到哪一類格口。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Assignment {
@@ -1442,6 +1494,34 @@ enum Assignment {
     Unassigned,
     /// 能去的格口上一件都跟這件撞號,回特殊件分流指定的格口:不印面單,撿出後重跑
     Special,
+    /// 之前已經印出過面單(重複印單),回特殊件分流「重複印單」指定的格口:不印面單,由現場人工處理
+    Reprint,
+}
+
+/// 重複印單攔截的判斷結果(見 [`decide_reprint`])
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReprintDecision {
+    /// 不攔:沒開、沒印過,或純分揀
+    Pass,
+    /// 攔到這個格口(之前印過幾次)
+    Divert(String, u32),
+    /// 開了、之前也印過,但特殊件分流沒填「重複印單」的格口:照常出單並留警示
+    NoCode(u32),
+    /// 開了,但雲端沒回之前的列印次數(雲端還沒更新):無從判斷,照常出單並留警示
+    CloudTooOld,
+}
+
+/// 這件要不要當重複印單攔走。`printed_before` 是雲端回的「本次之前真的印出過幾次面單」。
+/// 純分揀不套用:面單在別處印好才上分揀機,每一件都會是「印過」。
+fn decide_reprint(enabled: bool, sort_only: bool, printed_before: Option<u32>, code: Option<String>) -> ReprintDecision {
+    if !enabled || sort_only {
+        return ReprintDecision::Pass;
+    }
+    match printed_before {
+        None => ReprintDecision::CloudTooOld,
+        Some(0) => ReprintDecision::Pass,
+        Some(n) => code.map(|c| ReprintDecision::Divert(c, n)).unwrap_or(ReprintDecision::NoCode(n)),
+    }
 }
 
 /// 依物流商代碼解析分揀通道:有指派通道時先避開撞尾碼的格口,再在收件次數相近的格口裡挑,
@@ -1450,8 +1530,7 @@ enum Assignment {
 /// 回傳 `(channel_code, assignment)`。
 /// 正常面單與錯誤面單共用,確保兩者分揀行為一致。
 ///
-/// `divert_collisions`:能去的格口上一件都撞號時,特殊件分流有指定撞號的格口就改送那裡、不硬塞。
-/// 只有面單在格口印出時才有意義(純分揀不印單,撞號不會貼錯,傳 false 照舊分配)。
+/// `tail_rule`:要不要避開後兩碼撞號、每格都撞時要不要改送(見 [`TailRule`])。
 ///
 /// `shipping_no` 是本件的配送單號,用來避開「同一格口連著兩張後兩碼有數字重疊的單」——
 /// 作業員貼單就是靠後兩碼的數字確認手上的單對得上包裹,連兩張有同一個數字就容易貼錯。
@@ -1460,7 +1539,7 @@ async fn resolve_channel_code(
     routing: &SortRoutingState,
     provider: &str,
     shipping_no: Option<&str>,
-    divert_collisions: bool,
+    tail_rule: TailRule,
 ) -> (Option<String>, Assignment) {
     // 一個物流可被指派到多個通道,一個通道也可指派多個物流(多對多,sort_channel_dispatch)。
     // 這裡的排序只是讓候選清單穩定,實際分配順序看下面的收件次數與輪流順序。
@@ -1499,7 +1578,9 @@ async fn resolve_channel_code(
     let n = candidates.len();
     // 尾碼迴避只在「這家物流有兩個以上可用通道」時成立 —— 只有一格時無處可換,
     // 硬迴避會變成該件不分配。單號短於兩碼也不套用(比不出後兩碼)。
-    let tail = if n >= 2 { shipping_no.and_then(tail2) } else { None };
+    // 撞單迴避關閉時當作比不出後兩碼:沒有撞號、沒有撞號改送,尾碼分散也不參與排序。
+    let avoid_tails = tail_rule != TailRule::Off;
+    let tail = if n >= 2 && avoid_tails { shipping_no.and_then(tail2) } else { None };
 
     // 全程持 async 鎖跨 await:把「排序選位 + skip 原子消耗」序列化,杜絕並發 double-skip。
     // skip 消耗用條件 UPDATE(WHERE skip_count > 0)+ rows_affected 判定:
@@ -1597,6 +1678,8 @@ async fn resolve_channel_code(
                 (2, false, states[i].seq, 0_i64, 0_usize)
             } else if states[i].count > least {
                 (1, is_last, states[i].count, dist as i64, 0_usize)
+            } else if !avoid_tails {
+                (0, is_last, 0, 0, dist)
             } else {
                 let rest: Vec<Option<String>> =
                     round_left.iter().filter(|&&j| j != i).map(|&j| prev_tails[j].clone()).collect();
@@ -1626,7 +1709,7 @@ async fn resolve_channel_code(
 
         // 輪到的格口還是撞號(每格都撞,或不撞的格口都被跳過):特殊件分流有指定撞號的格口就送那裡,
         // 不更新任何格口的收件狀態 —— 這件沒進一般格口。
-        if let Some(i) = picked.filter(|&i| divert_collisions && collides[i]) {
+        if let Some(i) = picked.filter(|&i| tail_rule == TailRule::AvoidAndDivert && collides[i]) {
             if let Some(code) = fetch_special_route(db, SpecialCase::Collision).await {
                 tracing::info!(no = ?shipping_no, skipped_to = %candidates[i].1, "能去的格口都撞號,改送特殊件分流指定的格口");
                 break 'pick Err(code);
@@ -1935,6 +2018,7 @@ fn enqueue_direct_print(state: &ServerState, job: DirectPrintJob) {
         // 「工控機已收 200 但實體沒印」的靜默缺口,必須走同一條通報
         report_direct_print_failed(
             &state.app, &state.db, &state.queue, &state.bag_check, &job, "print_failed", "列印佇列已關閉",
+            PrintAttempt::NotSent,
         );
     }
 }
@@ -1956,6 +2040,7 @@ fn report_direct_print_failed(
     job: &DirectPrintJob,
     reason: &str,
     detail: &str,
+    attempt: PrintAttempt,
 ) {
     let query_no = job.query_no.as_str();
     let payload = serde_json::json!({
@@ -1981,11 +2066,21 @@ fn report_direct_print_failed(
     // 攔截雲端回報:工控機可能在列印完成前就回報過(它只知道自己分揀完了,不知道面單沒印出來),
     // 也可能稍後才回報 —— 兩種都要擋,故即使目前沒有對應佇列項也會先立一筆墓碑。
     let Some(rid) = job.response_id else { return };
+    let withdraw = attempt == PrintAttempt::NotSent && job.cloud_withdraw && rid > 0;
     let (queue, db, tno, reason, qn) = (
         queue.clone(), db.clone(), job.tracking_no.clone(), reason.to_string(), query_no.to_string(),
     );
     tokio::spawn(async move {
-        match queue.cancel_report_on_print_failure(rid, &tno, &reason).await {
+        let cancelled = queue.cancel_report_on_print_failure(rid, &tno, &reason).await;
+        // 確定沒送印:雲端查件當下記的那次列印要撤回,否則撿出重跑會被當成重複印單。
+        // 撤回會接手剛立的墓碑(或已送出的回報)那一列,墓碑擋回報的作用不變
+        if withdraw {
+            if let Err(e) = queue.enqueue_not_printed(rid, &tno).await {
+                event_log::log_bg(db.clone(), "error", "queue", "未印出通知入列失敗",
+                    format!("直印沒送出(query_no={qn}),但通知雲端撤回列印的工作沒排進佇列(response_id={rid}):{e}"));
+            }
+        }
+        match cancelled {
             Ok(CancelOutcome::Blocked) => {
                 tracing::info!(query_no = %qn, "直印失敗,已攔下該件雲端回報");
             }
@@ -2100,7 +2195,7 @@ async fn handle_stuck_print(ctx: &DirectPrintCtx, t: &TrackedPrint, cancelled: b
     } else {
         format!("印表機{why},面單送出 {secs} 秒仍未印完、沒有取消;它可能已經印出,也可能在印表機恢復後才吐出,請到格口對照單號確認")
     };
-    report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &t.job, "printer_stuck", &detail);
+    report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &t.job, "printer_stuck", &detail, PrintAttempt::Uncertain);
 }
 
 /// 一台印表機這次查詢前的卡住判斷
@@ -2323,7 +2418,7 @@ async fn run_direct_print_job(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, 
         Err(e) => {
             let _ = ctx.cache.record_miss().await;
             tracing::warn!(label_key = %job.label_key, ?e, "direct_print 背景下載快取失敗");
-            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "download_failed", &e.to_string());
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "download_failed", &e.to_string(), PrintAttempt::NotSent);
             return;
         }
     }
@@ -2351,7 +2446,7 @@ async fn run_direct_print_job(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, 
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(?e, "讀取面單圖失敗，無法列印");
-            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "read_failed", &e.to_string());
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "read_failed", &e.to_string(), PrintAttempt::NotSent);
             return;
         }
     };
@@ -2359,7 +2454,7 @@ async fn run_direct_print_job(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, 
     // 4. 送印前先問印表機:缺紙、卡紙、離線,或前面的面單卡住 → 這張不送,暫停這台的格口
     if let Some(why) = reconcile_printer(ctx, tracker, &job.printer_name, true).await {
         report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "printer_not_ready",
-            &format!("印表機{why},這張沒有送印"));
+            &format!("印表機{why},這張沒有送印"), PrintAttempt::NotSent);
         auto_pause_printer_channels(ctx, &job.printer_name, &why).await;
         return;
     }
@@ -2394,11 +2489,11 @@ async fn run_direct_print_job(ctx: &DirectPrintCtx, tracker: &mut PrintTracker, 
         }
         Ok(Err(e)) => {
             tracing::warn!(?e, query_no = %job.query_no, "直接列印失敗");
-            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string());
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string(), PrintAttempt::Uncertain);
         }
         Err(e) => {
             tracing::warn!(?e, query_no = %job.query_no, "直接列印 task 失敗");
-            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string());
+            report_direct_print_failed(&ctx.app, &ctx.db, &ctx.queue, &ctx.bag_check, &job, "print_failed", &e.to_string(), PrintAttempt::Uncertain);
         }
     }
 }
@@ -2634,14 +2729,43 @@ async fn get_parcel(
             // 沒分到一般格口(物流沒指派格口、或撞號改送其他格口)時這件不印面單 ——
             // DirectPrint 不可入列送印(否則印出一疊沒有包裹可貼的面單),
             // 其他模式也不必同步下載(白等雲端一趟、結果直接被丟棄)。四種模式行為一致。
-            let (channel_code, assignment) = resolve_channel_code(
-                &state.db,
-                &state.routing,
-                &info.shipping_provider,
-                Some(info.shipping_no.as_str()),
-                !is_sort_only,
-            )
-            .await;
+            //
+            // 重複印單攔截排在分配格口之前:攔走的件不佔輪替,也不更新任何格口的收件狀態。
+            let reprint_enabled = state.label_resolver.is_reprint_route_enabled();
+            let reprint = decide_reprint(
+                reprint_enabled,
+                is_sort_only,
+                info.printed_before,
+                if reprint_enabled { fetch_special_route(&state.db, SpecialCase::Reprint).await } else { None },
+            );
+            match &reprint {
+                ReprintDecision::NoCode(n) if should_log_throttled("reprint_no_code") => {
+                    event_log::log_bg(state.db.clone(), "warn", "server", "重複印單攔截未生效",
+                        format!("已開啟重複印單攔截,但特殊件分流沒有填「重複印單」的格口代碼;配送單號 {} 之前印過 {n} 次,照常分格口出單",
+                            info.shipping_no));
+                }
+                ReprintDecision::CloudTooOld if should_log_throttled("reprint_cloud_too_old") => {
+                    event_log::log_bg(state.db.clone(), "warn", "server", "重複印單攔截未生效",
+                        format!("雲端沒有回傳之前的列印次數(雲端可能還沒更新),無法判斷是否重複印單;配送單號 {} 照常分格口出單",
+                            info.shipping_no));
+                }
+                _ => {}
+            }
+            let reprint_times = match &reprint {
+                ReprintDecision::Divert(_, n) => *n,
+                _ => 0,
+            };
+            let (channel_code, assignment) = match reprint {
+                ReprintDecision::Divert(code, _) => (Some(code), Assignment::Reprint),
+                _ => resolve_channel_code(
+                    &state.db,
+                    &state.routing,
+                    &info.shipping_provider,
+                    Some(info.shipping_no.as_str()),
+                    state.label_resolver.tail_rule(is_sort_only),
+                )
+                .await,
+            };
             let has_assigned = assignment == Assignment::Channel;
 
             // 貼標人員在此一次查妥,下面 print_event 與 DirectPrint 自補回報共用同一份 ——
@@ -2654,6 +2778,7 @@ async fn get_parcel(
             // 直印模式由背景 worker 印成功後才記印單統計、標件數核對(見 run_direct_print_job),
             // 這裡就不能先記;未設印表機時同樣沒有印出,也不記。
             let mut print_recorded_by_worker = false;
+            let direct_mode = state.label_resolver.current_mode() == LabelPathMode::DirectPrint;
             let (label_path, label_ms) =
                 if is_sort_only {
                     // 純分揀:只回分揀通道,不產出面單 —— 不下載、不浮水印、不列印、不入 DirectPrint 佇列。
@@ -2662,11 +2787,11 @@ async fn get_parcel(
                     tracing::warn!(query_no = %query_no, "雲端回空 shipping_image,視為無面單");
                     (None, 0i64)
                 } else if !has_assigned {
-                    // 物流沒指派格口或撞號改送:不印、不下載(label_path 一律 None)
+                    // 物流沒指派格口、撞號改送或重複印單攔截:不印、不下載(label_path 一律 None)
                     tracing::info!(query_no = %query_no, provider = %info.shipping_provider, ?assignment,
                         "沒有分到一般格口,略過面單處理");
                     (None, 0i64)
-                } else if state.label_resolver.current_mode() == LabelPathMode::DirectPrint {
+                } else if direct_mode {
                     // has_assigned=true 保證 channel_code 為 Some(實際通道代碼)。
                     // **印表機在此當場解析**(而非丟給背景 worker 反查):查不到就立即通報,
                     // 讓「通道漏設印表機」在第一件就被聽見,而不是整批靜默積在佇列裡才發現。
@@ -2684,6 +2809,7 @@ async fn get_parcel(
                         job_sticker: sticker_user.clone(),
                         package_sn: info.package_sn.clone(),
                         order_sn: info.order_sn.clone(),
+                        cloud_withdraw: info.printed_before.is_some(),
                     };
                     print_recorded_by_worker = true;
                     match fetch_channel_printer(&state.db, &cc).await {
@@ -2696,6 +2822,7 @@ async fn get_parcel(
                                 "direct_print 模式但分揀通道未設定印表機,此件不會印出");
                             report_direct_print_failed(
                                 &state.app, &state.db, &state.queue, &state.bag_check, &job, "no_printer", "",
+                                PrintAttempt::NotSent,
                             );
                         }
                     }
@@ -2914,6 +3041,12 @@ async fn get_parcel(
                 event_log::log_bg(state.db.clone(), "warn", "server", "撞號改送其他格口",
                     format!("配送單號 {} 能去的格口上一件後兩碼都撞號,改送 {}(未印面單)",
                         info.shipping_no, channel_code.as_deref().unwrap_or("")));
+            } else if assignment == Assignment::Reprint {
+                // 重複印單攔到指定格口:這次沒印,件數核對照實顯示缺件(之前那張面單在哪裡由現場判斷)
+                state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
+                event_log::log_bg(state.db.clone(), "warn", "server", "重複印單改送",
+                    format!("配送單號 {} 之前已印過 {} 次面單,改送 {}(未印面單)",
+                        info.shipping_no, reprint_times, channel_code.as_deref().unwrap_or("")));
             } else {
                 // 雲端查件當下已把這件記成已印並廣播;實際沒有格口、沒有印出,件數核對要顯示成缺件
                 state.bag_check.mark_not_printed(info.package_sn.clone(), &info.order_sn, &info.shipping_no, &info.shipping_provider);
@@ -2928,11 +3061,30 @@ async fn get_parcel(
                 }
             }
 
+            // 雲端查件當下已記了一次列印,但這件確定沒印出 → 請雲端撤回,否則撿出重跑時會被當成重複印單、
+            // 面單浮水印與印單統計也多算一次。這裡處理查件當下就確定的:沒分到一般格口(沒指派、撞號、重複印單)、
+            // 雲端沒給面單、工控機讀檔模式下載面單失敗。直印模式的失敗由 report_direct_print_failed 依有沒有送印處理。
+            // 雲端沒回 printed_before 代表還是舊版、沒有撤回端點,排了也只會一直失敗,不排。
+            // 入列必須在回應工控機之前完成:工控機的回報若先建了那一列,撤回就排不進去。
+            let label_missing = has_assigned && has_image && !direct_mode && label_path.is_none();
+            if !is_sort_only
+                && info.printed_before.is_some()
+                && (!has_assigned || !has_image || label_missing)
+            {
+                if let Some(rid) = info.response_id.filter(|id| *id > 0) {
+                    if let Err(e) = state.queue.enqueue_not_printed(rid, &info.shipping_no).await {
+                        event_log::log_bg(state.db.clone(), "error", "queue", "未印出通知入列失敗",
+                            format!("配送單號 {} 沒印出面單,但通知雲端撤回列印的工作沒排進佇列(response_id={rid}):{e}",
+                                info.shipping_no));
+                    }
+                }
+            }
+
             // 純分揀:一律回 response_id=null,工控機因而不會 POST /api/report。
             // 防呆:雲端已升級時本就回 None;若雲端未同步 / 回滾仍回正數 id(代表雲端已記了一筆印單),
             // 這裡主動吞掉不轉給工控機,避免工控機再回報觸發雲端二次記印單,並節流告警提醒兩端同步部署。
-            let response_id = if assignment == Assignment::Special {
-                // 撞號改送的件沒有面單、不算出貨,工控機不必回報;撿出重跑時會拿到新的回報編號
+            let response_id = if matches!(assignment, Assignment::Special | Assignment::Reprint) {
+                // 撞號改送、重複印單攔截的件沒有面單、不算出貨,工控機不必回報;撿出重跑時會拿到新的回報編號
                 None
             } else if is_sort_only {
                 if info.response_id.is_some()
@@ -2962,10 +3114,13 @@ async fn get_parcel(
                     status: match assignment {
                         Assignment::Channel => "ok",
                         Assignment::Unassigned => "unassigned",
-                        Assignment::Special => "error",
+                        Assignment::Special | Assignment::Reprint => "error",
                     },
-                    message: (assignment == Assignment::Special)
-                        .then(|| format!("每一格都撞號,改送 {}(未印面單)", channel_code.as_deref().unwrap_or(""))),
+                    message: match assignment {
+                        Assignment::Special => Some(format!("每一格都撞號,改送 {}(未印面單)", channel_code.as_deref().unwrap_or(""))),
+                        Assignment::Reprint => Some(format!("重複印單,改送 {}(未印面單)", channel_code.as_deref().unwrap_or(""))),
+                        _ => None,
+                    },
                     at: board_now(),
                     seq: BOARD_SEQ.fetch_add(1, Ordering::Relaxed),
                 },
@@ -3045,7 +3200,9 @@ async fn get_parcel(
                 None if !error_label_on => None,
                 None => match err_provider.as_deref() {
                     Some(p) => {
-                        resolve_channel_code(&state.db, &state.routing, p, err_shipping_no.as_deref(), false)
+                        // 提示面單不改送撞號件:撞號改送是給正常面單的,錯誤件本來就要人工看
+                        let rule = match state.label_resolver.tail_rule(true) { TailRule::Off => TailRule::Off, _ => TailRule::Avoid };
+                        resolve_channel_code(&state.db, &state.routing, p, err_shipping_no.as_deref(), rule)
                             .await
                             .0
                     }
@@ -3383,6 +3540,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reprint_diverts_only_when_enabled_printed_and_code_set() {
+        let rs = || Some("RS".to_string());
+        assert_eq!(decide_reprint(true, false, Some(1), rs()), ReprintDecision::Divert("RS".into(), 1));
+        assert_eq!(decide_reprint(true, false, Some(3), rs()), ReprintDecision::Divert("RS".into(), 3), "印過幾次都一樣攔");
+        assert_eq!(decide_reprint(true, false, Some(0), rs()), ReprintDecision::Pass, "第一次印照常出單");
+        assert_eq!(decide_reprint(false, false, Some(2), rs()), ReprintDecision::Pass, "開關關閉不攔");
+        assert_eq!(decide_reprint(true, true, Some(2), rs()), ReprintDecision::Pass, "純分揀面單在別處印好,不套用");
+    }
+
+    #[test]
+    fn reprint_without_code_or_old_cloud_does_not_divert() {
+        assert_eq!(decide_reprint(true, false, Some(2), None), ReprintDecision::NoCode(2), "沒填格口不攔,但要能留警示");
+        assert_eq!(decide_reprint(true, false, None, Some("RS".into())), ReprintDecision::CloudTooOld, "雲端沒回次數無從判斷");
+        assert_eq!(decide_reprint(false, false, None, None), ReprintDecision::Pass, "開關關閉時雲端新舊都不警示");
+    }
+
+    #[test]
     fn noread_normalization_matches_variants() {
         // 相機讀不到單號的各種寫法都應觸發 NoRead 短路(正規化:去非英數、小寫)
         for q in ["NoRead", "noread", "NOREAD", "NO_READ", "no read", "NO-READ", " NoRead "] {
@@ -3485,15 +3659,15 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         let routing = routing_state();
 
-        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
+        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
         assert_eq!(first.as_deref(), Some("A01"));
-        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999988"), true).await;
+        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999988"), TailRule::AvoidAndDivert).await;
         assert_eq!(second.as_deref(), Some("A02"));
         // 第三件又是 47:兩格次數平手、輪到 A01,但 A01 上一件就是 47 → 改給尾碼不撞的 A02
-        let (third, _) = resolve_channel_code(&db, &routing, "C", Some("SF12312312347"), true).await;
+        let (third, _) = resolve_channel_code(&db, &routing, "C", Some("SF12312312347"), TailRule::AvoidAndDivert).await;
         assert_eq!(third.as_deref(), Some("A02"), "撞尾碼的格口不該再收一件同尾碼");
         // 換回不撞的尾碼:輪替回到 A01,不該因為前一件被改道就一直卡在 A02
-        let (fourth, _) = resolve_channel_code(&db, &routing, "C", Some("SF45645645612"), true).await;
+        let (fourth, _) = resolve_channel_code(&db, &routing, "C", Some("SF45645645612"), TailRule::AvoidAndDivert).await;
         assert_eq!(fourth.as_deref(), Some("A01"));
     }
 
@@ -3503,21 +3677,21 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         let routing = routing_state();
 
-        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
+        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
         assert_eq!(a.as_deref(), Some("A01"));
-        let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000012"), true).await;
+        let (b, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000012"), TailRule::AvoidAndDivert).await;
         assert_eq!(b.as_deref(), Some("A02"));
         // 輪到 A01,但 74 與 A01 上一件 47 只是數字對調 → 讓給 A02(上一件 12 不撞)
-        let (c, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000074"), true).await;
+        let (c, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000074"), TailRule::AvoidAndDivert).await;
         assert_eq!(c.as_deref(), Some("A02"), "數字對調也算撞,應讓開");
         // A01 補回:31 與 47 沒有共同數字
-        let (d, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000031"), true).await;
+        let (d, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000031"), TailRule::AvoidAndDivert).await;
         assert_eq!(d.as_deref(), Some("A01"));
         // 兩格次數平手輪到 A01,但 15 與 A01 上一件 31 有 1 重疊 → 讓給 A02(上一件 74 不撞)
-        let (e, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000015"), true).await;
+        let (e, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000015"), TailRule::AvoidAndDivert).await;
         assert_eq!(e.as_deref(), Some("A02"), "只有一個數字一樣也要讓開");
         // A01 補回:26 與 31 不撞
-        let (f, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000026"), true).await;
+        let (f, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000026"), TailRule::AvoidAndDivert).await;
         assert_eq!(f.as_deref(), Some("A01"));
     }
 
@@ -3527,9 +3701,9 @@ mod tests {
         let db = routing_db(&[("L1", "A01")], "C").await;
         let routing = routing_state();
 
-        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
+        let (first, _) = resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
         assert_eq!(first.as_deref(), Some("A01"));
-        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999947"), true).await;
+        let (second, _) = resolve_channel_code(&db, &routing, "C", Some("SF99999999947"), TailRule::AvoidAndDivert).await;
         assert_eq!(second.as_deref(), Some("A01"));
     }
 
@@ -3539,10 +3713,10 @@ mod tests {
         // 就照輪替順序給出去,不能因此不分配
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111147"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111147"), TailRule::AvoidAndDivert).await;
 
-        let (third, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        let (third, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!(third.as_deref(), Some("A01"), "全部撞尾碼時應照輪替順序分配");
         assert_eq!(assignment, Assignment::Channel, "撞號沒指定格口時照舊硬塞,不能沒格口");
     }
@@ -3568,9 +3742,9 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_routes(&db, r#"{"collision":"LS","store_closed":"RS"}"#).await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), TailRule::AvoidAndDivert).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("LS"), Assignment::Special));
     }
 
@@ -3578,9 +3752,9 @@ mod tests {
     async fn provider_without_channels_goes_to_the_chute_chosen_for_unassigned() {
         let db = routing_db(&[("L1", "A01")], "C").await;
         let routing = routing_state();
-        assert_eq!(resolve_channel_code(&db, &routing, "F", Some("SF00000000001"), true).await, (None, Assignment::Unassigned));
+        assert_eq!(resolve_channel_code(&db, &routing, "F", Some("SF00000000001"), TailRule::AvoidAndDivert).await, (None, Assignment::Unassigned));
         set_routes(&db, r#"{"unassigned":"LS"}"#).await;
-        let (code, assignment) = resolve_channel_code(&db, &routing, "F", Some("SF00000000002"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "F", Some("SF00000000002"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("LS"), Assignment::Unassigned));
     }
 
@@ -3590,10 +3764,31 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_routes(&db, r#"{"store_closed":"RS"}"#).await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), TailRule::AvoidAndDivert).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("A01"), Assignment::Channel));
+    }
+
+    #[tokio::test]
+    async fn collision_avoid_off_ignores_tails_and_never_diverts() {
+        let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
+        set_exception(&db, "RS").await;
+        let routing = routing_state();
+        let off = TailRule::Off;
+        assert_eq!(resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), off).await.0.as_deref(), Some("A01"));
+        assert_eq!(resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), off).await.0.as_deref(), Some("A02"));
+        // 兩格上一件都跟 47 撞號:開著會改送 RS,關閉時照輪流順序回到 A01、照常分一般格口
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), off).await;
+        assert_eq!((code.as_deref(), assignment), (Some("A01"), Assignment::Channel), "撞單迴避關閉:不看後兩碼也不改送");
+        assert_eq!(resolve_channel_code(&db, &routing, "C", Some("SF33333333347"), off).await.0.as_deref(), Some("A02"), "同尾碼也照順序輪");
+    }
+
+    #[test]
+    fn collision_avoid_defaults_on_even_for_old_config_files() {
+        assert!(crate::config::AppConfig::default().collision_avoid.enabled);
+        let old: crate::config::AppConfig = toml::from_str("").unwrap();
+        assert!(old.collision_avoid.enabled, "舊設定檔沒有這一段時也要開著,升級不能讓現場突然不避號");
     }
 
     #[tokio::test]
@@ -3601,10 +3796,10 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_exception(&db, "RS").await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111174"), TailRule::AvoidAndDivert).await;
 
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Special));
 
         // 撞號改送的件沒進一般格口:兩格的上一件仍是 47、74,輪替也照舊從 A01 接著走
@@ -3613,7 +3808,7 @@ mod tests {
         assert_eq!(rt.last.get("A02").and_then(|l| l.no.as_deref()), Some("SF11111111174"));
         assert_eq!(rt.last_position.as_deref(), Some("L2"));
         drop(rt);
-        let (next, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF33333333312"), true).await;
+        let (next, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF33333333312"), TailRule::AvoidAndDivert).await;
         assert_eq!((next.as_deref(), assignment), (Some("A01"), Assignment::Channel));
     }
 
@@ -3622,14 +3817,14 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_exception(&db, "RS").await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111112"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000047"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111112"), TailRule::AvoidAndDivert).await;
         // A02 上一件 12 不撞 47 → 照常分格口,不改送
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("A02"), Assignment::Channel));
 
         // 純分揀(不印單)不改送:撞號不會貼錯,照舊硬塞最久沒收件的格口
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF33333333347"), false).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF33333333347"), TailRule::Avoid).await;
         assert_eq!(assignment, Assignment::Channel);
         assert_eq!(code.as_deref(), Some("A01"));
     }
@@ -3640,14 +3835,14 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         set_exception(&db, "RS").await;
         let routing = routing_state();
-        resolve_channel_code(&db, &routing, "C", Some("SF00000000012"), true).await;
-        resolve_channel_code(&db, &routing, "C", Some("SF11111111147"), true).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF00000000012"), TailRule::AvoidAndDivert).await;
+        resolve_channel_code(&db, &routing, "C", Some("SF11111111147"), TailRule::AvoidAndDivert).await;
         sqlx::query("UPDATE sort_channels SET skip_count = 1 WHERE position = 'L1'")
             .execute(&db)
             .await
             .unwrap();
 
-        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), true).await;
+        let (code, assignment) = resolve_channel_code(&db, &routing, "C", Some("SF22222222247"), TailRule::AvoidAndDivert).await;
         assert_eq!((code.as_deref(), assignment), (Some("RS"), Assignment::Special));
         let left: i64 = sqlx::query_scalar("SELECT skip_count FROM sort_channels WHERE position = 'L1'")
             .fetch_one(&db)
@@ -3668,7 +3863,7 @@ mod tests {
         .unwrap();
         let routing = routing_state();
 
-        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF98765432147"), true).await;
+        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF98765432147"), TailRule::AvoidAndDivert).await;
         assert_eq!(picked.as_deref(), Some("A02"), "A01 的歷史尾碼是 47,應改給 A02");
     }
 
@@ -3689,7 +3884,7 @@ mod tests {
         .unwrap();
         let routing = routing_state();
 
-        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF55555555547"), true).await;
+        let (picked, _) = resolve_channel_code(&db, &routing, "C", Some("SF55555555547"), TailRule::AvoidAndDivert).await;
         assert_eq!(picked.as_deref(), Some("A02"));
         let left: i64 = sqlx::query("SELECT skip_count FROM sort_channels WHERE position = 'L1'")
             .fetch_one(&db)
@@ -3717,9 +3912,9 @@ mod tests {
         let db = shared_channel_db().await;
         let routing = routing_state();
 
-        let (a, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000011"), true).await;
-        let (b, _) = resolve_channel_code(&db, &routing, "F", Some("SF00000000022"), true).await;
-        let (c, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000033"), true).await;
+        let (a, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000011"), TailRule::AvoidAndDivert).await;
+        let (b, _) = resolve_channel_code(&db, &routing, "F", Some("SF00000000022"), TailRule::AvoidAndDivert).await;
+        let (c, _) = resolve_channel_code(&db, &routing, "7", Some("SF00000000033"), TailRule::AvoidAndDivert).await;
         assert_eq!(
             (a.as_deref(), b.as_deref(), c.as_deref()),
             (Some("L1"), Some("L2"), Some("L3")),
@@ -3734,15 +3929,15 @@ mod tests {
         let db = shared_channel_db().await;
         let routing = routing_state();
 
-        resolve_channel_code(&db, &routing, "F", Some("SF00000000044"), true).await; // 左2 收全家,尾碼 44
-        resolve_channel_code(&db, &routing, "7", Some("SF00000000011"), true).await; // 左1
-        resolve_channel_code(&db, &routing, "7", Some("SF00000000022"), true).await; // 左3
+        resolve_channel_code(&db, &routing, "F", Some("SF00000000044"), TailRule::AvoidAndDivert).await; // 左2 收全家,尾碼 44
+        resolve_channel_code(&db, &routing, "7", Some("SF00000000011"), TailRule::AvoidAndDivert).await; // 左1
+        resolve_channel_code(&db, &routing, "7", Some("SF00000000022"), TailRule::AvoidAndDivert).await; // 左3
         // 此時三格次數平手;左2 上一件尾碼正是 44,即使輪到它也得讓開
-        let (d, _) = resolve_channel_code(&db, &routing, "7", Some("SF99999999944"), true).await;
+        let (d, _) = resolve_channel_code(&db, &routing, "7", Some("SF99999999944"), TailRule::AvoidAndDivert).await;
         assert_eq!(d.as_deref(), Some("L1"), "撞到別家物流留下的尾碼一樣要讓開");
         // 55 不撞左2(44)也不撞左3(22):給左3 的話三格上一件變成 44、44、55,
         // 下一件只要是 45 或 54 就每格都撞;給左2 則三格是 44、55、22,沒有尾碼會無處可避
-        let (e, _) = resolve_channel_code(&db, &routing, "7", Some("SF88888888855"), true).await;
+        let (e, _) = resolve_channel_code(&db, &routing, "7", Some("SF88888888855"), TailRule::AvoidAndDivert).await;
         assert_eq!(e.as_deref(), Some("L2"), "被讓過的左2 補回,且讓各格尾碼較分散");
     }
 
@@ -3752,9 +3947,9 @@ mod tests {
         let db = routing_db(&[("L1", "A01"), ("L2", "A02")], "C").await;
         let routing = routing_state();
 
-        let (a, _) = resolve_channel_code(&db, &routing, "C", None, true).await;
-        let (b, _) = resolve_channel_code(&db, &routing, "C", None, true).await;
-        let (c, _) = resolve_channel_code(&db, &routing, "C", None, true).await;
+        let (a, _) = resolve_channel_code(&db, &routing, "C", None, TailRule::AvoidAndDivert).await;
+        let (b, _) = resolve_channel_code(&db, &routing, "C", None, TailRule::AvoidAndDivert).await;
+        let (c, _) = resolve_channel_code(&db, &routing, "C", None, TailRule::AvoidAndDivert).await;
         assert_eq!(
             (a.as_deref(), b.as_deref(), c.as_deref()),
             (Some("A01"), Some("A02"), Some("A01"))
@@ -3773,7 +3968,7 @@ mod tests {
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
             let no = format!("SF{:09}{}", i, DISJOINT_TAILS[i % DISJOINT_TAILS.len()]);
-            let (code, _) = resolve_channel_code(db, routing, provider, Some(&no), true).await;
+            let (code, _) = resolve_channel_code(db, routing, provider, Some(&no), TailRule::AvoidAndDivert).await;
             out.push(code.expect("每件都應分到格口"));
         }
         out
@@ -3895,7 +4090,7 @@ mod tests {
         let first_lap = assign_many(&db, &routing, "C", 10).await;
         assert_eq!(first_lap, ring_sequence(10));
         // 第 11 件尾碼 7A 與左1 上一件(後兩碼 AB)有 A 重疊 → 改給右2(上一件 CD 不撞)
-        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF7777777777A"), true).await;
+        let (a, _) = resolve_channel_code(&db, &routing, "C", Some("SF7777777777A"), TailRule::AvoidAndDivert).await;
         assert_eq!(a.as_deref(), Some("R2"));
         // 接著從右2 的下一格照固定順序走,被讓過的左1 在這一輪最後補回;
         // 不從左1 重找,剛收過件的格口就不會因為排在前面而連收兩件
@@ -3968,7 +4163,7 @@ mod tests {
     async fn assign_tails(db: &DbPool, routing: &SortRoutingState, tails: &[&str]) -> Vec<String> {
         let mut out = Vec::with_capacity(tails.len());
         for t in tails {
-            let (code, _) = resolve_channel_code(db, routing, "C", Some(&format!("SF0000000{t}")), true).await;
+            let (code, _) = resolve_channel_code(db, routing, "C", Some(&format!("SF0000000{t}")), TailRule::AvoidAndDivert).await;
             out.push(code.expect("每件都應分到格口"));
         }
         out
@@ -4016,11 +4211,11 @@ mod tests {
         let db = shared_channel_db().await;
         let routing = routing_state();
         for t in ["10", "20", "30"] {
-            resolve_channel_code(&db, &routing, "F", Some(&format!("SF000000000{t}")), true).await;
+            resolve_channel_code(&db, &routing, "F", Some(&format!("SF000000000{t}")), TailRule::AvoidAndDivert).await;
         }
         let mut got = Vec::new();
         for t in ["12", "23", "32"] {
-            got.push(resolve_channel_code(&db, &routing, "7", Some(&format!("SF000000000{t}")), true).await.0.unwrap());
+            got.push(resolve_channel_code(&db, &routing, "7", Some(&format!("SF000000000{t}")), TailRule::AvoidAndDivert).await.0.unwrap());
         }
         assert_eq!(got, ["L1", "L3", "L2"]);
     }

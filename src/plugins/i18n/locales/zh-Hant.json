@@ -394,7 +394,11 @@
       "sortOnlyBrief": "只回通道,不出面單",
       "sortOnlyActiveHint": "純分揀模式已開啟(於「分揀通道」頁切換),面單模式暫不生效",
       "errorLabel": "異常件提示面單",
-      "errorLabelBrief": "異常件出提示單並回通道"
+      "errorLabelBrief": "異常件出提示單並回通道",
+      "collisionAvoid": "撞單迴避",
+      "collisionAvoidBrief": "避開後兩碼相同",
+      "reprint": "攔截重複印單",
+      "reprintBrief": "印過的件改送指定格口"
     }
   },
   "page": {
@@ -934,17 +938,14 @@
       "subtitle": "左 {l} 通道 / 右 {r} 通道,各自設定代碼、物流與貼標人員",
       "layout": {
         "title": "格口配置",
-        "brief": "左 {l} 格 / 右 {r} 格",
-        "edit": "調整",
-        "dialogTitle": "調整格口配置",
         "hint": "依現場分揀機實際的格口數設定,左右可以不同。新增的格口會以空白卡片出現;減少的格口會連同它的通道代碼、指派物流、貼標人員與印表機設定一起移除。",
         "left": "左側格數",
         "right": "右側格數",
         "removeWarn": "套用後會移除:{list}",
         "removeWarnCode": "其中 {list} 已設定通道代碼,分揀機那邊的格口也要一併調整",
-        "dirtyWarn": "有尚未儲存的通道變更,請先儲存或重新載入,再調整格口配置",
         "save": "套用配置",
-        "saved": "格口配置已改為左 {l} 格 / 右 {r} 格"
+        "saved": "格口配置已改為左 {l} 格 / 右 {r} 格",
+        "changedElsewhere": "格口配置已在服務設定頁變更,請先儲存目前的修改再重新整理此頁"
       },
       "browserAlert": "瀏覽器預覽模式 — 顯示的是示範資料,實機請於桌面 App 內開啟。",
       "saveAll": "儲存全部變更 ({n})",
@@ -956,6 +957,16 @@
       "errorLabel": {
         "enabled": "已開啟異常件提示面單",
         "disabled": "已關閉異常件提示面單"
+      },
+      "collisionAvoid": {
+        "enabled": "已開啟撞單迴避",
+        "disabled": "已關閉撞單迴避"
+      },
+      "reprint": {
+        "enabled": "已開啟攔截重複印單",
+        "disabled": "已關閉攔截重複印單",
+        "needsCode": "請先填格口代碼",
+        "codeRequired": "「攔截重複印單」開著,「重複印單」的格口代碼不能空白;要清空請先關閉攔截"
       },
       "leftColumn": "左側 (L)",
       "rightColumn": "右側 (R)",
@@ -1007,7 +1018,8 @@
           "not_proxy_forward": "非代寄／非轉寄包裹",
           "label_failed": "面單產生失敗",
           "cloud_error": "雲端連不上或其他錯誤",
-          "collision": "每一格都撞號"
+          "collision": "每一格都撞號",
+          "reprint": "重複印單"
         },
         "save": "儲存"
       }
@@ -1061,7 +1073,8 @@
       "source": {
         "ipcReported": "工控機已回報",
         "ipcReportedLate": "工控機回報遲到",
-        "selfPrintOnly": "僅中介機自印"
+        "selfPrintOnly": "僅中介機自印",
+        "notPrinted": "過機未印出,通知雲端撤回"
       },
       "filter": {
         "unreportedOnly": "只看工控機未回報"

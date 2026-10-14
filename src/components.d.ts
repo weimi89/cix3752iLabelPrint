@@ -26,6 +26,7 @@ declare module 'vue' {
     PhotoViewer: typeof import('./components/PhotoViewer.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SortLayoutCard: typeof import('./components/SortLayoutCard.vue')['default']
     SoundSettingsDialog: typeof import('./components/SoundSettingsDialog.vue')['default']
     TablePagination: typeof import('./components/TablePagination.vue')['default']
     UserProfileMenu: typeof import('./components/UserProfileMenu.vue')['default']

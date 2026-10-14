@@ -89,6 +89,7 @@ const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
     created_at: createdAt,
     sent_at: sentAt,
     source: kind === 0 ? 'ipc' : 'direct_print',
+    kind: 'report',
     ipc_reported_at:
       kind === 0 ? createdAt
       : kind === 1 ? `2026-05-14T${hh}:${mm}:03`
@@ -102,6 +103,10 @@ const MOCK_QUEUE = Array.from({ length: 80 }, (_, i) => {
 /// - 只有中介機自印 → 面單印出來了,但沒有工控機的確認
 /// - 回報時間晚於推送時間 → 遲到(雲端那筆沒帶到確認,本機仍看得到)
 const sourceInfo = row => {
+  // 過機沒印出面單:這筆是請雲端撤回那次列印,本來就不會有工控機回報
+  if (row.kind === 'not_printed') {
+    return { color: 'secondary', icon: 'tabler-file-off', text: t('page.queue.source.notPrinted') }
+  }
   const reported = !!row.ipc_reported_at
   if (!reported) {
     return { color: 'warning', icon: 'tabler-printer', text: t('page.queue.source.selfPrintOnly') }
@@ -118,7 +123,7 @@ const load = async () => {
   if (!hasBackend) {
     let result = MOCK_QUEUE
     if (queueStatus.value) result = result.filter(r => r.status === queueStatus.value)
-    if (unreportedOnly.value) result = result.filter(r => !r.ipc_reported_at)
+    if (unreportedOnly.value) result = result.filter(r => !r.ipc_reported_at && r.kind !== 'not_printed')
     const nos = splitNos(searchTrackingNo.value)
     if (nos.length) result = result.filter(r => nos.includes(r.tracking_no))
     if (searchKeyword.value) {
