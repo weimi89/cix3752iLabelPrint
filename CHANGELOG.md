@@ -3,6 +3,12 @@
 本檔記錄各版本的修改與調整內容,標題版本號對應 GitHub Release tag。
 `release.yml` 會依 tag 自動抽取對應段落,寫進 Release 說明與 `latest.json`(in-app 更新提示)。
 
+## v1.2.9
+
+### 其他
+
+- 套件升級：Tauri 2.12.5、Vue 3.5.44、Vite 8.3.5、Vuetify 4.3.1，並修補前端連線元件的已知安全漏洞；畫面與操作不變。
+
 ## v1.2.8
 
 ### 新增「攔截重複印單」
