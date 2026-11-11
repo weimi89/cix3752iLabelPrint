@@ -46,6 +46,10 @@ const savingSortOnly = ref(false)
 // 錯誤代碼,不出提示面單也不回分揀通道。與純分揀並列在這頁:兩者都是工控機查件的回應行為。
 const errorLabelOn = ref(false)
 const savingErrorLabel = ref(false)
+// 提示面單印表機(存於 AppConfig.error_label.printer_name,空字串＝不指定)。只在中介機直印時有作用:
+// 異常件要去的格口沒有印表機(例如送特殊件分流的格口)時印在這台,不指定就印在電腦的預設印表機
+const errorLabelPrinter = ref('')
+const savingErrorLabelPrinter = ref(false)
 
 // 撞單迴避總開關(存於 AppConfig.collision_avoid.enabled,預設開)。關閉時分格口不看後兩碼、也不會撞號改送
 const collisionAvoidOn = ref(true)
@@ -159,6 +163,7 @@ const load = async () => {
     specialRoutes.value = routes ?? {}
     sortOnly.value = !!cfg?.sort_only?.enabled
     errorLabelOn.value = !!cfg?.error_label?.enabled
+    errorLabelPrinter.value = cfg?.error_label?.printer_name || ''
     collisionAvoidOn.value = cfg?.collision_avoid?.enabled !== false
     reprintOn.value = !!cfg?.reprint_route?.enabled
     isDirectPrintMode.value = cfg?.label_path?.mode === 'direct_print'
@@ -219,6 +224,26 @@ const toggleErrorLabel = async val => {
     savingErrorLabel.value = false
   }
 }
+// 提示面單印表機:同樣重抓 config 再寫回,避免蓋掉其他頁的併發變更;熱套用即時生效
+const saveErrorLabelPrinter = async val => {
+  const name = val || ''
+  const previous = errorLabelPrinter.value
+  errorLabelPrinter.value = name
+  savingErrorLabelPrinter.value = true
+  errorMsg.value = ''
+  try {
+    const cfg = await getConfig()
+    cfg.error_label = { ...(cfg.error_label || {}), printer_name: name }
+    await updateConfig(cfg)
+    toast.success(t('page.sort.errorLabel.printerSaved'))
+  } catch (e) {
+    errorLabelPrinter.value = previous
+    errorMsg.value = errorMessageFromException(e)
+  } finally {
+    savingErrorLabelPrinter.value = false
+  }
+}
+
 // 撞單迴避切換:同樣重抓 config 再寫回,避免蓋掉其他頁的併發變更;熱套用即時生效。
 const toggleCollisionAvoid = async val => {
   savingCollisionAvoid.value = true
@@ -677,6 +702,31 @@ const rememberUser = name => addStickerHistory(name).catch(e => console.warn('�
             @update:model-value="toggleErrorLabel"
           />
         </div>
+
+        <!-- 提示面單印表機:只有中介機直印、提示面單開著時才有意義 -->
+        <template v-if="isDirectPrintMode && errorLabelOn">
+          <VDivider vertical class="switch-divider" />
+
+          <div class="switch-item">
+            <VIcon icon="tabler-printer" size="20" color="warning" class="flex-shrink-0" />
+            <div class="flex-grow-1" style="min-inline-size: 0;">
+              <div class="text-body-medium font-weight-medium">{{ $t('page.sort.errorLabel.printer') }}</div>
+              <VSelect
+                :model-value="errorLabelPrinter || null"
+                :items="printerList"
+                :placeholder="$t('page.sort.errorLabel.printerPlaceholder')"
+                :loading="savingErrorLabelPrinter"
+                density="compact"
+                variant="outlined"
+                clearable
+                hide-details
+                class="mt-1"
+                @update:model-value="saveErrorLabelPrinter"
+              />
+              <div class="text-body-small text-medium-emphasis mt-1">{{ $t('page.sort.errorLabel.printerBrief') }}</div>
+            </div>
+          </div>
+        </template>
 
         <VDivider vertical class="switch-divider" />
 

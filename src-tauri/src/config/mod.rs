@@ -112,11 +112,22 @@ pub struct ErrorLabelConfig {
     /// 總開關(預設關;開啟後才產生錯誤面單並回分揀通道)
     #[serde(default)]
     pub enabled: bool,
+    /// 提示面單專用印表機(只用在中介機直印)。異常件要去的格口沒有印表機時印在這台;
+    /// 空字串＝不指定,退回 Windows 預設印表機。舊設定檔沒有這個鍵時視為不指定
+    #[serde(default)]
+    pub printer_name: String,
+}
+
+impl ErrorLabelConfig {
+    /// 有指定才回名稱(去前後空白,空白視為不指定)
+    pub fn printer(&self) -> Option<&str> {
+        Some(self.printer_name.trim()).filter(|s| !s.is_empty())
+    }
 }
 
 impl Default for ErrorLabelConfig {
     fn default() -> Self {
-        Self { enabled: false }
+        Self { enabled: false, printer_name: String::new() }
     }
 }
 

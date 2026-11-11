@@ -13,16 +13,33 @@ pub struct LocalPrinter {
 
 /// 列出本機印表機
 pub fn list_printers() -> Vec<LocalPrinter> {
+    let default_name = default_printer_name();
     printers::get_printers()
         .into_iter()
         .map(|p| LocalPrinter {
+            is_default: default_name.as_deref() == Some(p.system_name.as_str()),
             name: p.name.clone(),
             system_name: p.system_name.clone(),
             driver_name: Some(p.driver_name.clone()).filter(|s| !s.is_empty()),
-            is_default: p.is_default,
             state: format!("{:?}", p.state),
         })
         .collect()
+}
+
+/// 系統預設印表機的名稱(與 `LocalPrinter::system_name` 同一套)。
+///
+/// Windows 不用 `printers` crate 的 `is_default`:它只比對名稱的第一個字元,
+/// 同廠牌開頭的印表機(例如五台「Xprinter …」)會全被當成預設,
+/// 退回預設印表機時就會印到清單上第一台同字頭的機器,而不是真正的預設。
+pub fn default_printer_name() -> Option<String> {
+    #[cfg(windows)]
+    {
+        windows_spool::default_printer_name()
+    }
+    #[cfg(not(windows))]
+    {
+        printers::get_default_printer().map(|p| p.system_name)
+    }
 }
 
 /// 印出單張圖（傳 image bytes 給系統印表機）
@@ -224,8 +241,26 @@ mod windows_spool {
         }
     }
 
+    pub fn default_printer_name() -> Option<String> {
+        let mut size: u32 = 0;
+        unsafe {
+            // 第一次不給緩衝,只取需要的長度(含結尾 0);沒有預設印表機時回 0 且 size 不變
+            GetDefaultPrinterW(std::ptr::null_mut(), &mut size);
+            if size == 0 {
+                return None;
+            }
+            let mut buf = vec![0u16; size as usize];
+            if GetDefaultPrinterW(buf.as_mut_ptr(), &mut size) == 0 {
+                return None;
+            }
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            Some(String::from_utf16_lossy(&buf[..len])).filter(|s| !s.is_empty())
+        }
+    }
+
     #[link(name = "winspool")]
     extern "system" {
+        fn GetDefaultPrinterW(pszBuffer: *mut u16, pcchBuffer: *mut u32) -> BOOL;
         fn OpenPrinterW(pPrinterName: *const u16, phPrinter: *mut HANDLE, pDefault: *const c_void) -> BOOL;
         fn ClosePrinter(hPrinter: HANDLE) -> BOOL;
         fn GetPrinterW(hPrinter: HANDLE, Level: u32, pPrinter: *mut u8, cbBuf: u32, pcbNeeded: *mut u32) -> BOOL;

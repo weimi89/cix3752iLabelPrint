@@ -54,6 +54,8 @@ pub struct LabelPathResolver {
     /// 錯誤面單開關。關閉(預設)時 `get_parcel` 遇雲端業務錯誤只回 `error_code`,
     /// 不產出提示面單、也不回分揀通道。同放此解析器的理由同 `sort_only`。
     error_label: Arc<AtomicBool>,
+    /// 提示面單印表機(見 [`crate::config::ErrorLabelConfig::printer_name`]),None＝不指定。同放此解析器的理由同 `sort_only`。
+    error_label_printer: Arc<RwLock<Option<String>>>,
     /// 重複印單攔截開關(見 [`crate::config::ReprintRouteConfig`])。同放此解析器的理由同 `sort_only`。
     reprint_route: Arc<AtomicBool>,
     /// 撞單迴避開關(見 [`crate::config::CollisionAvoidConfig`])。同放此解析器的理由同 `sort_only`。
@@ -66,6 +68,7 @@ impl LabelPathResolver {
             inner: Arc::new(RwLock::new(config.label_path.clone())),
             sort_only: Arc::new(AtomicBool::new(config.sort_only.enabled)),
             error_label: Arc::new(AtomicBool::new(config.error_label.enabled)),
+            error_label_printer: Arc::new(RwLock::new(config.error_label.printer().map(str::to_string))),
             reprint_route: Arc::new(AtomicBool::new(config.reprint_route.enabled)),
             collision_avoid: Arc::new(AtomicBool::new(config.collision_avoid.enabled)),
         }
@@ -75,6 +78,7 @@ impl LabelPathResolver {
         *self.inner.write() = config.label_path.clone();
         self.sort_only.store(config.sort_only.enabled, Ordering::Relaxed);
         self.error_label.store(config.error_label.enabled, Ordering::Relaxed);
+        *self.error_label_printer.write() = config.error_label.printer().map(str::to_string);
         self.reprint_route.store(config.reprint_route.enabled, Ordering::Relaxed);
         self.collision_avoid.store(config.collision_avoid.enabled, Ordering::Relaxed);
     }
@@ -91,6 +95,11 @@ impl LabelPathResolver {
     /// 錯誤面單是否開啟(熱套用,即時反映設定變更)
     pub fn is_error_label_enabled(&self) -> bool {
         self.error_label.load(Ordering::Relaxed)
+    }
+
+    /// 提示面單印表機(熱套用);None＝不指定,直印時格口沒有印表機就退回系統預設
+    pub fn error_label_printer(&self) -> Option<String> {
+        self.error_label_printer.read().clone()
     }
 
     /// 重複印單攔截是否開啟(熱套用,即時反映設定變更)
@@ -1808,26 +1817,30 @@ async fn fetch_channel_sticker(db: &DbPool, channel_code: Option<&str>) -> Optio
 
 /// 找一台可用的列印機給**錯誤面單**用,優先序:
 /// 1. `channel_code` 對應分揀通道設定的 printer_name(錯誤面單跟著該包裹要去的格口出)
-/// 2. 系統預設印表機
+/// 2. 「提示面單印表機」設定(`error_label.printer_name`;格口是特殊件分流代碼、沒有自己的印表機時用)
+/// 3. 系統預設印表機
 ///
 /// **刻意不退回「任一已設印表機的通道」**:那是無 ORDER BY 的 `LIMIT 1`,實務上等於隨機挑一條
 /// 分揀線,錯誤面單會從別條線吐出來 —— 該線作業員不知情、異常件所在的線什麼也沒印,
 /// 異常包裹被當正常件放行。落到系統預設印表機至少是可預測、可事先設定的單一出口。
 /// 在 background task 中呼叫,失敗只 warn 不 panic。
-async fn find_any_printer(db: &DbPool, channel_code: Option<&str>) -> Option<String> {
-    if let Some(code) = channel_code {
-        if let Some(name) = fetch_channel_printer(db, code).await {
-            return Some(name);
-        }
-        tracing::warn!(channel_code = %code,
-            "錯誤面單:該通道未設印表機(或代碼是特殊件分流的格口),退回系統預設印表機");
-    }
+async fn find_any_printer(db: &DbPool, channel_code: Option<&str>, configured: Option<&str>) -> Option<String> {
+    let channel_printer = match channel_code {
+        Some(code) => fetch_channel_printer(db, code).await,
+        None => None,
+    };
+    pick_error_label_printer(channel_printer, configured, crate::printer::default_printer_name)
+}
 
-    // fallback：系統預設印表機
-    crate::printer::list_printers()
-        .into_iter()
-        .find(|p| p.is_default)
-        .map(|p| p.name)
+/// `find_any_printer` 的挑選順序(不碰資料庫與系統,供測試)。系統預設印表機只在前兩者都沒有時才去問
+fn pick_error_label_printer(
+    channel_printer: Option<String>,
+    configured: Option<&str>,
+    system_default: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    channel_printer
+        .or_else(|| configured.map(str::to_string))
+        .or_else(system_default)
 }
 
 /// 把已產生的錯誤面單 bytes 背景送到本機印表機（fire-and-forget，不阻塞主流程）。
@@ -1839,9 +1852,10 @@ fn spawn_print_error_label_bytes(
     query_no: String,
     label_bytes: Vec<u8>,
     channel_code: Option<String>,
+    configured_printer: Option<String>,
 ) {
     tokio::spawn(async move {
-        match find_any_printer(&db, channel_code.as_deref()).await {
+        match find_any_printer(&db, channel_code.as_deref(), configured_printer.as_deref()).await {
             Some(printer_name) => {
                 let qn = query_no.clone();
                 tokio::task::spawn_blocking(move || {
@@ -3184,6 +3198,8 @@ async fn get_parcel(
 
             // 錯誤面單總開關(設定頁熱切換,預設關)。關閉時工控機拿不到面單,只拿得到 error_code。
             let error_label_on = state.label_resolver.is_error_label_enabled();
+            // 直印時異常件格口沒有印表機,提示面單改印在這台(設定頁熱切換,每次查件當下讀)
+            let error_label_printer = state.label_resolver.error_label_printer();
 
             // 特殊件分流有指定這種錯誤的格口:不論開關,一律回那個格口,不進一般格口。
             // 沒指定時照舊 ——
@@ -3261,6 +3277,7 @@ async fn get_parcel(
                         query_no.clone(),
                         label_bytes,
                         channel_code.clone(),
+                        error_label_printer.clone(),
                     );
                     (None, None)
                 } else {
@@ -3287,6 +3304,7 @@ async fn get_parcel(
                                 query_no.clone(),
                                 label_bytes,
                                 channel_code.clone(),
+                                error_label_printer.clone(),
                             );
                             return Err(err_resp(StatusCode::BAD_GATEWAY, e.to_string()));
                         }
@@ -4057,6 +4075,39 @@ mod tests {
         assert_eq!(load_layout(&db).await.unwrap(), SortLayout { left: 5, right: 5 });
     }
 
+
+    #[test]
+    fn error_label_printer_prefers_channel_then_setting_then_system_default() {
+        let never = || -> Option<String> { panic!("前面有印表機時不該去問系統預設") };
+        assert_eq!(
+            pick_error_label_printer(Some("左１".into()), Some("TSC"), never).as_deref(),
+            Some("左１"),
+            "格口有印表機:提示面單跟著包裹的格口出"
+        );
+        assert_eq!(
+            pick_error_label_printer(None, Some("TSC"), never).as_deref(),
+            Some("TSC"),
+            "格口沒有印表機(特殊件分流代碼):印在提示面單印表機"
+        );
+        assert_eq!(
+            pick_error_label_printer(None, None, || Some("預設".into())).as_deref(),
+            Some("預設"),
+            "都沒有才退回系統預設"
+        );
+        assert_eq!(pick_error_label_printer(None, None, || None), None);
+    }
+
+    #[test]
+    fn error_label_printer_setting_blank_means_unset_and_old_config_parses() {
+        let cfg: crate::config::ErrorLabelConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!(cfg.printer(), None, "舊設定檔沒有這個鍵:不指定");
+        let cfg: crate::config::ErrorLabelConfig =
+            serde_json::from_str(r#"{"enabled":true,"printer_name":"  "}"#).unwrap();
+        assert_eq!(cfg.printer(), None, "空白視為不指定");
+        let cfg: crate::config::ErrorLabelConfig =
+            serde_json::from_str(r#"{"enabled":true,"printer_name":" TSC TTP-244 Pro "}"#).unwrap();
+        assert_eq!(cfg.printer(), Some("TSC TTP-244 Pro"));
+    }
     #[tokio::test]
     async fn full_ring_follows_alternating_order() {
         // 十格都指派給同一家:左右交替、同側隔格,繞完一圈接著再來一圈

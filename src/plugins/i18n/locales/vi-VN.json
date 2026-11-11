@@ -956,7 +956,11 @@
       },
       "errorLabel": {
         "enabled": "Đã bật nhãn cảnh báo kiện bất thường",
-        "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
+        "disabled": "Đã tắt nhãn cảnh báo kiện bất thường",
+        "printer": "Máy in nhãn cảnh báo",
+        "printerPlaceholder": "Không chỉ định (dùng máy in mặc định của máy tính)",
+        "printerBrief": "Khi ô của kiện bất thường chưa cài máy in, nhãn cảnh báo sẽ in ở máy này",
+        "printerSaved": "Đã lưu máy in nhãn cảnh báo"
       },
       "collisionAvoid": {
         "enabled": "Đã bật tránh trùng số",

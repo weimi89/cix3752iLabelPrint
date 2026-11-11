@@ -956,7 +956,11 @@
       },
       "errorLabel": {
         "enabled": "已開啟異常件提示面單",
-        "disabled": "已關閉異常件提示面單"
+        "disabled": "已關閉異常件提示面單",
+        "printer": "提示面單印表機",
+        "printerPlaceholder": "不指定（用電腦的預設印表機）",
+        "printerBrief": "異常件要去的格口沒有設印表機時，提示面單印在這台",
+        "printerSaved": "已儲存提示面單印表機"
       },
       "collisionAvoid": {
         "enabled": "已開啟撞單迴避",
