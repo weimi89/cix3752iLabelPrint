@@ -602,7 +602,12 @@
       "loadFailed": "無法載入印表機:{reason}",
       "browserAlert": "目前為瀏覽器預覽模式,顯示假印表機資料以供 UI 測試。實機請於桌面 App 內開啟,系統會自動列出本機已安裝的印表機。",
       "noPrinters": "尚未偵測到本機印表機;請檢查印表機是否已連線並安裝驅動。",
-      "selectPrinterPlaceholder": "選擇本機印表機"
+      "selectPrinterPlaceholder": "選擇本機印表機",
+      "errorLabelTitle": "分揀機提示面單印表機",
+      "errorLabelBrief": "開啟「異常件提示面單」且由這台電腦直接列印時才會用到：異常件要去的格口沒有設印表機，提示面單就印在這台。不選則印在電腦的預設印表機。",
+      "errorLabelPlaceholder": "不指定（用電腦的預設印表機）",
+      "errorLabelSaved": "已儲存提示面單印表機",
+      "providerSection": "掃描列印：各物流的印表機"
     },
     "server": {
       "webAccess": {
@@ -956,11 +961,7 @@
       },
       "errorLabel": {
         "enabled": "已開啟異常件提示面單",
-        "disabled": "已關閉異常件提示面單",
-        "printer": "提示面單印表機",
-        "printerPlaceholder": "不指定（用電腦的預設印表機）",
-        "printerBrief": "異常件要去的格口沒有設印表機時，提示面單印在這台",
-        "printerSaved": "已儲存提示面單印表機"
+        "disabled": "已關閉異常件提示面單"
       },
       "collisionAvoid": {
         "enabled": "已開啟撞單迴避",

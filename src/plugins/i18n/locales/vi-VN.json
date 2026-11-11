@@ -602,7 +602,12 @@
       "loadFailed": "Không thể tải máy in: {reason}",
       "browserAlert": "Hiện đang ở chế độ xem trước trình duyệt, hiển thị dữ liệu máy in giả để thử UI. Trên thiết bị thật vui lòng mở trong ứng dụng desktop, hệ thống sẽ tự động liệt kê các máy in đã cài đặt.",
       "noPrinters": "Chưa phát hiện máy in cục bộ; vui lòng kiểm tra máy in đã kết nối và cài driver chưa.",
-      "selectPrinterPlaceholder": "Chọn máy in cục bộ"
+      "selectPrinterPlaceholder": "Chọn máy in cục bộ",
+      "errorLabelTitle": "Máy in nhãn cảnh báo của máy phân loại",
+      "errorLabelBrief": "Chỉ dùng khi bật \"Nhãn cảnh báo kiện bất thường\" và máy tính này in trực tiếp: nếu ô của kiện bất thường chưa cài máy in, nhãn cảnh báo sẽ in ở máy này. Không chọn thì in ở máy in mặc định của máy tính.",
+      "errorLabelPlaceholder": "Không chỉ định (dùng máy in mặc định của máy tính)",
+      "errorLabelSaved": "Đã lưu máy in nhãn cảnh báo",
+      "providerSection": "Quét in: máy in theo từng đơn vị vận chuyển"
     },
     "server": {
       "webAccess": {
@@ -956,11 +961,7 @@
       },
       "errorLabel": {
         "enabled": "Đã bật nhãn cảnh báo kiện bất thường",
-        "disabled": "Đã tắt nhãn cảnh báo kiện bất thường",
-        "printer": "Máy in nhãn cảnh báo",
-        "printerPlaceholder": "Không chỉ định (dùng máy in mặc định của máy tính)",
-        "printerBrief": "Khi ô của kiện bất thường chưa cài máy in, nhãn cảnh báo sẽ in ở máy này",
-        "printerSaved": "Đã lưu máy in nhãn cảnh báo"
+        "disabled": "Đã tắt nhãn cảnh báo kiện bất thường"
       },
       "collisionAvoid": {
         "enabled": "Đã bật tránh trùng số",
